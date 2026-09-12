@@ -10,7 +10,7 @@ export default defineConfig({
         sk: 'DevOps Notes',
         en: 'DevOps Notes',
       },
-      description: 'Prehľadné poznámky, príklady a cvičenia z Python lekcií.',
+      description: 'Prehľadné poznámky, príklady a cvičenia pre Python, Git, Terraform, Kubernetes a ďalšie DevOps témy.',
       defaultLocale: 'root',
       locales: {
         root: { label: 'Slovenčina', lang: 'sk' },
@@ -19,6 +19,7 @@ export default defineConfig({
       customCss: ['./src/styles/custom.css'],
       sidebar: [
         { label: 'Prehľad', translations: { en: 'Overview' }, link: '/' },
+        { label: 'Python · Prehľad', translations: { en: 'Python · Overview' }, link: '/python/' },
         {
           label: 'Python · Deň 1',
           translations: { en: 'Python · Day 1' },

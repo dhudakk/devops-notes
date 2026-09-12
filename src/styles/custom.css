@@ -187,12 +187,165 @@ body { letter-spacing: -0.006em; }
   font-weight: 700;
 }
 
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 1.5rem 3rem;
+}
+
+.course-card {
+  position: relative;
+  min-height: 15rem;
+  overflow: hidden;
+  border: 1px solid rgba(168, 186, 196, 0.16);
+  border-radius: 1.25rem;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(76, 224, 179, 0.11), transparent 14rem),
+    linear-gradient(145deg, rgba(28, 45, 52, 0.88), rgba(14, 27, 32, 0.9));
+  padding: 1.35rem;
+  color: var(--sl-color-white);
+  text-decoration: none;
+}
+
+.course-card.available {
+  transition: transform 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
+}
+
+.course-card.available:hover {
+  transform: translateY(-4px);
+  border-color: rgba(76, 224, 179, 0.58);
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.28);
+}
+
+.course-card.planned {
+  background: linear-gradient(145deg, rgba(25, 40, 46, 0.55), rgba(14, 27, 32, 0.58));
+}
+
+.course-icon {
+  display: grid;
+  width: 3.4rem;
+  height: 3.4rem;
+  place-items: center;
+  border: 1px solid rgba(76, 224, 179, 0.28);
+  border-radius: 0.95rem;
+  background: rgba(76, 224, 179, 0.1);
+  color: var(--sl-color-accent-high);
+  font-family: var(--sl-font-mono);
+  font-size: 0.95rem;
+  font-weight: 780;
+}
+
+.course-status {
+  position: absolute;
+  top: 1.35rem;
+  right: 1.35rem;
+  border-radius: 999px;
+  background: rgba(76, 224, 179, 0.1);
+  color: #91f1d4;
+  padding: 0.28rem 0.58rem;
+  font-size: 0.69rem;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.planned .course-status {
+  background: rgba(168, 186, 196, 0.08);
+  color: var(--sl-color-gray-3);
+}
+
+.course-card h3 {
+  margin: 2rem 0 0.55rem;
+  color: var(--sl-color-white);
+  font-size: 1.55rem;
+  letter-spacing: -0.045em;
+}
+
+.course-card p {
+  margin: 0;
+  color: var(--sl-color-gray-2);
+  line-height: 1.55;
+}
+
+.course-meta {
+  position: absolute;
+  right: 1.35rem;
+  bottom: 1.2rem;
+  left: 1.35rem;
+  color: var(--sl-color-gray-3);
+  font-family: var(--sl-font-mono);
+  font-size: 0.72rem;
+}
+
+.principle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-block: 2rem 3rem;
+}
+
+.principle-grid > div {
+  border-top: 1px solid var(--sl-color-hairline-light);
+  padding-top: 1rem;
+}
+
+.principle-grid span {
+  display: block;
+  margin-bottom: 1.3rem;
+  color: var(--sl-color-accent);
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+}
+
+.principle-grid strong {
+  display: block;
+  color: var(--sl-color-white);
+  font-size: 1.05rem;
+}
+
+.principle-grid p {
+  margin-top: 0.5rem;
+  color: var(--sl-color-gray-2);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
 [data-theme='light'] .module-card,
 [data-theme='light'] .resource-card,
 [data-theme='light'] .stat-card {
   border-color: rgba(31, 85, 73, 0.13);
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(239, 247, 244, 0.9));
   box-shadow: 0 10px 30px rgba(31, 69, 60, 0.06);
+}
+
+[data-theme='light'] .course-card {
+  border-color: rgba(31, 85, 73, 0.13);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(8, 127, 98, 0.08), transparent 14rem),
+    linear-gradient(145deg, #ffffff, #eef6f3);
+  box-shadow: 0 12px 32px rgba(31, 69, 60, 0.06);
+}
+
+[data-theme='light'] .course-card.available:hover {
+  border-color: rgba(8, 127, 98, 0.42);
+  box-shadow: 0 20px 45px rgba(31, 69, 60, 0.12);
+}
+
+[data-theme='light'] .course-card.planned {
+  background: linear-gradient(145deg, #f9fbfa, #eff4f2);
+}
+
+[data-theme='light'] .course-icon,
+[data-theme='light'] .course-status {
+  border-color: rgba(8, 127, 98, 0.18);
+  background: rgba(8, 127, 98, 0.08);
+  color: #087052;
+}
+
+[data-theme='light'] .planned .course-status {
+  background: rgba(56, 87, 92, 0.06);
+  color: var(--sl-color-gray-3);
 }
 
 [data-theme='light'] .module-card:hover,
@@ -279,5 +432,5 @@ body { letter-spacing: -0.006em; }
 
 @media (max-width: 50rem) {
   .hero h1 { max-width: 10ch; }
-  .module-grid, .resource-grid { grid-template-columns: 1fr; }
+  .module-grid, .resource-grid, .course-grid, .principle-grid { grid-template-columns: 1fr; }
 }

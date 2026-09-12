@@ -1,43 +1,65 @@
 ---
-title: Python od základov
-description: Upratané poznámky z Python lekcií — od prvého printu po dátové štruktúry.
+title: DevOps Notes
+description: Praktická knižnica poznámok pre nástroje, jazyky a workflow moderného DevOps.
 template: splash
 hero:
-  tagline: Zrozumiteľné vysvetlenia, opravené nepresnosti z prepisu a praktický kód, ktorý si skopíruješ jedným kliknutím.
+  tagline: Z lekcií a surových prepisov robíme čisté, overené a použiteľné technické poznámky — s príkladmi, cvičeniami a riešeniami na jednom mieste.
   actions:
-    - text: Začať základmi
-      link: /devops-notes/zaklady/
+    - text: Otvoriť Python kurz
+      link: /devops-notes/python/
       icon: right-arrow
       variant: primary
-    - text: Otvoriť cvičenia
-      link: /devops-notes/cvicenia/
-      icon: rocket
+    - text: Prezrieť všetky témy
+      link: '#kurzy'
+      icon: open-book
       variant: minimal
 ---
 
 <div class="stat-grid">
-  <div class="stat-card"><strong>8</strong><p>ucelených tém od syntaxe po slovníky a množiny</p></div>
-  <div class="stat-card"><strong>16k+</strong><p>slov zo zdrojových prepisov spracovaných do poznámok</p></div>
-  <div class="stat-card"><strong>1 klik</strong><p>na skopírovanie každého ukážkového programu</p></div>
+  <div class="stat-card"><strong>SK + EN</strong><p>každý dokončený kurz v slovenčine aj angličtine</p></div>
+  <div class="stat-card"><strong>Prakticky</strong><p>kopírovateľný kód, úlohy a skryté referenčné riešenia</p></div>
+  <div class="stat-card"><strong>Modulárne</strong><p>samostatné kurzy, ktoré sa dajú postupne rozširovať</p></div>
 </div>
 
-## Obsah kurzu
+## Kurzy
 
-<div class="module-grid">
-  <div class="module-card"><span class="eyebrow">01 · základ</span><p><a href="/devops-notes/zaklady/">Základy Pythonu →</a></p><p>Program, premenné, dátové typy, vstup, výstup a operátory.</p></div>
-  <div class="module-card"><span class="eyebrow">02 · logika</span><p><a href="/devops-notes/podmienky/">Podmienky →</a></p><p>Porovnávanie, vetvenie programu a logické operátory.</p></div>
-  <div class="module-card"><span class="eyebrow">03 · opakovanie</span><p><a href="/devops-notes/cykly/">Cykly →</a></p><p><code>while</code>, <code>for</code>, <code>range</code>, validácia a vnorené cykly.</p></div>
-  <div class="module-card"><span class="eyebrow">04 · modularita</span><p><a href="/devops-notes/funkcie-a-moduly/">Funkcie a moduly →</a></p><p>Parametre, návratové hodnoty, scope a organizácia kódu.</p></div>
-  <div class="module-card"><span class="eyebrow">05 · dáta</span><p><a href="/devops-notes/subory-a-chyby/">Súbory a chyby →</a></p><p>Bezpečné čítanie a zápis súborov, výnimky a kontextový manažér.</p></div>
-  <div class="module-card"><span class="eyebrow">06 · kolekcie</span><p><a href="/devops-notes/zoznamy-a-ntice/">Zoznamy a n-tice →</a></p><p>Ukladanie viacerých hodnôt, indexovanie, rezy a vnorené dáta.</p></div>
-  <div class="module-card"><span class="eyebrow">07 · text</span><p><a href="/devops-notes/retazce/">Reťazce →</a></p><p>Spracovanie, delenie, vyhľadávanie a čistenie textových údajov.</p></div>
-  <div class="module-card"><span class="eyebrow">08 · mapovanie</span><p><a href="/devops-notes/slovniky-a-mnoziny/">Slovníky a množiny →</a></p><p>Kľúče, hodnoty, unikátne prvky a praktické dátové modely.</p></div>
+<div id="kurzy" class="course-grid">
+  <a class="course-card available" href="/devops-notes/python/">
+    <span class="course-icon">Py</span>
+    <span class="course-status">Dostupné</span>
+    <h3>Python</h3>
+    <p>Od premenných a podmienok po funkcie, súbory a dátové štruktúry.</p>
+    <span class="course-meta">8 kapitol · 10 cvičení · SK + EN</span>
+  </a>
+  <div class="course-card planned">
+    <span class="course-icon">Git</span>
+    <span class="course-status">Pripravuje sa</span>
+    <h3>Git</h3>
+    <p>História zmien, vetvy, spolupráca, konflikty a každodenný workflow.</p>
+    <span class="course-meta">Ďalší kurz</span>
+  </div>
+  <div class="course-card planned">
+    <span class="course-icon">Tf</span>
+    <span class="course-status">Plánované</span>
+    <h3>Terraform</h3>
+    <p>Infrastructure as Code, state, moduly a bezpečné nasadzovanie infraštruktúry.</p>
+    <span class="course-meta">Budúci kurz</span>
+  </div>
+  <div class="course-card planned">
+    <span class="course-icon">K8s</span>
+    <span class="course-status">Plánované</span>
+    <h3>Kubernetes</h3>
+    <p>Workloads, networking, konfigurácia a prevádzka kontajnerových aplikácií.</p>
+    <span class="course-meta">Budúci kurz</span>
+  </div>
 </div>
 
-## Ako tieto poznámky používať
+## Poznámky, ktoré sa dajú naozaj použiť
 
-Každú tému si najprv prečítaj bez kopírovania kódu. Potom príklady ručne prepíš, zmeň vstupné hodnoty a skús pred spustením odhadnúť výsledok. Na konci prejdi na [cvičenia](/devops-notes/cvicenia/) a riešenie rozdeľ na **vstup → spracovanie → výstup**.
+Každý kurz vzniká rovnakým postupom: zdrojový prepis sa tematicky usporiada, nepresnosti sa opravia a vysvetlenia sa doplnia o spustiteľné príklady. Výsledkom nie je archív prepisov, ale navigovateľná technická príručka vhodná na učenie aj rýchle opakovanie.
 
-:::note[Čo sa stalo s nepresnosťami v prepise?]
-Automatický prepis bol použitý ako zdroj, nie ako hotové skriptá. Terminológia a ukážky sú upravené podľa správania Pythonu; význam výkladu zostal zachovaný.
-:::
+<div class="principle-grid">
+  <div><span>01</span><strong>Overené</strong><p>Terminológia a ukážky sú kontrolované podľa skutočného správania nástrojov.</p></div>
+  <div><span>02</span><strong>Precvičené</strong><p>Ku konceptom patria zadania a riešenia, ktoré zostávajú skryté, kým ich potrebuješ.</p></div>
+  <div><span>03</span><strong>Zdieľateľné</strong><p>Jedna verejná adresa, responzívny dizajn, vyhľadávanie a prepínanie jazyka.</p></div>
+</div>
