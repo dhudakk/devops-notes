@@ -1,0 +1,145 @@
+---
+title: 02 · Conditions and Logic
+description: How to make a program decide based on inputs and rules.
+---
+
+<div class="source-note"><span class="source-pill">sources</span><br/><strong>Python day 1 · part 1 + Demo 2.</strong> Confusing transcript passages about Boolean logic were replaced with precise rules.</div>
+
+A sequential program runs each line from top to bottom. A condition adds branching: a block runs only when its expression is true.
+
+```python
+age = int(input("Age: "))
+
+if age >= 18:
+    print("Entry allowed")
+else:
+    print("Entry denied")
+```
+
+Indentation is part of Python syntax. Lines in the same branch use the same four-space indentation.
+
+## Comparison operators
+
+| Operator | Meaning | Example |
+| --- | --- | --- |
+| `==` | equal to | `role == "admin"` |
+| `!=` | not equal to | `status != "closed"` |
+| `<`, `>` | less than, greater than | `temperature > 30` |
+| `<=`, `>=` | less/greater than or equal to | `score >= 50` |
+
+Remember: `=` assigns a value; `==` compares two values.
+
+Python also supports chained comparisons:
+
+```python
+temperature = 22
+
+if 18 <= temperature <= 24:
+    print("Comfortable temperature")
+```
+
+## Multiple options with `elif`
+
+Branches are tested from top to bottom, and only the first true branch runs. Put stricter thresholds first.
+
+```python title="grade.py"
+score = int(input("Score in percent: "))
+
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+elif score >= 60:
+    grade = "C"
+else:
+    grade = "Not passed"
+
+print(f"Result: {grade}")
+```
+
+## Logical operators
+
+- `and` is true only if **both** conditions are true.
+- `or` is true if **at least one** condition is true.
+- `not` reverses a truth value.
+
+```python
+has_ticket = True
+is_banned = False
+age = 20
+
+if has_ticket and age >= 18 and not is_banned:
+    print("You may enter")
+```
+
+Name the parts of a complicated condition so that the final line reads like a sentence.
+
+```python
+is_adult = age >= 18
+has_permission = has_ticket and not is_banned
+
+if is_adult and has_permission:
+    print("You may enter")
+```
+
+## Text in conditions
+
+String comparisons are case-sensitive. Normalize user input with `strip()` and `lower()` when case should not matter.
+
+```python
+answer = input("Continue? (yes/no): ").strip().lower()
+
+if answer == "yes":
+    print("Continuing")
+elif answer == "no":
+    print("Stopping")
+else:
+    print("Unknown answer")
+```
+
+## Complete example: workshop registration
+
+Rules:
+
+- a participant must be at least 15,
+- anyone under 18 needs guardian consent,
+- registration must be open and capacity must be available.
+
+```python title="registration.py" {8-11,13-16}
+age = int(input("Participant age: "))
+guardian_answer = input("Guardian consent? (yes/no): ")
+has_guardian_consent = guardian_answer.strip().lower() == "yes"
+
+registration_open = True
+free_places = 4
+
+meets_age_rule = age >= 18 or (age >= 15 and has_guardian_consent)
+can_register = registration_open and free_places > 0 and meets_age_rule
+
+if can_register:
+    print("Registration successful.")
+elif not registration_open:
+    print("Registration is closed.")
+elif free_places <= 0:
+    print("The workshop is full.")
+else:
+    print("The participant does not meet the age requirements.")
+```
+
+## Common mistakes
+
+:::caution[Threshold order]
+If you test `score >= 60` first, a score of `95` will stop in that branch. With ranges, begin at the highest threshold.
+:::
+
+:::tip[A Boolean does not need `== True`]
+Write `if is_ready:` instead of `if is_ready == True:`. For the opposite, use `if not is_ready:`.
+:::
+
+## Remember
+
+- A basic condition is `if expression:` followed by an indented block.
+- `elif` adds alternatives; `else` catches everything else.
+- Break long logic into named Boolean variables.
+- User-entered text often needs `strip().lower()` before comparison.
+

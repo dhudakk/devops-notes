@@ -1,0 +1,156 @@
+---
+title: 03 · Loops
+description: Repeating code with while, for, and range.
+---
+
+<div class="source-note"><span class="source-pill">sources</span><br/><strong>Python day 1 · part 2 + Demo 3.</strong> Examples were standardized and adjusted to terminate safely.</div>
+
+Loops repeat a block of code without writing the same instruction multiple times. Python has two main kinds:
+
+- `while` — repeat **while** a condition is true,
+- `for` — visit **each item** in an iterable.
+
+## The `while` loop
+
+Use `while` when you do not know the number of repetitions in advance. Its condition is checked before every iteration.
+
+```python title="countdown.py"
+seconds = 5
+
+while seconds > 0:
+    print(seconds)
+    seconds -= 1
+
+print("Go!")
+```
+
+The `seconds` variable must change. Without `seconds -= 1`, the condition would remain true forever and create an infinite loop.
+
+:::tip[Stopping an infinite program]
+Press `Ctrl+C` in the terminal. Then find the value controlling termination and verify that every relevant branch changes it.
+:::
+
+## Input validation
+
+A loop can keep asking until the user enters an acceptable value.
+
+```python title="validation.py"
+age = int(input("Enter an age from 0 to 120: "))
+
+while age < 0 or age > 120:
+    print("Invalid value.")
+    age = int(input("Enter an age from 0 to 120: "))
+
+print(f"Saved age: {age}")
+```
+
+This example does not yet handle text instead of a number. We will add that in the exceptions chapter.
+
+## Sentinel loops
+
+A **sentinel** is a special value that means “end of input.” It should not be easy to confuse with valid data.
+
+```python title="average.py"
+total = 0.0
+count = 0
+
+value = float(input("Order amount (-1 = finish): "))
+
+while value != -1:
+    total += value
+    count += 1
+    value = float(input("Order amount (-1 = finish): "))
+
+if count > 0:
+    print(f"Average: €{total / count:.2f}")
+else:
+    print("No orders were entered.")
+```
+
+`total` is an **accumulator**, and `count` is a **counter**. `+=` is shorthand for `total = total + value`.
+
+## The `for` loop
+
+Use `for` when visiting a collection or when the number of repetitions is known.
+
+```python
+topics = ["variables", "conditions", "loops"]
+
+for topic in topics:
+    print(f"Studying: {topic}")
+```
+
+The variable `topic` receives each value from the list in turn.
+
+## Understanding `range()`
+
+`range(start, stop, step)` produces a sequence of integers. The `stop` value is **excluded**.
+
+```python
+for number in range(1, 6):
+    print(number)  # 1, 2, 3, 4, 5
+
+for even in range(0, 11, 2):
+    print(even)    # 0, 2, 4, 6, 8, 10
+
+for countdown in range(5, 0, -1):
+    print(countdown)  # 5, 4, 3, 2, 1
+```
+
+| Expression | Generated values |
+| --- | --- |
+| `range(5)` | `0, 1, 2, 3, 4` |
+| `range(2, 5)` | `2, 3, 4` |
+| `range(2, 10, 3)` | `2, 5, 8` |
+| `range(3, 0, -1)` | `3, 2, 1` |
+
+## Nested loops
+
+The inner loop completes once for every iteration of the outer loop. This is useful for tables, matrices, and combinations.
+
+```python title="schedule.py"
+for day in range(1, 4):
+    print(f"Day {day}")
+
+    for lesson in range(1, 3):
+        print(f"  Lesson {lesson}")
+```
+
+The result contains six lessons: two for each of three days.
+
+## Complete example: three orders
+
+```python title="orders.py" {7-8}
+grand_total = 0.0
+
+for order_number in range(1, 4):
+    print(f"\nOrder {order_number}")
+    item_count = int(input("Number of items: "))
+    order_total = 0.0
+
+    for item_number in range(1, item_count + 1):
+        price = float(input(f"Price of item {item_number}: "))
+        order_total += price
+
+    grand_total += order_total
+    print(f"Order total: €{order_total:.2f}")
+
+print(f"\nTotal revenue: €{grand_total:.2f}")
+```
+
+## Choosing a loop
+
+| Situation | Choice |
+| --- | --- |
+| “Repeat five times” | `for` + `range(5)` |
+| “For each product in a list” | `for` |
+| “Until the user enters a valid value” | `while` |
+| “Read values until the word `stop`” | `while` with a sentinel |
+
+## Remember
+
+- An iteration is one execution of a loop body.
+- `range()` excludes its stop value.
+- Every `while` loop needs a realistic path to termination.
+- The inner loop completes for each iteration of the outer loop.
+

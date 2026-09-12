@@ -1,0 +1,124 @@
+---
+title: 08 · Slovníky a množiny
+description: Kľúče, hodnoty, unikátne prvky a modelovanie údajov.
+---
+
+<div class="source-note"><span class="source-pill">zdroj</span><br/><strong>Demo 8 + zadania na deň 2.</strong> Doplnená je bezpečnostná poznámka k formátu pickle.</div>
+
+Slovník (`dict`) mapuje unikátny kľúč na hodnotu. Množina (`set`) uchováva unikátne prvky bez indexovania.
+
+## Slovník
+
+```python
+student = {
+    "name": "Eva",
+    "course": "Python",
+    "completed_lessons": 6,
+    "active": True,
+}
+
+print(student["name"])
+print(student.get("email", "E-mail neuvedený"))
+```
+
+Prístup cez `student["email"]` vyvolá pri chýbajúcom kľúči `KeyError`. Metóda `.get()` bezpečne vráti predvolenú hodnotu.
+
+## Pridanie, zmena a odstránenie
+
+```python
+student["email"] = "eva@example.com"
+student["completed_lessons"] += 1
+
+removed_value = student.pop("active", None)
+print(removed_value)  # True
+```
+
+## Iterácia
+
+```python
+for key, value in student.items():
+    print(f"{key}: {value}")
+```
+
+`.keys()` iteruje cez kľúče, `.values()` cez hodnoty a `.items()` cez dvojice `(kľúč, hodnota)`.
+
+## Vnorené záznamy
+
+```python title="course_data.py"
+participants = [
+    {"name": "Eva", "score": 92},
+    {"name": "Marek", "score": 74},
+    {"name": "Zuzana", "score": 88},
+]
+
+best = max(participants, key=lambda participant: participant["score"])
+average = sum(item["score"] for item in participants) / len(participants)
+
+print(f"Najlepší výsledok: {best['name']} ({best['score']} %) ")
+print(f"Priemer: {average:.1f} %")
+```
+
+Tu je zoznam vhodný pre kolekciu účastníkov a slovník pre pomenované vlastnosti jedného účastníka.
+
+## Množiny
+
+Množina automaticky odstráni duplicity a podporuje matematické množinové operácie.
+
+```python
+day_one = {"Eva", "Marek", "Zuzana"}
+day_two = {"Eva", "Zuzana", "Peter"}
+
+print(day_one & day_two)  # prienik: obidva dni
+print(day_one | day_two)  # zjednotenie: aspoň jeden deň
+print(day_one - day_two)  # iba prvý deň
+print(day_one ^ day_two)  # práve jeden z dní
+```
+
+Odstránenie duplicít zo zoznamu je jednoduché:
+
+```python
+topics = ["Python", "Git", "Python", "Docker"]
+unique_topics = set(topics)
+print(unique_topics)
+```
+
+Poradie množiny nie je určené. Ak potrebuješ stabilný zoradený výstup, použi `sorted(unique_topics)`.
+
+## Uloženie objektu cez `pickle`
+
+`pickle` vie serializovať Python objekty do binárneho súboru.
+
+```python title="save_state.py"
+import pickle
+
+progress = {"lesson": 8, "completed": True}
+
+with open("progress.pkl", "wb") as file:
+    pickle.dump(progress, file)
+
+with open("progress.pkl", "rb") as file:
+    restored_progress = pickle.load(file)
+
+print(restored_progress)
+```
+
+:::danger[Nikdy nenačítavaj nedôveryhodný pickle]
+`pickle.load()` môže pri načítaní spustiť ľubovoľný kód. Používaj ho iba pre súbory, ktoré si vytvoril a kontroluješ. Na výmenu dát medzi systémami je často vhodnejší JSON.
+:::
+
+## Ako vybrať kolekciu
+
+| Potreba | Typ |
+| --- | --- |
+| Usporiadané hodnoty, ktoré sa menia | `list` |
+| Pevná usporiadaná skupina | `tuple` |
+| Hodnoty dostupné podľa pomenovaného kľúča | `dict` |
+| Unikátne prvky a množinové operácie | `set` |
+
+## Zapamätaj si
+
+- Slovník pracuje s dvojicami kľúč–hodnota.
+- `.get()` je vhodný, keď kľúč nemusí existovať.
+- Množina odstraňuje duplicity, ale neposkytuje stabilné poradie.
+- Nedôveryhodné `pickle` súbory sú bezpečnostné riziko.
+

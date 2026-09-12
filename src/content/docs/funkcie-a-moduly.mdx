@@ -1,0 +1,186 @@
+---
+title: 04 · Funkcie a moduly
+description: Rozdelenie programu na malé, čitateľné a znovupoužiteľné časti.
+---
+
+<div class="source-note"><span class="source-pill">zdroje</span><br/><strong>Python deň 1 · časť 2 + Demo 4.</strong> Terminológia „void“, scope, parametre a importy je spresnená podľa Pythonu.</div>
+
+Funkcia je pomenovaný blok kódu s jednou jasnou úlohou. Rozklad veľkého problému na menšie časti zlepšuje čitateľnosť, testovanie aj opätovné použitie.
+
+```python
+def print_header():
+    print("=" * 30)
+    print("      PYTHON WORKSHOP")
+    print("=" * 30)
+
+
+print_header()
+```
+
+Medzi definíciami funkcií a zvyškom programu je podľa štýlu PEP 8 vhodné nechať dva prázdne riadky.
+
+## Parametre a argumenty
+
+**Parameter** je meno v definícii funkcie. **Argument** je konkrétna hodnota odovzdaná pri volaní.
+
+```python
+def greet(name, language="sk"):
+    if language == "sk":
+        return f"Ahoj, {name}!"
+    return f"Hello, {name}!"
+
+
+print(greet("Mária"))                  # pozičný argument
+print(greet("John", language="en"))   # pomenovaný argument
+```
+
+Predvolený parameter musí byť za parametrami bez predvolenej hodnoty.
+
+## Návratová hodnota
+
+`return` odovzdá výsledok volajúcemu a okamžite ukončí funkciu.
+
+```python
+def total_price(unit_price, quantity, discount=0.0):
+    subtotal = unit_price * quantity
+    return subtotal * (1 - discount)
+
+
+price = total_price(49.90, 3, discount=0.10)
+print(f"Spolu: {price:.2f} €")
+```
+
+Funkcia bez explicitného `return` vráti `None`. V Pythone sa jej niekedy neformálne hovorí „void funkcia“, no technicky vždy nejakú hodnotu vráti.
+
+```python
+def show_status(message):
+    print(f"Stav: {message}")
+
+
+result = show_status("hotovo")
+print(result)  # None
+```
+
+## Malé funkcie pre rozhodovanie
+
+Booleovská funkcia pomenúva pravidlo a vracia `True` alebo `False`.
+
+```python
+def is_valid_age(age):
+    return 0 <= age <= 120
+
+
+if is_valid_age(28):
+    print("Vek je platný")
+```
+
+Jedna funkcia môže vrátiť viac hodnôt. Python ich zabalí do n-tice.
+
+```python
+def convert_minutes(total_minutes):
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    return hours, minutes
+
+
+hours, minutes = convert_minutes(135)
+print(f"{hours} h {minutes} min")
+```
+
+## Lokálny a globálny scope
+
+Premenná vytvorená vo funkcii je spravidla **lokálna** — mimo funkcie neexistuje. Globálne premenné síce vieme čítať, ale meniť globálny stav z funkcií komplikuje testovanie.
+
+```python
+VAT_RATE = 0.20  # globálna konštanta je v poriadku
+
+
+def price_with_vat(net_price):
+    gross_price = net_price * (1 + VAT_RATE)  # lokálna premenná
+    return gross_price
+```
+
+:::caution[`global` používaj zriedka]
+Na čítanie globálnej hodnoty `global` netreba. Je potrebné až pri jej opätovnom priradení vo funkcii — a to je často signál, že návrh programu sa dá zlepšiť.
+:::
+
+## Moduly zo štandardnej knižnice
+
+Modul je Python súbor s funkciami, triedami alebo konštantami. `import` nám sprístupní jeho verejné mená.
+
+```python title="random_demo.py"
+import math
+import random
+
+radius = 3
+area = math.pi * radius**2
+roll = random.randint(1, 6)
+
+print(f"Obsah kruhu: {area:.2f}")
+print(f"Hod kockou: {roll}")
+```
+
+`math` a `random` patria do štandardnej knižnice. Balíky ako NumPy, pandas či Beautiful Soup sa inštalujú osobitne, zvyčajne cez `pip`.
+
+```bash title="Terminal"
+python -m pip install pandas
+```
+
+## Vlastný modul
+
+Funkcie môžeme uložiť do samostatného `.py` súboru a importovať ich.
+
+```python title="helpers.py"
+def format_price(value):
+    return f"{value:.2f} €"
+
+
+def calculate_discount(price, percent):
+    return price * percent / 100
+```
+
+```python title="main.py"
+from helpers import calculate_discount, format_price
+
+price = 120.0
+discount = calculate_discount(price, 15)
+
+print(format_price(price - discount))
+```
+
+Súbory `helpers.py` a `main.py` musia byť pri tomto jednoduchom príklade v tom istom priečinku.
+
+## Kompletný príklad: registračný modul
+
+```python title="registration.py"
+MINIMUM_AGE = 15
+
+
+def can_register(age, has_guardian_consent):
+    if age >= 18:
+        return True
+    return age >= MINIMUM_AGE and has_guardian_consent
+
+
+def registration_message(name, allowed):
+    if allowed:
+        return f"{name}: registrácia úspešná"
+    return f"{name}: registrácia zamietnutá"
+
+
+name = input("Meno: ").strip()
+age = int(input("Vek: "))
+answer = input("Súhlas zástupcu? (áno/nie): ").strip().lower()
+
+allowed = can_register(age, answer == "áno")
+print(registration_message(name, allowed))
+```
+
+## Zapamätaj si
+
+- Funkcia by mala mať jednu jasnú zodpovednosť.
+- Parametre patria do definície, argumenty do volania.
+- `return` výsledok vráti; `print()` ho iba zobrazí.
+- Globálny stav obmedzuj, konštanty pomenúvaj veľkými písmenami.
+- Modul je `.py` súbor; balík organizuje viac modulov.
+
