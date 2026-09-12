@@ -1,0 +1,145 @@
+---
+title: 02 · Podmienky a logika
+description: Ako nechať program rozhodovať podľa vstupov a pravidiel.
+---
+
+<div class="source-note"><span class="source-pill">zdroje</span><br/><strong>Python deň 1 · časť 1 + Demo 2.</strong> Mätúce pasáže o booleovskej logike boli nahradené presnými pravidlami.</div>
+
+Sekvenčný program vykoná každý riadok zhora nadol. Podmienka pridá vetvenie: časť kódu sa vykoná iba vtedy, keď je výraz pravdivý.
+
+```python
+age = int(input("Vek: "))
+
+if age >= 18:
+    print("Vstup povolený")
+else:
+    print("Vstup nepovolený")
+```
+
+Odsadenie je súčasť syntaxe. Všetky riadky patriace do vetvy majú rovnaké štyri medzery.
+
+## Porovnávacie operátory
+
+| Operátor | Význam | Príklad |
+| --- | --- | --- |
+| `==` | rovná sa | `role == "admin"` |
+| `!=` | nerovná sa | `status != "closed"` |
+| `<`, `>` | menšie, väčšie | `temperature > 30` |
+| `<=`, `>=` | menšie/väčšie alebo rovné | `score >= 50` |
+
+Pozor: `=` hodnotu priraďuje, `==` hodnoty porovnáva.
+
+Python podporuje aj reťazené porovnanie:
+
+```python
+temperature = 22
+
+if 18 <= temperature <= 24:
+    print("Komfortná teplota")
+```
+
+## Viac možností s `elif`
+
+Vetvy sa testujú zhora nadol a vykoná sa prvá pravdivá. Preto dávame konkrétnejšie alebo prísnejšie pravidlá vyššie.
+
+```python title="grade.py"
+score = int(input("Úspešnosť v percentách: "))
+
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+elif score >= 60:
+    grade = "C"
+else:
+    grade = "Nesplnené"
+
+print(f"Výsledok: {grade}")
+```
+
+## Logické operátory
+
+- `and` je pravdivé, iba ak sú pravdivé **obe** podmienky.
+- `or` je pravdivé, ak je pravdivá **aspoň jedna** podmienka.
+- `not` obráti pravdivostnú hodnotu.
+
+```python
+has_ticket = True
+is_banned = False
+age = 20
+
+if has_ticket and age >= 18 and not is_banned:
+    print("Môžeš vstúpiť")
+```
+
+Pri zložitej podmienke pomenuj jej časti. Kód sa potom číta ako veta.
+
+```python
+is_adult = age >= 18
+has_permission = has_ticket and not is_banned
+
+if is_adult and has_permission:
+    print("Môžeš vstúpiť")
+```
+
+## Text v podmienkach
+
+Porovnávanie reťazcov rozlišuje veľkosť písmen. Vstup preto často normalizujeme pomocou `strip()` a `lower()`.
+
+```python
+answer = input("Pokračovať? (áno/nie): ").strip().lower()
+
+if answer == "áno":
+    print("Pokračujem")
+elif answer == "nie":
+    print("Končím")
+else:
+    print("Neznáma odpoveď")
+```
+
+## Kompletný príklad: registrácia na workshop
+
+Pravidlá:
+
+- účastník musí mať aspoň 15 rokov,
+- ak má menej než 18, potrebuje súhlas zákonného zástupcu,
+- registrácia musí byť otvorená a kapacita nesmie byť naplnená.
+
+```python title="registration.py" {8-11,13-16}
+age = int(input("Vek účastníka: "))
+guardian_answer = input("Má súhlas zákonného zástupcu? (áno/nie): ")
+has_guardian_consent = guardian_answer.strip().lower() == "áno"
+
+registration_open = True
+free_places = 4
+
+meets_age_rule = age >= 18 or (age >= 15 and has_guardian_consent)
+can_register = registration_open and free_places > 0 and meets_age_rule
+
+if can_register:
+    print("Registrácia bola úspešná.")
+elif not registration_open:
+    print("Registrácia je zatvorená.")
+elif free_places <= 0:
+    print("Workshop je plný.")
+else:
+    print("Účastník nespĺňa vekové podmienky.")
+```
+
+## Časté chyby
+
+:::caution[Poradie hraníc]
+Ak najprv otestuješ `score >= 60`, hodnota `95` skončí už v tejto vetve. Pri intervaloch začínaj najvyššou hranicou.
+:::
+
+:::tip[Booleovská premenná nepotrebuje `== True`]
+Namiesto `if is_ready == True:` píš priamo `if is_ready:`. Zápor zapíš ako `if not is_ready:`.
+:::
+
+## Zapamätaj si
+
+- Jednoduchá podmienka má tvar `if výraz:` a odsadený blok.
+- `elif` pridáva ďalšie alternatívy, `else` zachytí všetko ostatné.
+- Dlhú logiku rozdeľ na pomenované booleovské premenné.
+- Vstupný text pred porovnaním často potrebuje `strip().lower()`.
+

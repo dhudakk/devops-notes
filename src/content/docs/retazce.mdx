@@ -1,0 +1,122 @@
+---
+title: 07 · Reťazce
+description: Praktické čistenie, delenie, vyhľadávanie a formátovanie textu.
+---
+
+<div class="source-note"><span class="source-pill">zdroj</span><br/><strong>Demo 7 + zadania na deň 2.</strong> Validácia e-mailu je zámerne označená ako základná, nie produkčná.</div>
+
+Reťazec (`str`) je nemenná postupnosť Unicode znakov. Vieme ho indexovať a rezať podobne ako zoznam, ale jednotlivé znaky nemožno prepísať na mieste.
+
+```python
+language = "Python"
+
+print(language[0])     # P
+print(language[-1])    # n
+print(language[1:4])   # yth
+print(len(language))   # 6
+```
+
+## Čistenie a normalizácia
+
+```python
+raw_name = "  mÁrIa novÁková  "
+
+clean_name = raw_name.strip().title()
+print(clean_name)  # Mária Nováková
+```
+
+Bežné metódy:
+
+| Metóda | Použitie |
+| --- | --- |
+| `.strip()` | odstráni whitespace na okrajoch |
+| `.lower()`, `.upper()` | zmení veľkosť písmen |
+| `.title()` | veľké začiatočné písmená slov |
+| `.replace(old, new)` | nahradí výskyty |
+| `.startswith(prefix)` | testuje začiatok |
+| `.endswith(suffix)` | testuje koniec |
+| `.find(text)` | index prvého výskytu alebo `-1` |
+
+Pre porovnávanie používateľského vstupu býva robustnejšie `.casefold()` než `.lower()`, najmä pri rôznych jazykoch.
+
+```python
+answer = input("Áno alebo nie? ").strip().casefold()
+
+if answer == "áno".casefold():
+    print("Potvrdené")
+```
+
+## `split()` a `join()`
+
+`split()` rozdelí reťazec na zoznam. `join()` urobí opačnú operáciu.
+
+```python
+line = "python,git,terraform"
+topics = line.split(",")
+
+label = " · ".join(topics)
+print(label)  # python · git · terraform
+```
+
+Pri dátach od používateľa zvyčajne očistíme aj jednotlivé časti.
+
+```python
+raw_topics = " Python, Git , Kubernetes "
+topics = [topic.strip() for topic in raw_topics.split(",")]
+
+print(topics)
+```
+
+Zápis v hranatých zátvorkách je **list comprehension** — kompaktný spôsob vytvorenia zoznamu transformáciou inej kolekcie.
+
+## Formátovanie pomocou f-stringov
+
+```python
+name = "Eva"
+completed = 7
+total = 8
+ratio = completed / total
+
+print(f"{name}: {completed}/{total} ({ratio:.0%})")
+```
+
+`:.0%` hodnotu vynásobí stovkou, pridá `%` a zobrazí bez desatinných miest.
+
+## Základné spracovanie e-mailu
+
+```python title="email.py"
+email = input("E-mail: ").strip().casefold()
+local_part, separator, domain = email.partition("@")
+
+is_basic_format_valid = bool(local_part and separator and "." in domain)
+
+if is_basic_format_valid:
+    print(f"Používateľ: {local_part}")
+    print(f"Doména: {domain}")
+else:
+    print("E-mail nemá očakávaný základný formát.")
+```
+
+:::caution[Toto nie je úplná validácia e-mailu]
+Pravidlá e-mailových adries sú zložité. V produkčnej aplikácii používaj overenú knižnicu a adresu potvrď odkazom zaslaným používateľovi.
+:::
+
+## Reťazce sú nemenné
+
+```python
+word = "python"
+# word[0] = "P"  # TypeError
+
+word = "P" + word[1:]
+print(word)  # Python
+```
+
+Metódy ako `.replace()` alebo `.upper()` vracajú nový reťazec; pôvodný nemenia.
+
+## Zapamätaj si
+
+- Reťazec je sekvencia znakov a je nemenný.
+- Vstup čistíme pomocou `strip()` a podľa potreby normalizujeme veľkosť písmen.
+- `split()` rozdeľuje, `join()` spája.
+- F-stringy sú najčitateľnejší spôsob skladania formátovaného výstupu.
+

@@ -1,0 +1,113 @@
+---
+title: 05 · Files and Errors
+description: Persistent data and safe exception handling.
+---
+
+<div class="source-note"><span class="source-pill">source</span><br/><strong>Demo 5 + day 2 assignments.</strong> This chapter currently draws from the demo document; the relevant slide deck is available on the sources page.</div>
+
+Variables disappear when a program ends. A file lets us store data permanently and load it during a later run.
+
+## Opening files with `with`
+
+The `with` context manager closes the file automatically when its block ends — even when an error occurs.
+
+```python title="read_notes.py"
+with open("notes.txt", "r", encoding="utf-8") as file:
+    content = file.read()
+
+print(content)
+```
+
+| Mode | Meaning | If the file does not exist |
+| --- | --- | --- |
+| `"r"` | read | raises an error |
+| `"w"` | write from the beginning | creates it |
+| `"a"` | append at the end | creates it |
+
+:::caution[Mode `w` overwrites]
+Opening an existing file with `"w"` deletes its previous contents. Use `"a"` when records should be added instead.
+:::
+
+## Writing and appending
+
+```python title="write_log.py"
+with open("workshop.txt", "w", encoding="utf-8") as file:
+    file.write("Python workshop\n")
+    file.write("Day 2\n")
+
+with open("workshop.txt", "a", encoding="utf-8") as file:
+    file.write("Topic: files and exceptions\n")
+```
+
+`write()` does not add a newline automatically. Include `\n` when you need one.
+
+## Reading line by line
+
+For a large file, iterating over lines is more efficient than loading all content at once.
+
+```python title="participants.py"
+with open("participants.txt", "r", encoding="utf-8") as file:
+    for line_number, line in enumerate(file, start=1):
+        participant = line.strip()
+        print(f"{line_number}. {participant}")
+```
+
+`strip()` removes the trailing newline and whitespace around the content.
+
+## Exceptions with `try`/`except`
+
+A predictable input error does not have to terminate the whole program.
+
+```python title="safe_read.py"
+filename = input("File name: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        print(file.read())
+except FileNotFoundError:
+    print(f"The file {filename!r} does not exist.")
+except PermissionError:
+    print("You do not have permission to open this file.")
+```
+
+Catch specific exceptions. A bare `except:` also hides programming errors that should remain visible.
+
+## Safe numeric input
+
+```python title="number_input.py"
+while True:
+    try:
+        quantity = int(input("Quantity: "))
+        if quantity <= 0:
+            print("The quantity must be positive.")
+            continue
+        break
+    except ValueError:
+        print("Enter a whole number.")
+
+print(f"Saving {quantity} items.")
+```
+
+## Mini project: task log
+
+```python title="task_log.py"
+from datetime import datetime
+
+task = input("Completed task: ").strip()
+
+if task:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open("tasks.log", "a", encoding="utf-8") as file:
+        file.write(f"[{timestamp}] {task}\n")
+    print("Task saved.")
+else:
+    print("An empty task will not be saved.")
+```
+
+## Remember
+
+- Explicitly use `encoding="utf-8"` for text files.
+- `with open(...)` takes care of closing the file.
+- Distinguish reading `r`, overwriting `w`, and appending `a`.
+- Catch only exceptions you can handle meaningfully.
+

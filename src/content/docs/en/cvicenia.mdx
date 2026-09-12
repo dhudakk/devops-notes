@@ -1,0 +1,443 @@
+---
+title: Exercises
+description: Assignments arranged from small programs to combined-topic projects.
+---
+
+<div class="source-note"><span class="source-pill">workbook</span><br/><strong>Assignments from the demo document, organized by topic.</strong> Write down the inputs, processing, and expected output before you begin coding.</div>
+
+## 01 · Business card
+
+Read a name, city, and favorite technology. Display them as a formatted text business card.
+
+**Practice:** `input`, variables, f-strings, `print`.
+
+```text title="Example output"
+┌──────────────────────────┐
+│ Name: Lucy               │
+│ City: Bratislava         │
+│ Technology: Python       │
+└──────────────────────────┘
+```
+
+:::tip[Hint]
+The frame does not need to resize dynamically at first. Begin with a fixed layout, then improve it.
+:::
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="business_card.py"
+name = input("Name: ").strip()
+city = input("City: ").strip()
+technology = input("Favorite technology: ").strip()
+
+rows = [
+    f"Name: {name}",
+    f"City: {city}",
+    f"Technology: {technology}",
+]
+width = max(len(row) for row in rows) + 2
+
+print("┌" + "─" * width + "┐")
+for row in rows:
+    print(f"│ {row:<{width - 1}}│")
+print("└" + "─" * width + "┘")
+```
+
+</details>
+
+## 02 · Order calculator
+
+Read a product name, unit price, and quantity. Calculate the subtotal, 20% VAT, and total. Display all money amounts with two decimal places.
+
+**Bonus:** apply a 10% discount before VAT when the customer buys at least five items.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="order.py"
+VAT_RATE = 0.20
+DISCOUNT_RATE = 0.10
+DISCOUNT_FROM_QUANTITY = 5
+
+product = input("Product: ").strip()
+unit_price = float(input("Unit price (€): "))
+quantity = int(input("Quantity: "))
+
+subtotal = unit_price * quantity
+discount = subtotal * DISCOUNT_RATE if quantity >= DISCOUNT_FROM_QUANTITY else 0
+price_after_discount = subtotal - discount
+vat = price_after_discount * VAT_RATE
+total = price_after_discount + vat
+
+print(f"\n{quantity}× {product}")
+print(f"Subtotal: €{subtotal:.2f}")
+print(f"Discount: €{discount:.2f}")
+print(f"VAT: €{vat:.2f}")
+print(f"Total: €{total:.2f}")
+```
+
+</details>
+
+## 03 · Temperature adviser
+
+Read a temperature and print one result:
+
+- below `0`: freezing,
+- `0` through `14`: cold,
+- `15` through `24`: comfortable,
+- `25` and above: warm.
+
+**Practice:** `if`/`elif`/`else`, threshold order.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="temperature.py"
+temperature = float(input("Temperature (°C): "))
+
+if temperature < 0:
+    message = "It is freezing."
+elif temperature < 15:
+    message = "It is cold."
+elif temperature < 25:
+    message = "It is comfortable."
+else:
+    message = "It is warm."
+
+print(message)
+```
+
+Because the branches create consecutive ranges, the second condition does not need to check `temperature >= 0` again.
+
+</details>
+
+## 04 · Workshop registration
+
+The user enters an age and whether they have guardian consent. Participation is allowed from age 18, or from age 15 with consent. Explain why a registration is denied.
+
+**Bonus:** add capacity and whether registration is open.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="registration.py"
+age = int(input("Age: "))
+answer = input("Guardian consent? (yes/no): ")
+has_guardian_consent = answer.strip().casefold() == "yes"
+
+registration_open = True
+free_places = 3
+
+if not registration_open:
+    print("Registration is closed.")
+elif free_places <= 0:
+    print("The workshop is full.")
+elif age >= 18:
+    print("Registration successful.")
+elif age >= 15 and has_guardian_consent:
+    print("Registration successful with guardian consent.")
+elif age >= 15:
+    print("A minor participant needs guardian consent.")
+else:
+    print("The minimum age is 15.")
+```
+
+</details>
+
+## 05 · Sum until a sentinel
+
+Read numbers repeatedly. The value `-1` ends input and is not included. Print the count, sum, and average. Handle the case where no value was entered.
+
+**Practice:** `while`, sentinels, accumulators, division by zero.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="sum_values.py"
+total = 0.0
+count = 0
+
+while True:
+    value = float(input("Number (-1 = finish): "))
+    if value == -1:
+        break
+
+    total += value
+    count += 1
+
+print(f"Value count: {count}")
+print(f"Sum: {total:g}")
+
+if count > 0:
+    print(f"Average: {total / count:g}")
+else:
+    print("The average cannot be calculated because no value was entered.")
+```
+
+</details>
+
+## 06 · Multiplication table
+
+Use nested loops to print a multiplication table from 1 to 10. Align the columns.
+
+```text title="Short preview"
+  1   2   3   4   5
+  2   4   6   8  10
+  3   6   9  12  15
+```
+
+:::tip[Hint]
+An f-string can specify a minimum width: `f"{value:>3}"`.
+:::
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="multiplication_table.py"
+SIZE = 10
+
+print("    ", end="")
+for column in range(1, SIZE + 1):
+    print(f"{column:>4}", end="")
+print()
+print("    " + "────" * SIZE)
+
+for row in range(1, SIZE + 1):
+    print(f"{row:>2} │", end="")
+    for column in range(1, SIZE + 1):
+        print(f"{row * column:>4}", end="")
+    print()
+```
+
+</details>
+
+## 07 · Calculator functions
+
+Create separate `add`, `subtract`, `multiply`, and `divide` functions. The main program reads two numbers and an operation. Division by zero must produce a clear error message.
+
+**Bonus:** move the functions to `calculator.py` and use them from `main.py`.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="calculator.py"
+def add(a, b):
+    return a + b
+
+
+def subtract(a, b):
+    return a - b
+
+
+def multiply(a, b):
+    return a * b
+
+
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero.")
+    return a / b
+```
+
+```python title="main.py"
+from calculator import add, divide, multiply, subtract
+
+OPERATIONS = {
+    "+": add,
+    "-": subtract,
+    "*": multiply,
+    "/": divide,
+}
+
+first = float(input("First number: "))
+operator = input("Operation (+, -, *, /): ").strip()
+second = float(input("Second number: "))
+
+operation = OPERATIONS.get(operator)
+
+if operation is None:
+    print("Unknown operation.")
+else:
+    try:
+        print(f"Result: {operation(first, second):g}")
+    except ValueError as error:
+        print(error)
+```
+
+</details>
+
+## 08 · Text file analysis
+
+Read the path to a `.txt` file and display:
+
+- the number of lines,
+- the number of words,
+- the number of non-whitespace characters,
+- the longest line.
+
+Handle `FileNotFoundError` and open the file as UTF-8.
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="analyze_file.py"
+filename = input("Path to a text file: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        lines = file.readlines()
+
+    word_count = sum(len(line.split()) for line in lines)
+    character_count = sum(len("".join(line.split())) for line in lines)
+    longest_line = max((line.rstrip("\n") for line in lines), key=len, default="")
+
+    print(f"Lines: {len(lines)}")
+    print(f"Words: {word_count}")
+    print(f"Non-whitespace characters: {character_count}")
+    print(f"Longest line: {longest_line}")
+except FileNotFoundError:
+    print(f"The file {filename!r} does not exist.")
+except PermissionError:
+    print("The file cannot be read because permission is missing.")
+```
+
+</details>
+
+## 09 · Participant management
+
+Create a list of dictionaries. Each participant has a name, email, and score. Display the average, the best result, and everyone with a score of at least 75%.
+
+```python title="Starter data"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Mark", "email": "mark@example.com", "score": 64},
+    {"name": "Susan", "email": "susan@example.com", "score": 81},
+]
+```
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="participants.py"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Mark", "email": "mark@example.com", "score": 64},
+    {"name": "Susan", "email": "susan@example.com", "score": 81},
+]
+
+if participants:
+    average = sum(person["score"] for person in participants) / len(participants)
+    best = max(participants, key=lambda person: person["score"])
+    successful = [person for person in participants if person["score"] >= 75]
+
+    print(f"Average: {average:.1f}%")
+    print(f"Best result: {best['name']} ({best['score']}%)")
+    print("Successful participants:")
+    for person in successful:
+        print(f"- {person['name']} ({person['email']})")
+else:
+    print("The participant list is empty.")
+```
+
+</details>
+
+## 10 · Mini project: daily tracker
+
+Build a console program that can:
+
+1. add a completed task,
+2. display every task,
+3. filter tasks by category,
+4. save tasks to a file and load them on the next run.
+
+Represent one record with a dictionary and keep all records in a list. Use JSON rather than `pickle` so the data stays readable outside Python.
+
+```python title="Suggested record shape"
+task = {
+    "title": "Finish the Python exercise",
+    "category": "study",
+    "completed": True,
+}
+```
+
+<details class="solution">
+<summary>Show / hide solution</summary>
+
+```python title="tracker.py"
+import json
+from pathlib import Path
+
+DATA_FILE = Path("tasks.json")
+
+
+def load_tasks():
+    try:
+        with DATA_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        print("The data file is damaged. Starting with an empty list.")
+        return []
+
+
+def save_tasks(tasks):
+    with DATA_FILE.open("w", encoding="utf-8") as file:
+        json.dump(tasks, file, ensure_ascii=False, indent=2)
+
+
+def add_task(tasks):
+    title = input("Task title: ").strip()
+    category = input("Category: ").strip().casefold()
+    if title:
+        tasks.append({"title": title, "category": category, "completed": True})
+        save_tasks(tasks)
+        print("Task saved.")
+
+
+def show_tasks(tasks, category=None):
+    selected = [
+        task for task in tasks
+        if category is None or task["category"] == category
+    ]
+    if not selected:
+        print("No tasks found.")
+        return
+    for position, task in enumerate(selected, start=1):
+        print(f"{position}. {task['title']} [{task['category']}]")
+
+
+tasks = load_tasks()
+
+while True:
+    print("\n1 — add | 2 — show | 3 — filter | 0 — exit")
+    choice = input("Choice: ").strip()
+
+    if choice == "1":
+        add_task(tasks)
+    elif choice == "2":
+        show_tasks(tasks)
+    elif choice == "3":
+        category = input("Category: ").strip().casefold()
+        show_tasks(tasks, category)
+    elif choice == "0":
+        break
+    else:
+        print("Unknown choice.")
+```
+
+This solution saves after every addition. A larger application would separate the user interface, data model, and persistence layer.
+
+</details>
+
+## Checklist before submitting
+
+<ul class="checklist">
+  <li>The program runs without syntax errors.</li>
+  <li>Variable and function names describe what they contain or do.</li>
+  <li>Condition boundaries are tested, including exactly 0, 15, 18, and 25.</li>
+  <li>Every loop has a clear termination rule.</li>
+  <li>Error states produce understandable messages.</li>
+  <li>Repeated logic is moved into a function.</li>
+</ul>
