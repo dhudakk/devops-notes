@@ -278,39 +278,6 @@ body { letter-spacing: -0.006em; }
   font-size: 0.72rem;
 }
 
-.principle-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.5rem;
-  margin-block: 2rem 3rem;
-}
-
-.principle-grid > div {
-  border-top: 1px solid var(--sl-color-hairline-light);
-  padding-top: 1rem;
-}
-
-.principle-grid span {
-  display: block;
-  margin-bottom: 1.3rem;
-  color: var(--sl-color-accent);
-  font-family: var(--sl-font-mono);
-  font-size: 0.75rem;
-}
-
-.principle-grid strong {
-  display: block;
-  color: var(--sl-color-white);
-  font-size: 1.05rem;
-}
-
-.principle-grid p {
-  margin-top: 0.5rem;
-  color: var(--sl-color-gray-2);
-  font-size: 0.9rem;
-  line-height: 1.55;
-}
-
 [data-theme='light'] .module-card,
 [data-theme='light'] .resource-card,
 [data-theme='light'] .stat-card {
@@ -432,5 +399,5 @@ body { letter-spacing: -0.006em; }
 
 @media (max-width: 50rem) {
   .hero h1 { max-width: 10ch; }
-  .module-grid, .resource-grid, .course-grid, .principle-grid { grid-template-columns: 1fr; }
+  .module-grid, .resource-grid, .course-grid { grid-template-columns: 1fr; }
 }
