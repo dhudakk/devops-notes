@@ -1,0 +1,247 @@
+---
+title: Strings
+description: Working with text — indexing, cleaning, splitting, joining, searching, and formatting.
+kind: chapter
+sidebar:
+  order: 6
+  label: 06 · Strings
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A string (`str`) is an **immutable** sequence of characters — index and slice it like a list, but you cannot overwrite a character.
+- Methods (`.strip()`, `.lower()`, `.replace()`…) return a **new** string; the original does not change.
+- `text.split(",")` splits text into a list, `", ".join(items)` joins a list into text.
+- `text.split()` with no argument splits on any amount of whitespace.
+- F-string formats: `:.2f` decimal places, `:>5` right-align, `:.0%` percent.
+</KeyPoints>
+
+## A string as a sequence
+
+A string (`str`) is an immutable sequence of Unicode characters. You index and slice it just like a list.
+
+```python
+language = "Python"
+
+print(language[0])     # P
+print(language[-1])    # n
+print(language[1:4])   # yth
+print(language[::-1])  # nohtyP
+print(len(language))   # 6
+print("th" in language)  # True
+```
+
+## Cleaning and normalising
+
+```python
+raw_name = "  mÁrIa novÁková  "
+
+clean_name = raw_name.strip().title()
+print(clean_name)  # Mária Nováková
+```
+
+| Method | Use |
+| --- | --- |
+| `.strip()` | removes spaces and newlines at the edges |
+| `.lower()`, `.upper()` | changes case |
+| `.title()`, `.capitalize()` | capital first letter of each word / of the first character only |
+| `.replace(old, new)` | replaces every occurrence |
+| `.startswith(prefix)`, `.endswith(suffix)` | tests the start / end |
+| `.find(text)` | index of the first occurrence or `-1` |
+| `.count(text)` | number of occurrences |
+| `.isdigit()`, `.isalpha()`, `.isalnum()` | only digits / only letters / both |
+
+For comparing user input, `.casefold()` is more robust than `.lower()`, especially across languages.
+
+```python
+answer = input("Yes or no? ").strip().casefold()
+
+if answer == "yes":
+    print("Confirmed")
+```
+
+## `split()` and `join()`
+
+`split()` splits a string into a list. `join()` does the opposite — it is called on the **separator**.
+
+```python
+line = "python,git,terraform"
+topics = line.split(",")        # ['python', 'git', 'terraform']
+
+label = " · ".join(topics)
+print(label)                    # python · git · terraform
+
+print("a   b  c".split())       # ['a', 'b', 'c'] — no argument ignores repeated spaces
+```
+
+## List comprehensions
+
+With user data you usually clean each part as well:
+
+```python
+raw_topics = " Python, Git , Kubernetes "
+topics = [topic.strip() for topic in raw_topics.split(",")]
+
+print(topics)  # ['Python', 'Git', 'Kubernetes']
+```
+
+The square-bracket expression is a **list comprehension** — a compact way to build a new list by transforming another collection. It can include a filter:
+
+```python
+words = ["git", "", "docker", " "]
+non_empty = [word for word in words if word.strip()]   # ['git', 'docker']
+lengths = [len(word) for word in non_empty]             # [3, 6]
+```
+
+It is shorthand for a loop:
+
+```python
+non_empty = []
+for word in words:
+    if word.strip():
+        non_empty.append(word)
+```
+
+## Formatting with f-strings
+
+```python
+name = "Eva"
+completed = 7
+total = 8
+ratio = completed / total
+
+print(f"{name}: {completed}/{total} ({ratio:.0%})")  # Eva: 7/8 (88%)
+```
+
+| Format | Example | Result |
+| --- | --- | --- |
+| `:.2f` | `f"{3.14159:.2f}"` | `3.14` |
+| `:.0%` | `f"{0.875:.0%}"` | `88%` |
+| `:>6` | `f"{'ab':>6}"` | `'    ab'` |
+| `:<6` | `f"{'ab':<6}"` | `'ab    '` |
+| `:^6` | `f"{'ab':^6}"` | `'  ab  '` |
+| `:03` | `f"{7:03}"` | `007` |
+| `!r` | `f"{'ab'!r}"` | `'ab'` (with quotes) |
+
+## Strings are immutable
+
+```python
+word = "python"
+# word[0] = "P"  # TypeError: 'str' object does not support item assignment
+
+word = "P" + word[1:]
+print(word)  # Python
+```
+
+Methods such as `.replace()` or `.upper()` return a **new** string. If you do not assign the result, the change is lost:
+
+```python
+name = "eva"
+name.upper()         # the result is thrown away
+name = name.upper()  # correct
+```
+
+## Complete example: parsing an email
+
+```python title="email.py"
+email = input("Email: ").strip().casefold()
+local_part, separator, domain = email.partition("@")
+
+is_basic_format_valid = bool(local_part and separator and "." in domain)
+
+if is_basic_format_valid:
+    print(f"User: {local_part}")
+    print(f"Domain: {domain}")
+else:
+    print("The email does not have the expected basic format.")
+```
+
+`partition("@")` returns a tuple of three parts: the text before the separator, the separator, and the text after it. If `@` is not found, the separator and the last part are empty.
+
+:::caution[This is not full email validation]
+Email address rules are complex. In production, use a proven library and confirm the address with a link sent to the user.
+:::
+
+## Test yourself
+
+<Question q='What does `"Python"[1:4]` print?'>
+`yth` — the characters at indexes 1, 2, and 3.
+</Question>
+
+<Question q='Why does `word[0] = "P"` raise an error?'>
+Strings are immutable. You must build a new string, e.g. `word = "P" + word[1:]`.
+</Question>
+
+<Question q='What do `"a,,b".split(",")` and `"a   b".split()` return?'>
+`['a', '', 'b']` — with an explicit separator you get an empty part. `['a', 'b']` — with no argument, `split()` treats repeated spaces as one separator.
+</Question>
+
+<Question q='What does `"-".join(["2026", "10", "13"])` print?'>
+`2026-10-13`. `join` is called on the separator and joins the list items (they must be strings).
+</Question>
+
+<Question q='After `name = "eva"` and `name.upper()` — what is `name`?'>
+Still `"eva"`. `upper()` returns a new string that was not stored anywhere. The correct form is `name = name.upper()`.
+</Question>
+
+## Exercises
+
+### 6.1 · Initials and username
+
+Read a full name (it may have extra spaces and wrong capitalisation, e.g. `"  jana  MÁRIA   nováková "`). Print:
+
+- the cleaned name: `Jana Mária Nováková`,
+- the initials: `J. M. N.`,
+- a username from the first letter of the first name and the whole surname in lower case: `jnováková`.
+
+<p class="practises">You practise: `split()`, `join()`, indexing, `.title()`, `.lower()`, comprehensions.</p>
+
+<Solution>
+```python title="initials.py"
+raw_name = input("Full name: ")
+parts = raw_name.split()
+
+if parts:
+    full_name = " ".join(parts).title()
+    initials = " ".join(part[0].upper() + "." for part in parts)
+    username = (parts[0][0] + parts[-1]).lower()
+
+    print(f"Name: {full_name}")
+    print(f"Initials: {initials}")
+    print(f"User: {username}")
+else:
+    print("The name is empty.")
+```
+</Solution>
+
+### 6.2 · Palindrome
+
+Write a function `is_palindrome(text)` that returns `True` if the text reads the same forwards and backwards. Ignore case, spaces, and punctuation.
+
+```python title="Expected behaviour"
+is_palindrome("Never odd or even.")    # True
+is_palindrome("Python")                # False
+```
+
+<p class="practises">You practise: `.casefold()`, `.isalnum()`, `join`, the `[::-1]` slice.</p>
+
+<Solution variant="hint">
+First build a “clean” text from letters and digits only. Then compare it with its reversed version `clean[::-1]`.
+</Solution>
+
+<Solution>
+```python title="palindrome.py"
+def is_palindrome(text):
+    clean = "".join(char for char in text.casefold() if char.isalnum())
+    return clean == clean[::-1]
+
+
+print(is_palindrome("Never odd or even."))  # True
+print(is_palindrome("Python"))              # False
+```
+
+`char for char in ... if ...` without square brackets is a **generator expression** — it works like a list comprehension but feeds values straight into `join` without building a list.
+</Solution>

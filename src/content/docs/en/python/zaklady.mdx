@@ -1,0 +1,282 @@
+---
+title: Python Basics
+description: How a program works with values — variables, data types, input, output, and operators.
+kind: chapter
+sidebar:
+  order: 1
+  label: 01 · Basics
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Design a program as **input → processing → output** (IPO).
+- `input()` **always** returns a `str` — convert it with `int()` or `float()` before doing maths.
+- Name variables in `snake_case` and constants in `UPPER_CASE`.
+- `/` is division with decimals, `//` is floor division, `%` is the remainder.
+- Use f-strings for formatted output: `f"{price:.2f} €"`.
+</KeyPoints>
+
+## Designing a program
+
+A Python program is a sequence of precise instructions. Before writing code, split the problem into three parts:
+
+1. **Input** — what data does the program need?
+2. **Processing** — what calculations or decisions does it make?
+3. **Output** — what result should the user get?
+
+This model is called **IPO** (*Input–Process–Output*). You can sketch the solution first as pseudocode or a flowchart.
+
+## First output and comments
+
+`print()` writes a value to the console. Text — the `str` type — goes in quotes.
+
+```python title="hello.py"
+print("Hello, Python!")
+print('Single and double quotes are both valid.')
+```
+
+`#` starts a comment. Python skips it when running the program.
+
+```python
+# This explains the intent of the next line.
+print("Order system")  # a short comment can also go at the end
+```
+
+:::tip
+A comment should explain **why**, not mechanically repeat what the code does.
+:::
+
+## Variables and naming
+
+A variable is a name that refers to a value. Python is **dynamically typed**: the type belongs to the value, not the variable, and can change at runtime.
+
+```python
+product_name = "Mechanical keyboard"
+quantity = 2
+unit_price = 89.90
+is_available = True
+```
+
+- Use lowercase names with words separated by underscores (`snake_case`).
+- Python is case-sensitive: `price` and `Price` are two different names.
+- A constant is not technically locked in Python. Upper case is a convention meaning “do not change this value”.
+
+```python
+VAT_RATE = 0.20
+ADMIN_FEE = 2.50
+```
+
+## Basic data types
+
+| Type | Meaning | Example |
+| --- | --- | --- |
+| `str` | text | `"Python"` |
+| `int` | whole number | `42` |
+| `float` | decimal number | `19.90` |
+| `bool` | true/false | `True`, `False` |
+| `NoneType` | no value | `None` |
+
+Check a value's type with `type()`:
+
+```python
+lesson_count = 8
+print(type(lesson_count))  # <class 'int'>
+```
+
+## User input
+
+`input()` **always** returns a string — even when the user types a number. Convert it before calculating.
+
+```python title="order.py"
+product = input("Product name: ")
+quantity = int(input("Quantity: "))
+unit_price = float(input("Unit price: "))
+
+subtotal = quantity * unit_price
+print(f"{product}: {subtotal:.2f} €")
+```
+
+An f-string (`f"..."`) inserts values directly into text. `:.2f` shows a decimal number with two decimal places.
+
+:::caution[What if the user types “two”?]
+`int("two")` raises a `ValueError`. You handle it with `try`/`except` — see [Files and errors](/devops-notes/en/python/subory-a-chyby/#safe-numeric-input).
+:::
+
+## Arithmetic operators
+
+```python
+a = 17
+b = 5
+
+print(a + b)   # 22      addition
+print(a - b)   # 12      subtraction
+print(a * b)   # 85      multiplication
+print(a / b)   # 3.4     division — always returns a float
+print(a // b)  # 3       floor division (rounds down)
+print(a % b)   # 2       remainder
+print(a ** b)  # 1419857 exponentiation
+```
+
+Precedence works like in maths: parentheses → powers → multiplication/division → addition/subtraction. If an expression could be unclear, add parentheses.
+
+```python
+total = (unit_price * quantity) + ADMIN_FEE
+```
+
+:::note[Negative numbers and `//`]
+`//` rounds **down**, not towards zero: `-7 // 2` is `-4` and `-7 % 2` is `1`.
+:::
+
+## Formatting output
+
+`print()` separates arguments with a space and ends with a newline. The `sep` and `end` parameters change that.
+
+```python
+print("2026", "09", "12", sep="-")     # 2026-09-12
+print("Loading", end="... ")
+print("done")                           # Loading... done
+```
+
+Escape sequences represent special characters:
+
+| Sequence | Meaning |
+| --- | --- |
+| `\n` | newline |
+| `\t` | tab |
+| `\"`, `\'` | quote inside a string |
+| `\\` | backslash |
+
+```python
+print("First line\nSecond line")
+print("Name:\tPython")
+print("They said: \"Hello\"")
+print("C:\\Users\\student")
+```
+
+## Complete example: an order
+
+```python title="order_summary.py" {8-9}
+ADMIN_FEE = 2.50
+
+customer = input("Customer name: ")
+product = input("Product: ")
+quantity = int(input("Quantity: "))
+unit_price = float(input("Unit price (€): "))
+
+subtotal = quantity * unit_price
+total = subtotal + ADMIN_FEE
+
+print("\n--- Order summary ---")
+print(f"Customer: {customer}")
+print(f"Item: {quantity}× {product}")
+print(f"Subtotal: {subtotal:.2f} €")
+print(f"Admin fee: {ADMIN_FEE:.2f} €")
+print(f"Total: {total:.2f} €")
+```
+
+:::note[Money in real applications]
+`float` cannot always represent decimals exactly (`0.1 + 0.2` is `0.30000000000000004`). Financial systems use `decimal.Decimal` or amounts stored in cents.
+:::
+
+## Test yourself
+
+<Question q="What type does `input()` return, and what must you do before calculating with it?">
+Always `str`. Convert it first: `int(input(...))` for whole numbers, `float(input(...))` for decimals.
+</Question>
+
+<Question q="What is the difference between `17 / 5`, `17 // 5`, and `17 % 5`?">
+`3.4` (true division, always a `float`), `3` (floor division), `2` (remainder).
+</Question>
+
+<Question q='What does `print("a", "b", sep="-", end="!")` print?'>
+`a-b!` — the arguments are joined with `sep`, and `end` is printed instead of a newline.
+</Question>
+
+<Question q='What happens with `int("3.5")`?'>
+`ValueError`. `int()` only accepts a whole number from a string. Use `float("3.5")`, or `int(float("3.5"))`, which cuts the decimal part off to `3`.
+</Question>
+
+<Question q="Does Python prevent you from changing `VAT_RATE = 0.20`?">
+No. Upper case is only a convention saying it is a constant. Technically you can reassign it.
+</Question>
+
+## Exercises
+
+### 1.1 · Business card
+
+Read a name, a city, and a favourite technology. Print them as a text business card inside a box.
+
+<p class="practises">You practise: `input`, variables, f-strings, `print`.</p>
+
+```text title="Sample output"
+┌──────────────────────────┐
+│ Name: Lucia              │
+│ City: Bratislava         │
+│ Technology: Python       │
+└──────────────────────────┘
+```
+
+<Solution variant="hint">
+The box does not have to adapt to the text width. Start with a fixed width and improve it later. In an f-string, `f"{text:<20}"` left-aligns text to a width of 20 characters.
+</Solution>
+
+<Solution>
+```python title="business_card.py"
+name = input("Name: ").strip()
+city = input("City: ").strip()
+technology = input("Favourite technology: ").strip()
+
+rows = [
+    f"Name: {name}",
+    f"City: {city}",
+    f"Technology: {technology}",
+]
+width = max(len(row) for row in rows) + 2
+
+print("┌" + "─" * width + "┐")
+for row in rows:
+    print(f"│ {row:<{width - 1}}│")
+print("└" + "─" * width + "┘")
+```
+
+This solution fits the width to the longest row. It uses a list and a loop, which come later — a simpler version with three `print()` calls and a fixed width is completely fine.
+</Solution>
+
+### 1.2 · Order with VAT
+
+Read a product, a unit price, and a quantity. Calculate the subtotal, 20% VAT, and the total. Show results with two decimal places.
+
+**Bonus** (needs `if` from [chapter 2](/devops-notes/en/python/podmienky/)): for at least five items, subtract a 10% discount before calculating VAT.
+
+<p class="practises">You practise: converting input, constants, arithmetic, the `:.2f` format.</p>
+
+<Solution>
+```python title="order_vat.py"
+VAT_RATE = 0.20
+DISCOUNT_RATE = 0.10
+DISCOUNT_FROM_QUANTITY = 5
+
+product = input("Product: ").strip()
+unit_price = float(input("Unit price (€): "))
+quantity = int(input("Quantity: "))
+
+subtotal = unit_price * quantity
+
+discount = 0.0
+if quantity >= DISCOUNT_FROM_QUANTITY:  # bonus
+    discount = subtotal * DISCOUNT_RATE
+
+price_after_discount = subtotal - discount
+vat = price_after_discount * VAT_RATE
+total = price_after_discount + vat
+
+print(f"\n{quantity}× {product}")
+print(f"Subtotal: {subtotal:.2f} €")
+print(f"Discount: {discount:.2f} €")
+print(f"VAT: {vat:.2f} €")
+print(f"Total: {total:.2f} €")
+```
+</Solution>

@@ -1,0 +1,270 @@
+---
+title: Ťahák
+description: Celý Python kurz na jednej stránke — syntax, najpoužívanejšie metódy a pasce, na ktoré si dať pozor na skúške.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Typy, vstup a výstup
+
+<div class="sheet-grid">
+
+```python title="Typy a konverzie"
+type(42)          # <class 'int'>
+int("42")         # 42
+float("3.5")      # 3.5
+str(42)           # '42'
+int("3.5")        # ValueError
+int(3.9)          # 3 (oreže)
+round(3.567, 2)   # 3.57
+bool("")          # False
+```
+
+```python title="Vstup a výstup"
+name = input("Meno: ")      # vždy str
+age = int(input("Vek: "))
+
+print("a", "b", sep="-", end="!\n")
+print(f"{name} má {age} rokov")
+print(f"{19.9:.2f} €")      # 19.90 €
+print(f"{7:03}")            # 007
+print(f"{'ab':>5}")         # '   ab'
+```
+
+</div>
+
+## Operátory
+
+<div class="sheet-grid">
+
+```python title="Aritmetika"
+17 / 5    # 3.4  (vždy float)
+17 // 5   # 3    (nadol)
+17 % 5    # 2    (zvyšok)
+2 ** 10   # 1024
+-7 // 2   # -4   (nadol, nie k nule)
+x += 1    # x = x + 1
+```
+
+```python title="Porovnanie a logika"
+==  !=  <  >  <=  >=
+18 <= age <= 24          # reťazené
+a and b   # obe True
+a or b    # aspoň jedno True
+not a     # obráti
+x in items   # obsahuje?
+x is None    # test na None
+```
+
+</div>
+
+**Nepravdivé hodnoty:** `False`, `None`, `0`, `0.0`, `""`, `[]`, `{}`, `()`, `set()`. Všetko ostatné je pravdivé.
+
+## Riadenie toku
+
+<div class="sheet-grid">
+
+```python title="Podmienky"
+# najprísnejšia podmienka navrch
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+else:
+    grade = "C"
+```
+
+```python title="Cykly"
+range(5)           # 0..4
+range(1, 6)        # 1..5
+range(10, 0, -2)   # 10,8,6,4,2
+
+for i, x in enumerate(items, start=1):
+    ...
+
+while True:
+    if skip:
+        continue   # ďalšia iterácia
+    if done:
+        break      # koniec cyklu
+```
+
+</div>
+
+## Funkcie a moduly
+
+<div class="sheet-grid">
+
+```python title="Funkcie"
+def total(price, qty, discount=0.0):
+    """Default parametre až na konci."""
+    return price * qty * (1 - discount)
+
+total(10, 3)               # pozične
+total(10, 3, discount=0.1) # pomenovane
+
+def minmax(xs):
+    return min(xs), max(xs)  # n-tica
+low, high = minmax([3, 1, 2])
+```
+
+```python title="Import"
+import math
+math.sqrt(16)
+
+from random import randint
+randint(1, 6)     # 1..6 vrátane
+
+import pandas as pd   # alias
+
+# bez return → funkcia vráti None
+# premenné vo funkcii sú lokálne
+```
+
+</div>
+
+## Kolekcie
+
+| | `list` | `tuple` | `dict` | `set` |
+| --- | --- | --- | --- | --- |
+| Zápis | `[1, 2]` | `(1, 2)` | `{"a": 1}` | `{1, 2}` |
+| Prázdna | `[]` | `()` | `{}` | `set()` |
+| Meniteľná | áno | nie | áno | áno |
+| Poradie / index | áno | áno | poradie vloženia, prístup cez kľúč | nie |
+| Duplicity | áno | áno | unikátne kľúče | nie |
+
+<div class="sheet-grid">
+
+```python title="Zoznamy"
+xs = ["a", "b", "c", "d"]
+xs[0], xs[-1]       # 'a', 'd'
+xs[1:3]             # ['b', 'c']
+xs[::-1]            # obrátene
+xs.append("e")      # na koniec
+xs.insert(0, "z")   # na index
+xs.remove("b")      # podľa hodnoty
+xs.pop()            # odober posledný
+xs.sort()           # mení, vracia None
+sorted(xs)          # nový zoznam
+len(xs); sum(ns); min(ns); max(ns)
+copy = xs.copy()    # nie: copy = xs
+```
+
+```python title="Slovníky a množiny"
+d = {"name": "Eva", "score": 92}
+d["name"]             # KeyError ak chýba
+d.get("email", "-")   # bezpečne
+d["email"] = "e@x.sk" # pridaj / prepíš
+d.pop("score")
+for k, v in d.items(): ...
+counts[w] = counts.get(w, 0) + 1
+
+a & b   # prienik
+a | b   # zjednotenie
+a - b   # rozdiel
+a ^ b   # práve v jednej
+max(people, key=lambda p: p["score"])
+```
+
+</div>
+
+## Reťazce
+
+<div class="sheet-grid">
+
+```python title="Metódy"
+s.strip()          # okraje
+s.lower() / s.upper() / s.title()
+s.casefold()       # na porovnávanie
+s.replace("a", "b")
+s.startswith("x") / s.endswith("y")
+s.find("x")        # index alebo -1
+s.count("x")
+s.isdigit() / s.isalpha()
+```
+
+```python title="Delenie a spájanie"
+"a,b,c".split(",")     # ['a', 'b', 'c']
+"a  b".split()         # ['a', 'b']
+", ".join(["a", "b"])  # 'a, b'
+"Python"[1:4]          # 'yth'
+s = "P" + s[1:]        # str je nemenný
+
+[w.strip() for w in parts]
+[w for w in words if w]   # s filtrom
+```
+
+</div>
+
+## Súbory, výnimky, JSON
+
+<div class="sheet-grid">
+
+```python title="Súbory"
+with open("f.txt", encoding="utf-8") as f:
+    text = f.read()     # celý obsah
+    # f.readlines()  → zoznam riadkov
+    # for line in f: → po riadkoch
+
+# "w" prepíše, "a" pridá na koniec
+with open("f.txt", "a", encoding="utf-8") as f:
+    f.write("riadok\n") # \n pridaj sám
+```
+
+```python title="Výnimky"
+try:
+    n = int(input("Číslo: "))
+except ValueError:
+    print("Nie je číslo")
+else:
+    print("OK")       # ak chyba nenastala
+finally:
+    print("Vždy")
+
+raise ValueError("Zlá hodnota")
+```
+
+```python title="JSON"
+import json
+
+# zápis
+with open("d.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False,
+              indent=2)
+
+# čítanie
+with open("d.json", encoding="utf-8") as f:
+    data = json.load(f)
+```
+
+```text title="Časté výnimky"
+ValueError         int("abc")
+TypeError          "a" + 1
+NameError          nedefinovaná premenná
+IndexError         xs[99]
+KeyError           d["chýba"]
+ZeroDivisionError  1 / 0
+FileNotFoundError  open("chýba.txt")
+```
+
+</div>
+
+## Pasce na skúške
+
+| Pasca | Správne |
+| --- | --- |
+| `input()` vracia text, `"5" + 1` je `TypeError` | `int(input())` |
+| `range(1, 5)` končí na `4` | `range(1, 6)` pre 1–5 |
+| `if x = 5:` | `if x == 5:` |
+| `elif` s miernejšou podmienkou navrch | najprísnejšia podmienka prvá |
+| `xs = xs.sort()` → `None` | `xs.sort()` alebo `xs = sorted(xs)` |
+| `b = a` a potom zmena `b` mení aj `a` | `b = a.copy()` |
+| `name.upper()` bez priradenia nič nezmení | `name = name.upper()` |
+| funkcia s `print` namiesto `return` vráti `None` | `return výsledok` |
+| `def f(a=1, b):` | default parametre na koniec |
+| `def f(items=[])` — zoznam sa zdieľa medzi volaniami | `items=None`, vo funkcii `if items is None: items = []` |
+| `{}` je prázdny slovník | prázdna množina je `set()` |
+| `open(..., "w")` vymaže súbor | `"a"` na pridávanie |
+| holé `except:` | `except ValueError:` |
+| `0.1 + 0.2 == 0.3` je `False` | `round(...)` alebo `math.isclose()` |

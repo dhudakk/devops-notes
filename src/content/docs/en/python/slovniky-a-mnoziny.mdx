@@ -1,0 +1,230 @@
+---
+title: Dictionaries and Sets
+description: Data by key and unique items — dict, set, and how to pick the right collection.
+kind: chapter
+sidebar:
+  order: 7
+  label: 07 · Dictionaries and sets
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A dictionary (`dict`) maps a **unique key** to a value: `{"name": "Eva", "score": 92}`.
+- `d["key"]` raises `KeyError` when the key is missing; `d.get("key", default)` returns the default instead.
+- `for key, value in d.items():` loops over pairs; plain `for key in d:` loops over keys only.
+- A set (`set`) holds **unique** items with no order or indexes; it supports `&`, `|`, `-`, `^`.
+- `{}` is an empty **dictionary**. Create an empty set with `set()`.
+</KeyPoints>
+
+## Dictionary
+
+A dictionary maps a unique key to a value. It fits a record with named properties.
+
+```python
+student = {
+    "name": "Eva",
+    "course": "Python",
+    "completed_lessons": 6,
+    "active": True,
+}
+
+print(student["name"])                     # Eva
+print(student.get("email", "No email"))    # No email
+print("course" in student)                 # True — tests keys
+```
+
+`student["email"]` raises `KeyError` when the key is missing. `.get()` safely returns a default value (`None` if you give none).
+
+A key must be an **immutable** value — a string, a number, or a tuple. A list cannot be a key.
+
+## Adding, changing, and removing
+
+```python
+student["email"] = "eva@example.com"   # adds a new key
+student["completed_lessons"] += 1     # changes an existing value
+
+removed_value = student.pop("active", None)
+print(removed_value)  # True
+```
+
+Assigning to an existing key **overwrites** the old value — a dictionary cannot hold the same key twice.
+
+## Looping over a dictionary
+
+```python
+for key, value in student.items():
+    print(f"{key}: {value}")
+```
+
+| Expression | Loops over |
+| --- | --- |
+| `for key in d:` or `d.keys()` | keys |
+| `d.values()` | values |
+| `d.items()` | `(key, value)` pairs |
+
+### Counting occurrences
+
+A common pattern: a dictionary as a counter.
+
+```python
+votes = ["git", "python", "git", "docker", "git"]
+counts = {}
+
+for vote in votes:
+    counts[vote] = counts.get(vote, 0) + 1
+
+print(counts)  # {'git': 3, 'python': 1, 'docker': 1}
+```
+
+## A list of dictionaries
+
+A typical data model: a **list** for the collection of records, a **dictionary** for the properties of one record.
+
+```python title="course_data.py"
+participants = [
+    {"name": "Eva", "score": 92},
+    {"name": "Marek", "score": 74},
+    {"name": "Zuzana", "score": 88},
+]
+
+best = max(participants, key=lambda participant: participant["score"])
+average = sum(item["score"] for item in participants) / len(participants)
+
+print(f"Best result: {best['name']} ({best['score']}%)")
+print(f"Average: {average:.1f}%")
+```
+
+- `key=lambda participant: participant["score"]` tells `max` **what to compare by**. `lambda` is a short anonymous function: `lambda x: x["score"]` means “given `x`, return `x["score"]`”.
+- `sum(item["score"] for item in participants)` adds up every participant's score (a generator expression).
+- The same `key` works for `min()` and `sorted()`.
+
+## Sets
+
+A set removes duplicates automatically and supports set operations.
+
+```python
+day_one = {"Eva", "Marek", "Zuzana"}
+day_two = {"Eva", "Zuzana", "Peter"}
+
+print(day_one & day_two)  # intersection: both days     {'Eva', 'Zuzana'}
+print(day_one | day_two)  # union: at least one day
+print(day_one - day_two)  # difference: day one only    {'Marek'}
+print(day_one ^ day_two)  # exactly one of the days      {'Marek', 'Peter'}
+```
+
+Removing duplicates from a list:
+
+```python
+topics = ["Python", "Git", "Python", "Docker"]
+
+print(set(topics))                 # order is not guaranteed
+print(sorted(set(topics)))         # ['Docker', 'Git', 'Python']
+print(list(dict.fromkeys(topics))) # ['Python', 'Git', 'Docker'] — keeps the original order
+```
+
+Adding and removing: `s.add(x)`, `s.remove(x)` (error if `x` is missing), `s.discard(x)` (no error).
+
+## Choosing a collection
+
+| Need | Type | Literal |
+| --- | --- | --- |
+| Ordered values that change | `list` | `[1, 2]` |
+| A fixed ordered group | `tuple` | `(1, 2)` |
+| Values by a named key | `dict` | `{"a": 1}` |
+| Unique items, set operations | `set` | `{1, 2}` |
+
+## Test yourself
+
+<Question q='What happens with `student["email"]` if the key does not exist? And with `student.get("email")`?'>
+The first raises `KeyError`. The second returns `None` (or the default you pass as the second argument).
+</Question>
+
+<Question q="What does `for x in d:` loop over when `d` is a dictionary?">
+Keys only. Use `d.items()` for key–value pairs and `d.values()` for values.
+</Question>
+
+<Question q='What does `{"a", "b"} & {"b", "c"}` return?'>
+`{'b'}` — the intersection, items in both sets.
+</Question>
+
+<Question q="What type is `x = {}`?">
+`dict`, an empty dictionary. An empty set is created with `set()`.
+</Question>
+
+<Question q="Can a list be a dictionary key? And a tuple?">
+A list cannot — it is mutable (`TypeError: unhashable type: 'list'`). A tuple can, as long as it contains only immutable values.
+</Question>
+
+## Exercises
+
+### 7.1 · Managing participants
+
+You have a list of dictionaries. Each participant has a name, an email, and a score. Print the average, the best result, and the names of people scoring at least 75%. Handle an empty list.
+
+```python title="Starting data"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Marek", "email": "marek@example.com", "score": 64},
+    {"name": "Zuzana", "email": "zuzana@example.com", "score": 81},
+]
+```
+
+<p class="practises">You practise: a list of dictionaries, `max` with `key`, `sum`, list comprehensions.</p>
+
+<Solution>
+```python title="participants.py"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Marek", "email": "marek@example.com", "score": 64},
+    {"name": "Zuzana", "email": "zuzana@example.com", "score": 81},
+]
+
+if participants:
+    average = sum(person["score"] for person in participants) / len(participants)
+    best = max(participants, key=lambda person: person["score"])
+    successful = [person for person in participants if person["score"] >= 75]
+
+    print(f"Average: {average:.1f}%")
+    print(f"Best result: {best['name']} ({best['score']}%)")
+    print("Successful participants:")
+    for person in successful:
+        print(f"- {person['name']} ({person['email']})")
+else:
+    print("The participant list is empty.")
+```
+</Solution>
+
+### 7.2 · Most common words
+
+Read a sentence and print the three most common words with their counts. Ignore case and strip the punctuation `.,!?` from word edges.
+
+```text title="Example"
+Sentence: Git is fast. Git is distributed, and Git is everywhere!
+git: 3
+is: 3
+fast: 1
+```
+
+<p class="practises">You practise: a dictionary as a counter, `.get()`, `sorted` with `key` and `reverse`, slices.</p>
+
+<Solution>
+```python title="words.py"
+sentence = input("Sentence: ")
+counts = {}
+
+for raw_word in sentence.casefold().split():
+    word = raw_word.strip(".,!?")
+    if word:
+        counts[word] = counts.get(word, 0) + 1
+
+ranking = sorted(counts.items(), key=lambda pair: pair[1], reverse=True)
+
+for word, count in ranking[:3]:
+    print(f"{word}: {count}")
+```
+
+`strip(".,!?")` removes the listed characters from both edges. `sorted` is stable — words with the same count stay in the order they first appeared.
+</Solution>

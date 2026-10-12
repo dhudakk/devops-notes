@@ -1,0 +1,156 @@
+---
+import { courses } from '../courses';
+import { chapterCount, getChapters, getCoursePage, hrefOf, t, toLang } from '../lib/notes';
+import ContinueLink from './ContinueLink.astro';
+import ProgressMeter from './ProgressMeter.astro';
+
+const lang = toLang(Astro.locals.starlightRoute.lang);
+const text = t(lang);
+
+const cards = await Promise.all(
+  courses.map(async (course) => {
+    if (course.status !== 'active') return { course, chapters: [] };
+    const chapters = await getChapters(course.id, lang);
+    const cheatsheet = await getCoursePage(course.id, 'cheatsheet', lang);
+    return { course, chapters, cheatsheet };
+  }),
+);
+---
+
+<div class="course-grid not-content">
+  {
+    cards.map(({ course, chapters, cheatsheet }) =>
+      course.status === 'active' ? (
+        <article class="course">
+          <header class="course__head">
+            <span class="course__abbr">{course.abbr}</span>
+            <div>
+              <h3>
+                <a href={hrefOf(course.id, lang)}>{course.label[lang]}</a>
+              </h3>
+              <p class="course__count">{chapterCount(chapters.length, lang)}</p>
+            </div>
+          </header>
+          <p class="course__summary">{course.summary[lang]}</p>
+          <ProgressMeter chapters={chapters} />
+          <div class="course__actions">
+            <ContinueLink chapters={chapters} doneHref={cheatsheet?.href} />
+            {cheatsheet && (
+              <a class="course__link" href={cheatsheet.href}>
+                {text.cheatsheet}
+              </a>
+            )}
+          </div>
+        </article>
+      ) : (
+        <article class="course course--planned">
+          <header class="course__head">
+            <span class="course__abbr">{course.abbr}</span>
+            <div>
+              <h3>{course.label[lang]}</h3>
+              <p class="course__count">{text.planned}</p>
+            </div>
+          </header>
+          <p class="course__summary">{course.summary[lang]}</p>
+        </article>
+      ),
+    )
+  }
+</div>
+
+<style>
+  .course-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+
+  .course {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    border: 1px solid var(--nb-border);
+    border-radius: 0.9rem;
+    background: var(--sl-color-bg);
+    padding: 1.1rem 1.2rem 1.2rem;
+  }
+
+  .course--planned {
+    border-style: dashed;
+    background: transparent;
+  }
+
+  .course--planned .course__abbr,
+  .course--planned h3,
+  .course--planned .course__summary {
+    color: var(--sl-color-gray-3);
+  }
+
+  .course__head {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .course__abbr {
+    display: grid;
+    flex: none;
+    width: 2.6rem;
+    height: 2.6rem;
+    place-items: center;
+    border-radius: 0.6rem;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-text-accent);
+    font-family: var(--sl-font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .course--planned .course__abbr {
+    background: var(--sl-color-gray-6);
+  }
+
+  h3 {
+    margin: 0;
+    font-size: var(--sl-text-h4);
+    line-height: 1.2;
+    color: var(--sl-color-white);
+  }
+
+  h3 a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  h3 a:hover {
+    color: var(--sl-color-text-accent);
+  }
+
+  .course__count {
+    margin: 0.15rem 0 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+
+  .course__summary {
+    flex: 1;
+    margin: 0;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+    line-height: 1.55;
+  }
+
+  .course__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+  }
+
+  .course__link {
+    color: var(--sl-color-text-accent);
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+  }
+</style>

@@ -1,0 +1,124 @@
+---
+import { getChapters, getCoursePage, toLang } from '../lib/notes';
+import ContinueLink from './ContinueLink.astro';
+import ProgressMeter from './ProgressMeter.astro';
+
+interface Props {
+  course: string;
+}
+
+const lang = toLang(Astro.locals.starlightRoute.lang);
+const chapters = await getChapters(Astro.props.course, lang);
+const cheatsheet = await getCoursePage(Astro.props.course, 'cheatsheet', lang);
+---
+
+<div class="chapters not-content">
+  <div class="chapters__status">
+    <ProgressMeter chapters={chapters} />
+    <ContinueLink chapters={chapters} doneHref={cheatsheet?.href} />
+  </div>
+  <ol>
+    {
+      chapters.map((chapter) => (
+        <li data-study-item={chapter.slug}>
+          <span class="chapters__num" aria-hidden="true">
+            {String(chapter.number).padStart(2, '0')}
+          </span>
+          <div>
+            <a href={chapter.href}>{chapter.title}</a>
+            {chapter.description && <p>{chapter.description}</p>}
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+</div>
+
+<style>
+  .chapters {
+    margin-top: 1.25rem;
+    border: 1px solid var(--nb-border);
+    border-radius: 0.9rem;
+    overflow: hidden;
+  }
+
+  .chapters__status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--nb-rule);
+    background: var(--sl-color-gray-7, var(--sl-color-gray-6));
+    padding: 0.9rem 1.1rem;
+  }
+
+  .chapters__status > :global(.meter) {
+    flex: 1 1 14rem;
+  }
+
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    gap: 0.9rem;
+    padding: 0.85rem 1.1rem;
+  }
+
+  li + li {
+    border-top: 1px solid var(--nb-rule);
+  }
+
+  .chapters__num {
+    display: grid;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 1.5px solid var(--nb-border);
+    border-radius: 50%;
+    color: var(--sl-color-gray-3);
+    font-family: var(--sl-font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  li.is-studied .chapters__num {
+    border-color: var(--nb-done);
+    background: var(--nb-done);
+    color: transparent;
+    position: relative;
+  }
+
+  li.is-studied .chapters__num::after {
+    content: '';
+    position: absolute;
+    width: 0.4rem;
+    height: 0.75rem;
+    margin-top: -0.15rem;
+    border: solid var(--sl-color-black);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  a {
+    color: var(--sl-color-white);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--sl-color-text-accent);
+    text-decoration: underline;
+  }
+
+  p {
+    margin: 0.15rem 0 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+  }
+</style>

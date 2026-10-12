@@ -1,0 +1,233 @@
+---
+title: Lists and Tuples
+description: Storing many values — indexing, slicing, changing, copying, and nested collections.
+kind: chapter
+sidebar:
+  order: 5
+  label: 05 · Lists and tuples
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A `list` is ordered and **mutable** — `[1, 2, 3]`. A `tuple` is ordered and **immutable** — `(1, 2, 3)`.
+- The first item has index `0`, the last `-1`. A slice's right bound is **excluded**: `items[1:3]` = items 1 and 2.
+- `items.sort()` changes the original list and returns `None`; `sorted(items)` returns a **new** list.
+- `alias = original` does **not** copy — both names point to the same list. Copy with `original.copy()`.
+- Get the index and the value together with `enumerate(items, start=1)`.
+</KeyPoints>
+
+## List and tuple
+
+A list (`list`) holds an ordered collection of values and you can change it. A tuple (`tuple`) is also ordered, but **immutable** once created.
+
+```python
+topics = ["Python", "Git", "Terraform"]
+coordinates = (48.1486, 17.1077)
+```
+
+## Indexes and slices
+
+Indexing starts at **zero**. A negative index counts from the end.
+
+```python
+topics = ["Python", "Git", "Terraform", "Kubernetes"]
+#            0        1         2            3
+#           -4       -3        -2           -1
+
+print(topics[0])      # Python
+print(topics[-1])     # Kubernetes
+print(topics[1:3])    # ['Git', 'Terraform']
+print(topics[:2])     # ['Python', 'Git']
+print(topics[2:])     # ['Terraform', 'Kubernetes']
+print(topics[::-1])   # reversed
+```
+
+Just like `range()`, a slice's right bound is **not included**. An index out of range (`topics[10]`) raises `IndexError`; a slice out of range (`topics[2:10]`) does not.
+
+## Changing a list
+
+```python title="list_operations.py"
+participants = ["Eva", "Marek"]
+
+participants.append("Zuzana")   # add to the end
+participants.insert(1, "Adam")  # insert at index 1
+participants.remove("Marek")    # remove the first matching value
+last_added = participants.pop() # remove and return the last item
+
+print(participants)  # ['Eva', 'Adam']
+print(last_added)    # Zuzana
+```
+
+| Expression | Result |
+| --- | --- |
+| `len(items)` | number of items |
+| `value in items` | `True` if the list contains the value |
+| `items.index(x)` | index of the first `x` |
+| `items.count(x)` | how many times `x` occurs |
+| `items.sort()` | sorts the **original** list, returns `None` |
+| `sorted(items)` | returns a **new** sorted list |
+| `sum(items)`, `min(items)`, `max(items)` | sum, minimum, maximum |
+
+:::caution[A common trap]
+`items = items.sort()` loses the list — `sort()` returns `None`. Write either `items.sort()` or `items = sorted(items)`.
+:::
+
+## Beware of a shared list
+
+Assignment does **not create a copy**. Both names refer to the same object.
+
+```python
+original = [1, 2, 3]
+alias = original
+copy = original.copy()
+
+alias.append(4)
+
+print(original)  # [1, 2, 3, 4]  ← the original changed too
+print(copy)      # [1, 2, 3]
+```
+
+For a flat list, `.copy()` or the slice `[:]` is enough. For nested lists, use `copy.deepcopy()`.
+
+## Looping over a list
+
+```python
+prices = [12.50, 8.90, 25.00]
+total = 0.0
+
+for price in prices:
+    total += price
+
+print(f"Total: {total:.2f} €")  # sum(prices) gives the same result
+```
+
+When you need the value and its position, use `enumerate()`:
+
+```python
+for position, topic in enumerate(topics, start=1):
+    print(f"{position}. {topic}")
+```
+
+## Nested lists
+
+A table can be represented as a list of rows.
+
+```python title="matrix.py"
+attendance = [
+    [True, True, False],
+    [True, False, True],
+]
+
+print(attendance[1][2])  # True — row 1, column 2
+
+for student_number, days in enumerate(attendance, start=1):
+    attended = sum(days)  # True counts as 1 when summing
+    print(f"Student {student_number}: {attended} days")
+```
+
+## When to use a tuple
+
+A tuple fits a fixed group of values — an RGB colour, coordinates, or several results of a function.
+
+```python
+primary_color = (76, 224, 179)
+latitude, longitude = (48.1486, 17.1077)  # unpacking
+single = (42,)                            # a one-item tuple needs a comma
+```
+
+Immutability has limits: if a tuple contains a list, the nested list itself can still change.
+
+## Test yourself
+
+<Question q='What does `topics[1:3]` print for `topics = ["Python", "Git", "Terraform", "Kubernetes"]`?'>
+`['Git', 'Terraform']` — indexes 1 and 2. Index 3 (the right bound) is excluded.
+</Question>
+
+<Question q="What is the difference between a `list` and a `tuple`?">
+Both are ordered and indexable. You can change a `list` (`append`, `remove`, assigning to an index); a `tuple` cannot change once created.
+</Question>
+
+<Question q="After `alias = original` and `alias.append(4)` — does `original` change?">
+Yes. `alias` and `original` are two names for the same list. Make an independent copy with `original.copy()` or `original[:]`.
+</Question>
+
+<Question q="What is in `x` after `x = [3, 1, 2].sort()`?">
+`None`. `sort()` sorts the list in place and returns nothing. `sorted([3, 1, 2])` returns a new sorted list.
+</Question>
+
+<Question q="How do you create a tuple with one item?">
+With a comma: `(42,)`. `(42)` on its own is just a number in parentheses.
+</Question>
+
+## Exercises
+
+### 5.1 · Score statistics
+
+Read student scores (integers) until the user enters an empty line. Then print the count, minimum, maximum, average, the sorted list, and how many students scored **above average**. Handle the case where nothing is entered.
+
+<p class="practises">You practise: `append`, `len`, `sum`, `min`/`max`, `sorted`, looping over a list.</p>
+
+<Solution>
+```python title="statistics.py"
+scores = []
+
+while True:
+    raw = input("Score (empty line = stop): ").strip()
+    if not raw:
+        break
+    scores.append(int(raw))
+
+if scores:
+    average = sum(scores) / len(scores)
+
+    above_average = 0
+    for score in scores:
+        if score > average:
+            above_average += 1
+
+    print(f"Count: {len(scores)}")
+    print(f"Minimum / maximum: {min(scores)} / {max(scores)}")
+    print(f"Average: {average:.1f}")
+    print(f"Sorted: {sorted(scores)}")
+    print(f"Above average: {above_average}")
+else:
+    print("No scores were entered.")
+```
+</Solution>
+
+### 5.2 · Rotating a list
+
+Write a function `rotate(items, k)` that returns a **new** list shifted `k` places to the right. The original list must not change.
+
+```python title="Expected behaviour"
+rotate([1, 2, 3, 4, 5], 2)   # [4, 5, 1, 2, 3]
+rotate([1, 2, 3, 4, 5], 7)   # [4, 5, 1, 2, 3]  — 7 steps equal 2
+rotate([], 3)                # []
+```
+
+<p class="practises">You practise: slices, negative indexes, `%`, joining lists with `+`.</p>
+
+<Solution variant="hint">
+The last `k` items are `items[-k:]`, the rest is `items[:-k]`. Join them with `+`. Reduce the number of steps with `k % len(items)` — and watch out for an empty list.
+</Solution>
+
+<Solution>
+```python title="rotation.py"
+def rotate(items, k):
+    if not items:
+        return []
+    k = k % len(items)
+    return items[-k:] + items[:-k]
+
+
+numbers = [1, 2, 3, 4, 5]
+print(rotate(numbers, 2))  # [4, 5, 1, 2, 3]
+print(rotate(numbers, 7))  # [4, 5, 1, 2, 3]
+print(numbers)             # [1, 2, 3, 4, 5] — the original is unchanged
+```
+
+A slice always creates a new list, so the original stays as it was. For `k == 0` the formula still works: `-0` is `0`, so `items[0:] + items[:0]` is the whole list plus an empty one.
+</Solution>

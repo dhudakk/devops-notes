@@ -1,0 +1,309 @@
+---
+title: Functions and Modules
+description: Splitting a program into small, readable, reusable parts — parameters, return, scope, and import.
+kind: chapter
+sidebar:
+  order: 4
+  label: 04 · Functions and modules
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A function is a named block of code with **one** clear job. You define it with `def`.
+- A **parameter** is the name in the definition, an **argument** is the value in the call.
+- `return` **hands** the result back to the caller; `print()` only **shows** it. Without `return` a function returns `None`.
+- Variables created inside a function are **local** — they do not exist outside it.
+- A module is a `.py` file. Load it with `import module` or `from module import name`.
+</KeyPoints>
+
+## Defining and calling
+
+A function is a named block of code. Breaking a big problem into smaller parts improves readability, testing, and reuse.
+
+```python
+def print_header():
+    print("=" * 30)
+    print("      PYTHON WORKSHOP")
+    print("=" * 30)
+
+
+print_header()
+```
+
+PEP 8 style puts **two blank lines** between function definitions and the rest of the program.
+
+## Parameters and arguments
+
+A **parameter** is a name in the function definition. An **argument** is the concrete value passed in the call.
+
+```python
+def greet(name, language="sk"):
+    if language == "sk":
+        return f"Ahoj, {name}!"
+    return f"Hello, {name}!"
+
+
+print(greet("Mária"))                 # positional argument
+print(greet("John", language="en"))   # keyword argument
+```
+
+A parameter with a default value (`language="sk"`) must come **after** parameters without one. `def greet(language="sk", name):` is a `SyntaxError`.
+
+## Return values
+
+`return` hands a result back to the caller and ends the function **immediately**.
+
+```python
+def total_price(unit_price, quantity, discount=0.0):
+    subtotal = unit_price * quantity
+    return subtotal * (1 - discount)
+
+
+price = total_price(49.90, 3, discount=0.10)
+print(f"Total: {price:.2f} €")
+```
+
+A function without `return` returns `None`. People sometimes informally call it a “void function”, but technically it always returns something.
+
+```python
+def show_status(message):
+    print(f"Status: {message}")
+
+
+result = show_status("done")
+print(result)  # None
+```
+
+### Boolean functions
+
+A function returning `True`/`False` names a rule. Start the name with `is_`, `has_`, or `can_`.
+
+```python
+def is_valid_age(age):
+    return 0 <= age <= 120
+
+
+if is_valid_age(28):
+    print("The age is valid")
+```
+
+### Several return values
+
+A function can return several values at once. Python packs them into a tuple, and you can unpack them on assignment.
+
+```python
+def convert_minutes(total_minutes):
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    return hours, minutes
+
+
+hours, minutes = convert_minutes(135)
+print(f"{hours} h {minutes} min")  # 2 h 15 min
+```
+
+## Local and global scope
+
+A variable created inside a function is **local** — it does not exist outside (`NameError`). A function can read global variables, but changing global state from functions makes testing harder.
+
+```python
+VAT_RATE = 0.20  # a global constant is fine
+
+
+def price_with_vat(net_price):
+    gross_price = net_price * (1 + VAT_RATE)  # local variable
+    return gross_price
+
+
+print(price_with_vat(100))  # 120.0
+# print(gross_price)        # NameError — does not exist outside
+```
+
+:::caution[Use `global` sparingly]
+You do not need `global` to **read** a global value. It is needed only to **assign** to it inside a function — and that is often a sign the function should take the value as a parameter and give it back with `return`.
+:::
+
+## Modules
+
+A module is a Python file containing functions, classes, or constants. `import` makes its names available.
+
+```python title="random_demo.py"
+import math
+import random
+
+radius = 3
+area = math.pi * radius**2
+roll = random.randint(1, 6)  # 1 to 6 inclusive
+
+print(f"Circle area: {area:.2f}")
+print(f"Dice roll: {roll}")
+```
+
+| Import | Use in code |
+| --- | --- |
+| `import math` | `math.sqrt(16)` |
+| `from math import sqrt` | `sqrt(16)` |
+| `import math as m` | `m.sqrt(16)` |
+
+`math` and `random` are part of the **standard library** — they ship with Python. Packages such as NumPy or pandas are installed separately with `pip`:
+
+```bash title="Terminal"
+python -m pip install pandas
+```
+
+### Your own module
+
+You can put functions in a separate `.py` file and import them. In this simple example both files must be in the **same folder**.
+
+```python title="helpers.py"
+def format_price(value):
+    return f"{value:.2f} €"
+
+
+def calculate_discount(price, percent):
+    return price * percent / 100
+```
+
+```python title="main.py"
+from helpers import calculate_discount, format_price
+
+price = 120.0
+discount = calculate_discount(price, 15)
+
+print(format_price(price - discount))  # 102.00 €
+```
+
+A **package** is a folder that organises several modules.
+
+## Complete example: a registration module
+
+```python title="registration.py"
+MINIMUM_AGE = 15
+
+
+def can_register(age, has_guardian_consent):
+    if age >= 18:
+        return True
+    return age >= MINIMUM_AGE and has_guardian_consent
+
+
+def registration_message(name, allowed):
+    if allowed:
+        return f"{name}: registration successful"
+    return f"{name}: registration rejected"
+
+
+name = input("Name: ").strip()
+age = int(input("Age: "))
+answer = input("Guardian consent? (yes/no): ").strip().lower()
+
+allowed = can_register(age, answer == "yes")
+print(registration_message(name, allowed))
+```
+
+## Test yourself
+
+<Question q='What is the parameter and what is the argument in `def greet(name):` and `greet("Eva")`?'>
+`name` is the parameter (the name in the definition). `"Eva"` is the argument (the value in the call).
+</Question>
+
+<Question q="What is the difference between `return` and `print()` inside a function?">
+`return` hands the value back to the caller, who can store and reuse it, and ends the function. `print()` only shows the value in the console. A function that only prints returns `None`.
+</Question>
+
+<Question q="Why is `def f(a=1, b):` an error?">
+Parameters with a default value must come after those without one. The correct form is `def f(b, a=1):`.
+</Question>
+
+<Question q="What does `convert_minutes(135)` return if the function ends with `return hours, minutes`?">
+The tuple `(2, 15)`. Unpack it with `hours, minutes = convert_minutes(135)`.
+</Question>
+
+<Question q="What is the difference between `import math` and `from math import sqrt`?">
+With `import math` you call `math.sqrt(...)` — the module name is part of the call. With `from math import sqrt` you call `sqrt(...)` directly.
+</Question>
+
+## Exercises
+
+### 4.1 · Calculator from functions
+
+Create the functions `add`, `subtract`, `multiply`, and `divide`. The main part reads two numbers and an operation (`+ - * /`) and prints the result. Division by zero must print an understandable message, not an error.
+
+**Bonus:** move the functions into `calculator.py` and import them in `main.py`.
+
+<p class="practises">You practise: `def`, `return`, `if`/`elif`, your own module.</p>
+
+<Solution>
+```python title="calculator.py"
+def add(a, b):
+    return a + b
+
+
+def subtract(a, b):
+    return a - b
+
+
+def multiply(a, b):
+    return a * b
+
+
+def divide(a, b):
+    return a / b
+```
+
+```python title="main.py"
+from calculator import add, divide, multiply, subtract
+
+first = float(input("First number: "))
+operator = input("Operation (+, -, *, /): ").strip()
+second = float(input("Second number: "))
+
+result = None
+
+if operator == "+":
+    result = add(first, second)
+elif operator == "-":
+    result = subtract(first, second)
+elif operator == "*":
+    result = multiply(first, second)
+elif operator == "/" and second == 0:
+    print("Cannot divide by zero.")
+elif operator == "/":
+    result = divide(first, second)
+else:
+    print("Unknown operation.")
+
+if result is not None:
+    print(f"Result: {result:g}")
+```
+
+`result is not None` checks whether a result was computed. After chapters 7 and 8 you can replace the `if` chain with a dictionary `{"+": add, ...}` and handle division by zero with an exception.
+</Solution>
+
+### 4.2 · Formatting a duration
+
+Write a function `format_duration(seconds)` that returns a string such as `1 h 02 min 05 s`. The function prints nothing — it only **returns** text. Check it with `3725`, `59`, and `0`.
+
+<p class="practises">You practise: parameters, `return`, `//` and `%`, the `:02` format.</p>
+
+<Solution variant="hint">
+Hours = `seconds // 3600`. What is left after the hours is `seconds % 3600`; take minutes from it with `// 60` and seconds with `% 60`. `f"{5:02}"` prints `05`.
+</Solution>
+
+<Solution>
+```python title="duration.py"
+def format_duration(seconds):
+    hours = seconds // 3600
+    minutes = seconds % 3600 // 60
+    rest = seconds % 60
+    return f"{hours} h {minutes:02} min {rest:02} s"
+
+
+print(format_duration(3725))  # 1 h 02 min 05 s
+print(format_duration(59))    # 0 h 00 min 59 s
+print(format_duration(0))     # 0 h 00 min 00 s
+```
+</Solution>

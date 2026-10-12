@@ -1,0 +1,230 @@
+---
+title: Slovníky a množiny
+description: Dáta podľa kľúča a unikátne prvky — dict, set a ako vybrať správnu kolekciu.
+kind: chapter
+sidebar:
+  order: 7
+  label: 07 · Slovníky a množiny
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Slovník (`dict`) mapuje **unikátny kľúč** na hodnotu: `{"name": "Eva", "score": 92}`.
+- `d["kľúč"]` pri chýbajúcom kľúči vyvolá `KeyError`; `d.get("kľúč", default)` vráti predvolenú hodnotu.
+- `for key, value in d.items():` prechádza dvojice; samotné `for key in d:` prechádza iba kľúče.
+- Množina (`set`) drží **unikátne** prvky bez poradia a indexov; vie `&`, `|`, `-`, `^`.
+- `{}` je prázdny **slovník**. Prázdnu množinu vytvoríš cez `set()`.
+</KeyPoints>
+
+## Slovník
+
+Slovník mapuje unikátny kľúč na hodnotu. Hodí sa na záznam s pomenovanými vlastnosťami.
+
+```python
+student = {
+    "name": "Eva",
+    "course": "Python",
+    "completed_lessons": 6,
+    "active": True,
+}
+
+print(student["name"])                         # Eva
+print(student.get("email", "E-mail neuvedený"))  # E-mail neuvedený
+print("course" in student)                     # True — testuje kľúče
+```
+
+Prístup cez `student["email"]` vyvolá pri chýbajúcom kľúči `KeyError`. Metóda `.get()` bezpečne vráti predvolenú hodnotu (bez nej `None`).
+
+Kľúčom môže byť iba **nemenná** hodnota — reťazec, číslo alebo n-tica. Zoznam kľúčom byť nemôže.
+
+## Pridanie, zmena a odstránenie
+
+```python
+student["email"] = "eva@example.com"   # pridá nový kľúč
+student["completed_lessons"] += 1     # zmení existujúcu hodnotu
+
+removed_value = student.pop("active", None)
+print(removed_value)  # True
+```
+
+Priradenie do existujúceho kľúča starú hodnotu **prepíše** — slovník nemôže mať dva rovnaké kľúče.
+
+## Prechádzanie slovníka
+
+```python
+for key, value in student.items():
+    print(f"{key}: {value}")
+```
+
+| Zápis | Prechádza |
+| --- | --- |
+| `for key in d:` alebo `d.keys()` | kľúče |
+| `d.values()` | hodnoty |
+| `d.items()` | dvojice `(kľúč, hodnota)` |
+
+### Počítanie výskytov
+
+Častý vzor: slovník ako počítadlo.
+
+```python
+votes = ["git", "python", "git", "docker", "git"]
+counts = {}
+
+for vote in votes:
+    counts[vote] = counts.get(vote, 0) + 1
+
+print(counts)  # {'git': 3, 'python': 1, 'docker': 1}
+```
+
+## Zoznam slovníkov
+
+Typický dátový model: **zoznam** pre kolekciu záznamov, **slovník** pre vlastnosti jedného záznamu.
+
+```python title="course_data.py"
+participants = [
+    {"name": "Eva", "score": 92},
+    {"name": "Marek", "score": 74},
+    {"name": "Zuzana", "score": 88},
+]
+
+best = max(participants, key=lambda participant: participant["score"])
+average = sum(item["score"] for item in participants) / len(participants)
+
+print(f"Najlepší výsledok: {best['name']} ({best['score']} %)")
+print(f"Priemer: {average:.1f} %")
+```
+
+- `key=lambda participant: participant["score"]` hovorí funkcii `max`, **podľa čoho** má porovnávať. `lambda` je krátka bezmenná funkcia: `lambda x: x["score"]` znamená „pre `x` vráť `x["score"]`“.
+- `sum(item["score"] for item in participants)` sčíta skóre všetkých účastníkov (generátorový výraz).
+- Rovnaký `key` funguje aj pre `min()` a `sorted()`.
+
+## Množiny
+
+Množina automaticky odstráni duplicity a podporuje množinové operácie.
+
+```python
+day_one = {"Eva", "Marek", "Zuzana"}
+day_two = {"Eva", "Zuzana", "Peter"}
+
+print(day_one & day_two)  # prienik: oba dni           {'Eva', 'Zuzana'}
+print(day_one | day_two)  # zjednotenie: aspoň jeden deň
+print(day_one - day_two)  # rozdiel: iba prvý deň       {'Marek'}
+print(day_one ^ day_two)  # práve jeden z dní           {'Marek', 'Peter'}
+```
+
+Odstránenie duplicít zo zoznamu:
+
+```python
+topics = ["Python", "Git", "Python", "Docker"]
+
+print(set(topics))                 # poradie nie je zaručené
+print(sorted(set(topics)))         # ['Docker', 'Git', 'Python']
+print(list(dict.fromkeys(topics))) # ['Python', 'Git', 'Docker'] — zachová pôvodné poradie
+```
+
+Pridávanie a odoberanie: `s.add(x)`, `s.remove(x)` (chyba, ak `x` chýba), `s.discard(x)` (bez chyby).
+
+## Ako vybrať kolekciu
+
+| Potreba | Typ | Zápis |
+| --- | --- | --- |
+| Usporiadané hodnoty, ktoré sa menia | `list` | `[1, 2]` |
+| Pevná usporiadaná skupina | `tuple` | `(1, 2)` |
+| Hodnoty podľa pomenovaného kľúča | `dict` | `{"a": 1}` |
+| Unikátne prvky, množinové operácie | `set` | `{1, 2}` |
+
+## Otestuj sa
+
+<Question q='Čo sa stane pri `student["email"]`, ak kľúč neexistuje? A pri `student.get("email")`?'>
+Prvé vyvolá `KeyError`. Druhé vráti `None` (alebo predvolenú hodnotu, ak ju zadáš ako druhý argument).
+</Question>
+
+<Question q="Čo prechádza cyklus `for x in d:`, ak je `d` slovník?">
+Iba kľúče. Na dvojice kľúč–hodnota použi `d.items()`, na hodnoty `d.values()`.
+</Question>
+
+<Question q='Čo vráti `{"a", "b"} & {"b", "c"}`?'>
+`{'b'}` — prienik, prvky v oboch množinách.
+</Question>
+
+<Question q="Aký typ má `x = {}`?">
+`dict`, prázdny slovník. Prázdna množina sa vytvára cez `set()`.
+</Question>
+
+<Question q="Môže byť zoznam kľúčom slovníka? A n-tica?">
+Zoznam nie — je meniteľný (`TypeError: unhashable type: 'list'`). N-tica áno, ak obsahuje iba nemenné hodnoty.
+</Question>
+
+## Cvičenia
+
+### 7.1 · Správa účastníkov
+
+Máš zoznam slovníkov. Každý účastník má meno, e-mail a bodové skóre. Vypíš priemer, najlepší výsledok a mená ľudí so skóre aspoň 75 %. Ošetri prázdny zoznam.
+
+```python title="Štartovacie dáta"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Marek", "email": "marek@example.com", "score": 64},
+    {"name": "Zuzana", "email": "zuzana@example.com", "score": 81},
+]
+```
+
+<p class="practises">Precvičíš: zoznam slovníkov, `max` s `key`, `sum`, list comprehension.</p>
+
+<Solution>
+```python title="ucastnici.py"
+participants = [
+    {"name": "Eva", "email": "eva@example.com", "score": 92},
+    {"name": "Marek", "email": "marek@example.com", "score": 64},
+    {"name": "Zuzana", "email": "zuzana@example.com", "score": 81},
+]
+
+if participants:
+    average = sum(person["score"] for person in participants) / len(participants)
+    best = max(participants, key=lambda person: person["score"])
+    successful = [person for person in participants if person["score"] >= 75]
+
+    print(f"Priemer: {average:.1f} %")
+    print(f"Najlepší výsledok: {best['name']} ({best['score']} %)")
+    print("Úspešní účastníci:")
+    for person in successful:
+        print(f"- {person['name']} ({person['email']})")
+else:
+    print("Zoznam účastníkov je prázdny.")
+```
+</Solution>
+
+### 7.2 · Najčastejšie slová
+
+Načítaj vetu a vypíš tri najčastejšie slová s počtom výskytov. Veľkosť písmen ignoruj a z okrajov slov odstráň interpunkciu `.,!?`.
+
+```text title="Príklad"
+Veta: Git je rýchly. Git je distribuovaný, a Git je všade!
+git: 3
+je: 3
+rýchly: 1
+```
+
+<p class="practises">Precvičíš: slovník ako počítadlo, `.get()`, `sorted` s `key` a `reverse`, rezy.</p>
+
+<Solution>
+```python title="slova.py"
+sentence = input("Veta: ")
+counts = {}
+
+for raw_word in sentence.casefold().split():
+    word = raw_word.strip(".,!?")
+    if word:
+        counts[word] = counts.get(word, 0) + 1
+
+ranking = sorted(counts.items(), key=lambda pair: pair[1], reverse=True)
+
+for word, count in ranking[:3]:
+    print(f"{word}: {count}")
+```
+
+`strip(".,!?")` odstráni uvedené znaky z oboch okrajov. `sorted` je stabilný — slová s rovnakým počtom ostanú v poradí, v akom sa prvýkrát objavili.
+</Solution>

@@ -1,55 +1,24 @@
 ---
 title: DevOps Notes
-description: A practical library of notes for modern DevOps tools, languages, and workflows.
-template: splash
-hero:
-  tagline: Turning lessons and raw transcripts into clear, verified, useful technical notes — with examples, exercises, and solutions in one place.
-  actions:
-    - text: Open the Python course
-      link: /devops-notes/en/python/
-      icon: right-arrow
-      variant: primary
-    - text: Browse all topics
-      link: '#courses'
-      icon: open-book
-      variant: minimal
+description: My notes for the DevOps exam — each topic is a course with chapters, self-test questions, and exercises with solutions.
+kind: home
+tableOfContents: false
+prev: false
+next: false
 ---
 
-<div class="stat-grid">
-  <div class="stat-card"><strong>SK + EN</strong><p>every completed course in Slovak and English</p></div>
-  <div class="stat-card"><strong>Practical</strong><p>copyable code, assignments, and hidden reference solutions</p></div>
-  <div class="stat-card"><strong>Modular</strong><p>independent courses that can grow over time</p></div>
-</div>
+import CourseGrid from '../../../components/CourseGrid.astro';
 
 ## Courses
 
-<div id="courses" class="course-grid">
-  <a class="course-card available" href="/devops-notes/en/python/">
-    <span class="course-icon">Py</span>
-    <span class="course-status">Available</span>
-    <h3>Python</h3>
-    <p>From variables and conditions to functions, files, and data structures.</p>
-    <span class="course-meta">8 chapters · 10 exercises · SK + EN</span>
-  </a>
-  <div class="course-card planned">
-    <span class="course-icon">Git</span>
-    <span class="course-status">In preparation</span>
-    <h3>Git</h3>
-    <p>History, branches, collaboration, conflicts, and an everyday workflow.</p>
-    <span class="course-meta">Next course</span>
-  </div>
-  <div class="course-card planned">
-    <span class="course-icon">Tf</span>
-    <span class="course-status">Planned</span>
-    <h3>Terraform</h3>
-    <p>Infrastructure as Code, state, modules, and safe infrastructure delivery.</p>
-    <span class="course-meta">Future course</span>
-  </div>
-  <div class="course-card planned">
-    <span class="course-icon">K8s</span>
-    <span class="course-status">Planned</span>
-    <h3>Kubernetes</h3>
-    <p>Workloads, networking, configuration, and operating containerized applications.</p>
-    <span class="course-meta">Future course</span>
-  </div>
-</div>
+<CourseGrid />
+
+## How to study with these notes
+
+<ol class="study-steps">
+  <li><strong>Read the chapter</strong>Start with the “Key points” box — it tells you what to take away.</li>
+  <li><strong>Test yourself</strong>Answer the questions at the end out loud before revealing the answer.</li>
+  <li><strong>Solve the exercises</strong>Without the hint first. Open the solution only once you have your own version.</li>
+  <li><strong>Mark it as studied</strong>The button next to the title remembers your progress in this browser.</li>
+  <li><strong>Before the exam</strong>Go through the course cheat sheet and the questions from every chapter.</li>
+</ol>

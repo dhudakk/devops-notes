@@ -1,0 +1,270 @@
+---
+title: Cheat Sheet
+description: The whole Python course on one page — syntax, the most used methods, and the traps to watch for in the exam.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Types, input, and output
+
+<div class="sheet-grid">
+
+```python title="Types and conversions"
+type(42)          # <class 'int'>
+int("42")         # 42
+float("3.5")      # 3.5
+str(42)           # '42'
+int("3.5")        # ValueError
+int(3.9)          # 3 (truncates)
+round(3.567, 2)   # 3.57
+bool("")          # False
+```
+
+```python title="Input and output"
+name = input("Name: ")      # always str
+age = int(input("Age: "))
+
+print("a", "b", sep="-", end="!\n")
+print(f"{name} is {age}")
+print(f"{19.9:.2f} €")      # 19.90 €
+print(f"{7:03}")            # 007
+print(f"{'ab':>5}")         # '   ab'
+```
+
+</div>
+
+## Operators
+
+<div class="sheet-grid">
+
+```python title="Arithmetic"
+17 / 5    # 3.4  (always float)
+17 // 5   # 3    (rounds down)
+17 % 5    # 2    (remainder)
+2 ** 10   # 1024
+-7 // 2   # -4   (down, not to zero)
+x += 1    # x = x + 1
+```
+
+```python title="Comparison and logic"
+==  !=  <  >  <=  >=
+18 <= age <= 24          # chained
+a and b   # both True
+a or b    # at least one True
+not a     # flips
+x in items   # contains?
+x is None    # test for None
+```
+
+</div>
+
+**Falsy values:** `False`, `None`, `0`, `0.0`, `""`, `[]`, `{}`, `()`, `set()`. Everything else is truthy.
+
+## Control flow
+
+<div class="sheet-grid">
+
+```python title="Conditions"
+# strictest condition first
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+else:
+    grade = "C"
+```
+
+```python title="Loops"
+range(5)           # 0..4
+range(1, 6)        # 1..5
+range(10, 0, -2)   # 10,8,6,4,2
+
+for i, x in enumerate(items, start=1):
+    ...
+
+while True:
+    if skip:
+        continue   # next iteration
+    if done:
+        break      # leave the loop
+```
+
+</div>
+
+## Functions and modules
+
+<div class="sheet-grid">
+
+```python title="Functions"
+def total(price, qty, discount=0.0):
+    """Default parameters go last."""
+    return price * qty * (1 - discount)
+
+total(10, 3)               # positional
+total(10, 3, discount=0.1) # keyword
+
+def minmax(xs):
+    return min(xs), max(xs)  # tuple
+low, high = minmax([3, 1, 2])
+```
+
+```python title="Import"
+import math
+math.sqrt(16)
+
+from random import randint
+randint(1, 6)     # 1..6 inclusive
+
+import pandas as pd   # alias
+
+# no return → the function returns None
+# variables inside a function are local
+```
+
+</div>
+
+## Collections
+
+| | `list` | `tuple` | `dict` | `set` |
+| --- | --- | --- | --- | --- |
+| Literal | `[1, 2]` | `(1, 2)` | `{"a": 1}` | `{1, 2}` |
+| Empty | `[]` | `()` | `{}` | `set()` |
+| Mutable | yes | no | yes | yes |
+| Order / index | yes | yes | insertion order, access by key | no |
+| Duplicates | yes | yes | unique keys | no |
+
+<div class="sheet-grid">
+
+```python title="Lists"
+xs = ["a", "b", "c", "d"]
+xs[0], xs[-1]       # 'a', 'd'
+xs[1:3]             # ['b', 'c']
+xs[::-1]            # reversed
+xs.append("e")      # to the end
+xs.insert(0, "z")   # at an index
+xs.remove("b")      # by value
+xs.pop()            # remove the last
+xs.sort()           # in place, returns None
+sorted(xs)          # new list
+len(xs); sum(ns); min(ns); max(ns)
+copy = xs.copy()    # not: copy = xs
+```
+
+```python title="Dictionaries and sets"
+d = {"name": "Eva", "score": 92}
+d["name"]             # KeyError if missing
+d.get("email", "-")   # safe
+d["email"] = "e@x.sk" # add / overwrite
+d.pop("score")
+for k, v in d.items(): ...
+counts[w] = counts.get(w, 0) + 1
+
+a & b   # intersection
+a | b   # union
+a - b   # difference
+a ^ b   # in exactly one
+max(people, key=lambda p: p["score"])
+```
+
+</div>
+
+## Strings
+
+<div class="sheet-grid">
+
+```python title="Methods"
+s.strip()          # edges
+s.lower() / s.upper() / s.title()
+s.casefold()       # for comparing
+s.replace("a", "b")
+s.startswith("x") / s.endswith("y")
+s.find("x")        # index or -1
+s.count("x")
+s.isdigit() / s.isalpha()
+```
+
+```python title="Splitting and joining"
+"a,b,c".split(",")     # ['a', 'b', 'c']
+"a  b".split()         # ['a', 'b']
+", ".join(["a", "b"])  # 'a, b'
+"Python"[1:4]          # 'yth'
+s = "P" + s[1:]        # str is immutable
+
+[w.strip() for w in parts]
+[w for w in words if w]   # with a filter
+```
+
+</div>
+
+## Files, exceptions, JSON
+
+<div class="sheet-grid">
+
+```python title="Files"
+with open("f.txt", encoding="utf-8") as f:
+    text = f.read()     # whole content
+    # f.readlines()  → list of lines
+    # for line in f: → line by line
+
+# "w" overwrites, "a" appends
+with open("f.txt", "a", encoding="utf-8") as f:
+    f.write("line\n")   # add \n yourself
+```
+
+```python title="Exceptions"
+try:
+    n = int(input("Number: "))
+except ValueError:
+    print("Not a number")
+else:
+    print("OK")       # if no error happened
+finally:
+    print("Always")
+
+raise ValueError("Bad value")
+```
+
+```python title="JSON"
+import json
+
+# write
+with open("d.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False,
+              indent=2)
+
+# read
+with open("d.json", encoding="utf-8") as f:
+    data = json.load(f)
+```
+
+```text title="Common exceptions"
+ValueError         int("abc")
+TypeError          "a" + 1
+NameError          undefined variable
+IndexError         xs[99]
+KeyError           d["missing"]
+ZeroDivisionError  1 / 0
+FileNotFoundError  open("missing.txt")
+```
+
+</div>
+
+## Exam traps
+
+| Trap | Correct |
+| --- | --- |
+| `input()` returns text, `"5" + 1` is a `TypeError` | `int(input())` |
+| `range(1, 5)` stops at `4` | `range(1, 6)` for 1–5 |
+| `if x = 5:` | `if x == 5:` |
+| `elif` with a looser condition first | strictest condition first |
+| `xs = xs.sort()` → `None` | `xs.sort()` or `xs = sorted(xs)` |
+| `b = a`, then changing `b` changes `a` too | `b = a.copy()` |
+| `name.upper()` without assignment changes nothing | `name = name.upper()` |
+| a function that prints instead of returning gives `None` | `return result` |
+| `def f(a=1, b):` | default parameters go last |
+| `def f(items=[])` — the list is shared between calls | `items=None`, then `if items is None: items = []` |
+| `{}` is an empty dictionary | an empty set is `set()` |
+| `open(..., "w")` erases the file | `"a"` to append |
+| bare `except:` | `except ValueError:` |
+| `0.1 + 0.2 == 0.3` is `False` | `round(...)` or `math.isclose()` |
