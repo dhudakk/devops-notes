@@ -1,53 +1,73 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { courses } from './src/courses.ts';
+
+const base = '/devops-notes';
+
+// Each active course becomes one collapsible sidebar group, filled from its folder
+// in sidebar.order. The group of the page you are on opens automatically.
+const courseGroups = courses
+  .filter((course) => course.status === 'active')
+  .map((course) => ({
+    label: course.label.sk,
+    translations: { en: course.label.en },
+    collapsed: true,
+    items: [{ autogenerate: { directory: course.id } }],
+  }));
+
+// The Python pages used to live at the site root; keep old links and bookmarks working.
+const movedPythonPages = [
+  'zaklady',
+  'podmienky',
+  'cykly',
+  'funkcie-a-moduly',
+  'zoznamy-a-ntice',
+  'retazce',
+  'slovniky-a-mnoziny',
+  'subory-a-chyby',
+  'zdroje',
+];
+const redirects = {};
+for (const prefix of ['', '/en']) {
+  for (const page of movedPythonPages) {
+    redirects[`${prefix}/${page}`] = `${base}${prefix}/python/${page}/`;
+  }
+  redirects[`${prefix}/cvicenia`] = `${base}${prefix}/python/`;
+}
 
 export default defineConfig({
   site: 'https://dhudakk.github.io',
-  base: '/devops-notes',
+  base,
+  redirects,
   integrations: [
     starlight({
-      title: {
-        sk: 'DevOps Notes',
-        en: 'DevOps Notes',
-      },
-      description: 'Prehľadné poznámky, príklady a cvičenia pre Python, Git, Terraform, Kubernetes a ďalšie DevOps témy.',
+      title: 'DevOps Notes',
+      description: 'Osobné študijné poznámky k DevOps skúške: Python, Docker, Kubernetes a ďalšie.',
       defaultLocale: 'root',
       locales: {
         root: { label: 'Slovenčina', lang: 'sk' },
         en: { label: 'English', lang: 'en' },
       },
-      customCss: ['./src/styles/custom.css'],
-      sidebar: [
-        { label: 'Prehľad', translations: { en: 'Overview' }, link: '/' },
-        { label: 'Python · Prehľad', translations: { en: 'Python · Overview' }, link: '/python/' },
-        {
-          label: 'Python · Deň 1',
-          translations: { en: 'Python · Day 1' },
-          items: [
-            { label: '01 · Základy Pythonu', translations: { en: '01 · Python Basics' }, link: '/zaklady/' },
-            { label: '02 · Podmienky', translations: { en: '02 · Conditions' }, link: '/podmienky/' },
-            { label: '03 · Cykly', translations: { en: '03 · Loops' }, link: '/cykly/' },
-            { label: '04 · Funkcie a moduly', translations: { en: '04 · Functions and modules' }, link: '/funkcie-a-moduly/' },
-          ],
-        },
-        {
-          label: 'Python · Deň 2',
-          translations: { en: 'Python · Day 2' },
-          items: [
-            { label: '05 · Súbory a chyby', translations: { en: '05 · Files and errors' }, link: '/subory-a-chyby/' },
-            { label: '06 · Zoznamy a n-tice', translations: { en: '06 · Lists and tuples' }, link: '/zoznamy-a-ntice/' },
-            { label: '07 · Reťazce', translations: { en: '07 · Strings' }, link: '/retazce/' },
-            { label: '08 · Slovníky a množiny', translations: { en: '08 · Dictionaries and sets' }, link: '/slovniky-a-mnoziny/' },
-          ],
-        },
-        { label: 'Cvičenia', translations: { en: 'Exercises' }, link: '/cvicenia/' },
-        { label: 'Prezentácie a zdroje', translations: { en: 'Presentations and sources' }, link: '/zdroje/' },
+      customCss: [
+        '@fontsource-variable/inter',
+        '@fontsource-variable/jetbrains-mono',
+        './src/styles/custom.css',
       ],
+      components: {
+        PageTitle: './src/components/PageTitle.astro',
+      },
+      sidebar: [{ label: 'Domov', translations: { en: 'Home' }, link: '/' }, ...courseGroups],
+      lastUpdated: false,
       expressiveCode: {
-        themes: ['github-dark-high-contrast', 'github-light'],
+        themes: ['github-dark', 'github-light'],
         styleOverrides: {
-          borderRadius: '0.9rem',
-          frames: { frameBoxShadowCssValue: '0 20px 55px rgba(0, 0, 0, 0.32)' },
+          borderRadius: '0.6rem',
+          borderColor: 'var(--nb-border)',
+          codeFontSize: '0.85rem',
+          frames: {
+            frameBoxShadowCssValue: 'none',
+            editorActiveTabIndicatorTopColor: 'var(--sl-color-accent)',
+          },
         },
       },
     }),

@@ -1,0 +1,41 @@
+---
+import { t, toLang } from '../lib/notes';
+
+const text = t(toLang(Astro.locals.starlightRoute.lang));
+---
+
+<aside class="key-points" aria-label={text.keyPoints}>
+  <p class="key-points__title">{text.keyPoints}</p>
+  <slot />
+</aside>
+
+<style>
+  .key-points {
+    margin-top: 1.5rem;
+    border: 1px solid var(--nb-highlight-border);
+    border-radius: 0.75rem;
+    background: var(--nb-highlight-bg);
+    padding: 1rem 1.25rem 1.1rem;
+  }
+
+  .key-points__title {
+    color: var(--nb-highlight-text);
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .key-points :global(ul) {
+    margin-top: 0.5rem;
+    padding-inline-start: 1.1rem;
+  }
+
+  .key-points :global(li + li) {
+    margin-top: 0.3rem;
+  }
+
+  .key-points :global(li::marker) {
+    color: var(--nb-highlight-text);
+  }
+</style>

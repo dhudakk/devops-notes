@@ -1,0 +1,282 @@
+---
+title: Základy Pythonu
+description: Ako program pracuje s hodnotami — premenné, dátové typy, vstup, výstup a operátory.
+kind: chapter
+sidebar:
+  order: 1
+  label: 01 · Základy
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Program navrhuj ako **vstup → spracovanie → výstup** (IPO).
+- `input()` vracia **vždy** `str` — na počítanie ho preveď cez `int()` alebo `float()`.
+- Názvy premenných píš v `snake_case`, konštanty `VEĽKÝMI_PÍSMENAMI`.
+- `/` je delenie s desatinami, `//` celočíselné delenie, `%` zvyšok.
+- Na formátovaný výstup používaj f-stringy: `f"{cena:.2f} €"`.
+</KeyPoints>
+
+## Ako navrhnúť program
+
+Python program je postupnosť presných inštrukcií. Pred písaním kódu si problém rozdeľ na tri časti:
+
+1. **Vstup** — aké údaje program potrebuje?
+2. **Spracovanie** — aké výpočty alebo rozhodnutia nad nimi vykoná?
+3. **Výstup** — aký výsledok má používateľ dostať?
+
+Tomuto modelu sa hovorí **IPO** (*Input–Process–Output*). Riešenie si môžeš najprv zapísať ako pseudokód alebo nakresliť ako vývojový diagram.
+
+## Prvý výstup a komentáre
+
+Funkcia `print()` vypíše hodnotu do konzoly. Text — typ `str` — zapisujeme do úvodzoviek.
+
+```python title="hello.py"
+print("Ahoj, Python!")
+print('Jednoduché aj dvojité úvodzovky sú platné.')
+```
+
+Znak `#` začína komentár. Python ho pri vykonávaní preskočí.
+
+```python
+# Toto vysvetľuje zámer nasledujúceho riadka.
+print("Objednávkový systém")  # krátky komentár môže byť aj na konci
+```
+
+:::tip
+Komentár má vysvetľovať **prečo**, nie mechanicky opakovať, čo kód robí.
+:::
+
+## Premenné a pomenovanie
+
+Premenná je meno odkazujúce na hodnotu. Python má **dynamické typovanie**: typ patrí hodnote, nie premennej, a môže sa počas behu zmeniť.
+
+```python
+product_name = "Mechanická klávesnica"
+quantity = 2
+unit_price = 89.90
+is_available = True
+```
+
+- Názvy píš malými písmenami a slová oddeľuj podčiarkovníkom (`snake_case`).
+- Python rozlišuje veľké a malé písmená: `price` a `Price` sú dve rôzne mená.
+- Konštanta nie je v Pythone technicky uzamknutá. Veľké písmená sú dohoda, ktorá hovorí „túto hodnotu nemeň“.
+
+```python
+VAT_RATE = 0.20
+ADMIN_FEE = 2.50
+```
+
+## Základné dátové typy
+
+| Typ | Význam | Príklad |
+| --- | --- | --- |
+| `str` | text | `"Python"` |
+| `int` | celé číslo | `42` |
+| `float` | desatinné číslo | `19.90` |
+| `bool` | pravda/nepravda | `True`, `False` |
+| `NoneType` | žiadna hodnota | `None` |
+
+Typ hodnoty zistíš pomocou `type()`:
+
+```python
+lesson_count = 8
+print(type(lesson_count))  # <class 'int'>
+```
+
+## Vstup od používateľa
+
+`input()` **vždy** vráti reťazec — aj keď používateľ napíše číslo. Ak chceš počítať, hodnotu musíš skonvertovať.
+
+```python title="order.py"
+product = input("Názov produktu: ")
+quantity = int(input("Počet kusov: "))
+unit_price = float(input("Cena za kus: "))
+
+subtotal = quantity * unit_price
+print(f"{product}: {subtotal:.2f} €")
+```
+
+F-string (`f"..."`) vloží hodnoty priamo do textu. Zápis `:.2f` zobrazí desatinné číslo na dve miesta.
+
+:::caution[Čo ak používateľ zadá „dva“?]
+`int("dva")` vyvolá `ValueError`. Ošetríš ho pomocou `try`/`except` — pozri [Súbory a chyby](/devops-notes/python/subory-a-chyby/#bezpečný-číselný-vstup).
+:::
+
+## Aritmetické operátory
+
+```python
+a = 17
+b = 5
+
+print(a + b)   # 22      sčítanie
+print(a - b)   # 12      odčítanie
+print(a * b)   # 85      násobenie
+print(a / b)   # 3.4     delenie — výsledok je vždy float
+print(a // b)  # 3       celočíselné delenie (zaokrúhľuje nadol)
+print(a % b)   # 2       zvyšok po delení
+print(a ** b)  # 1419857 umocnenie
+```
+
+Prednosť operácií je ako v matematike: zátvorky → mocniny → násobenie/delenie → sčítanie/odčítanie. Keď by výraz mohol byť nejasný, použi zátvorky.
+
+```python
+total = (unit_price * quantity) + ADMIN_FEE
+```
+
+:::note[Záporné čísla a `//`]
+`//` zaokrúhľuje smerom **nadol**, nie k nule: `-7 // 2` je `-4` a `-7 % 2` je `1`.
+:::
+
+## Formátovanie výstupu
+
+`print()` oddeľuje argumenty medzerou a končí novým riadkom. Parametre `sep` a `end` to menia.
+
+```python
+print("2026", "09", "12", sep="-")     # 2026-09-12
+print("Načítavam", end="... ")
+print("hotovo")                         # Načítavam... hotovo
+```
+
+Únikové sekvencie reprezentujú špeciálne znaky:
+
+| Zápis | Význam |
+| --- | --- |
+| `\n` | nový riadok |
+| `\t` | tabulátor |
+| `\"`, `\'` | úvodzovka vo vnútri reťazca |
+| `\\` | spätná lomka |
+
+```python
+print("Prvý riadok\nDruhý riadok")
+print("Názov:\tPython")
+print("Povedal: \"Ahoj\"")
+print("C:\\Users\\student")
+```
+
+## Kompletný príklad: objednávka
+
+```python title="objednavka.py" {8-9}
+ADMIN_FEE = 2.50
+
+customer = input("Meno zákazníka: ")
+product = input("Produkt: ")
+quantity = int(input("Počet kusov: "))
+unit_price = float(input("Cena za kus (€): "))
+
+subtotal = quantity * unit_price
+total = subtotal + ADMIN_FEE
+
+print("\n--- Súhrn objednávky ---")
+print(f"Zákazník: {customer}")
+print(f"Položka: {quantity}× {product}")
+print(f"Medzisúčet: {subtotal:.2f} €")
+print(f"Administratívny poplatok: {ADMIN_FEE:.2f} €")
+print(f"Spolu: {total:.2f} €")
+```
+
+:::note[Peniaze v reálnej aplikácii]
+`float` nie vždy presne reprezentuje desatinné hodnoty (`0.1 + 0.2` je `0.30000000000000004`). Finančné systémy používajú `decimal.Decimal` alebo sumy v centoch.
+:::
+
+## Otestuj sa
+
+<Question q="Aký typ vráti `input()` a čo s ním musíš urobiť pred počítaním?">
+Vždy `str`. Pred výpočtom ho preveď: `int(input(...))` pre celé čísla, `float(input(...))` pre desatinné.
+</Question>
+
+<Question q="Aký je rozdiel medzi `17 / 5`, `17 // 5` a `17 % 5`?">
+`3.4` (klasické delenie, vždy `float`), `3` (celočíselné delenie), `2` (zvyšok po delení).
+</Question>
+
+<Question q='Čo vypíše `print("a", "b", sep="-", end="!")`?'>
+`a-b!` — argumenty spojí `sep` a na konci namiesto nového riadka vypíše `end`.
+</Question>
+
+<Question q='Čo sa stane pri `int("3.5")`?'>
+`ValueError`. `int()` z reťazca akceptuje iba celé číslo. Použi `float("3.5")`, prípadne `int(float("3.5"))`, ktoré desatinnú časť oreže na `3`.
+</Question>
+
+<Question q="Zabráni Python zmene hodnoty `VAT_RATE = 0.20`?">
+Nie. Veľké písmená sú iba konvencia, ktorá hovorí, že ide o konštantu. Technicky ju prepísať ide.
+</Question>
+
+## Cvičenia
+
+### 1.1 · Vizitka
+
+Načítaj meno, mesto a obľúbenú technológiu. Vypíš ich ako textovú vizitku v rámčeku.
+
+<p class="practises">Precvičíš: `input`, premenné, f-string, `print`.</p>
+
+```text title="Príklad výstupu"
+┌──────────────────────────┐
+│ Meno: Lucia              │
+│ Mesto: Bratislava        │
+│ Technológia: Python      │
+└──────────────────────────┘
+```
+
+<Solution variant="hint">
+Rámček nemusí meniť šírku podľa textu. Začni s pevnou šírkou a až potom ho vylepši. Vo f-stringu zarovnáš text doľava na šírku 20 znakov zápisom `f"{text:<20}"`.
+</Solution>
+
+<Solution>
+```python title="vizitka.py"
+name = input("Meno: ").strip()
+city = input("Mesto: ").strip()
+technology = input("Obľúbená technológia: ").strip()
+
+rows = [
+    f"Meno: {name}",
+    f"Mesto: {city}",
+    f"Technológia: {technology}",
+]
+width = max(len(row) for row in rows) + 2
+
+print("┌" + "─" * width + "┐")
+for row in rows:
+    print(f"│ {row:<{width - 1}}│")
+print("└" + "─" * width + "┘")
+```
+
+Toto riešenie prispôsobí šírku najdlhšiemu riadku. Používa zoznam a cyklus, ku ktorým sa dostaneš neskôr — jednoduchšia verzia s tromi `print()` a pevnou šírkou je úplne v poriadku.
+</Solution>
+
+### 1.2 · Objednávka s DPH
+
+Načítaj produkt, cenu za kus a počet kusov. Vypočítaj medzisúčet, 20 % DPH a celkovú cenu. Výsledky zobraz na dve desatinné miesta.
+
+**Bonus** (potrebuje `if` z [kapitoly 2](/devops-notes/python/podmienky/)): pri aspoň piatich kusoch odpočítaj 10 % zľavu ešte pred výpočtom DPH.
+
+<p class="practises">Precvičíš: konverziu vstupu, konštanty, aritmetiku, formát `:.2f`.</p>
+
+<Solution>
+```python title="objednavka_dph.py"
+VAT_RATE = 0.20
+DISCOUNT_RATE = 0.10
+DISCOUNT_FROM_QUANTITY = 5
+
+product = input("Produkt: ").strip()
+unit_price = float(input("Cena za kus (€): "))
+quantity = int(input("Počet kusov: "))
+
+subtotal = unit_price * quantity
+
+discount = 0.0
+if quantity >= DISCOUNT_FROM_QUANTITY:  # bonus
+    discount = subtotal * DISCOUNT_RATE
+
+price_after_discount = subtotal - discount
+vat = price_after_discount * VAT_RATE
+total = price_after_discount + vat
+
+print(f"\n{quantity}× {product}")
+print(f"Medzisúčet: {subtotal:.2f} €")
+print(f"Zľava: {discount:.2f} €")
+print(f"DPH: {vat:.2f} €")
+print(f"Spolu: {total:.2f} €")
+```
+</Solution>

@@ -1,0 +1,268 @@
+---
+title: Loops
+description: Repeating code — while, for, range(), break/continue, and nested loops.
+kind: chapter
+sidebar:
+  order: 3
+  label: 03 · Loops
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `while` = repeat **while** a condition holds. `for` = go through **every item** of a sequence.
+- `range(start, stop, step)` **excludes** `stop`: `range(1, 4)` → `1, 2, 3`.
+- Every `while` needs a way to end, otherwise you get an infinite loop (stop it with `Ctrl+C`).
+- `break` ends the loop, `continue` skips to the next iteration.
+- A nested loop runs **completely** for every iteration of the outer loop.
+</KeyPoints>
+
+## Two kinds of loops
+
+A loop repeats a block of code so you do not have to write the same statement many times. One run of the loop body is an **iteration**.
+
+| Situation | Choice |
+| --- | --- |
+| “Repeat five times” | `for` + `range(5)` |
+| “For every product in the list” | `for` |
+| “Until the user enters a valid value” | `while` |
+| “Read values until the word `end`” | `while` with a sentinel |
+
+## The `while` loop
+
+`while` fits when you do not know the number of repetitions in advance. The condition is checked **before** every iteration.
+
+```python title="countdown.py"
+seconds = 5
+
+while seconds > 0:
+    print(seconds)
+    seconds -= 1
+
+print("Go!")
+```
+
+`seconds` must change. Without `seconds -= 1` the condition would stay true forever — an **infinite loop**.
+
+:::tip[How to stop a stuck program]
+Press `Ctrl+C` in the terminal. Then find the value that decides when the loop ends and check that it really changes in every branch.
+:::
+
+### Input validation
+
+A loop can keep asking until the user enters a valid value.
+
+```python title="validation.py"
+age = int(input("Enter an age from 0 to 120: "))
+
+while age < 0 or age > 120:
+    print("Invalid value.")
+    age = int(input("Enter an age from 0 to 120: "))
+
+print(f"Saved age: {age}")
+```
+
+This example does not yet handle text instead of a number — that comes in [Files and errors](/devops-notes/en/python/subory-a-chyby/#safe-numeric-input).
+
+### Sentinel
+
+A **sentinel** is a special value meaning “end of input”. It must not be mistakable for valid data.
+
+```python title="average.py"
+total = 0.0
+count = 0
+
+value = float(input("Order amount (-1 = stop): "))
+
+while value != -1:
+    total += value
+    count += 1
+    value = float(input("Order amount (-1 = stop): "))
+
+if count > 0:
+    print(f"Average: {total / count:.2f} €")
+else:
+    print("No orders were entered.")
+```
+
+- `total` is an **accumulator** — it collects the sum.
+- `count` is a **counter** — it counts iterations.
+- `total += value` is short for `total = total + value`.
+
+## The `for` loop
+
+`for` fits when you go through a collection or know the number of repetitions.
+
+```python
+topics = ["variables", "conditions", "loops"]
+
+for topic in topics:
+    print(f"Studying: {topic}")
+```
+
+`topic` takes each value from the list in turn.
+
+### `range()` without guessing
+
+`range(start, stop, step)` produces a sequence of integers. `stop` is **not included**.
+
+| Expression | Values |
+| --- | --- |
+| `range(5)` | `0, 1, 2, 3, 4` |
+| `range(2, 5)` | `2, 3, 4` |
+| `range(2, 10, 3)` | `2, 5, 8` |
+| `range(5, 0, -1)` | `5, 4, 3, 2, 1` |
+
+```python
+for number in range(1, 6):
+    print(number)  # 1, 2, 3, 4, 5
+
+for even in range(0, 11, 2):
+    print(even)    # 0, 2, 4, 6, 8, 10
+```
+
+## `break` and `continue`
+
+- `break` immediately **ends** the whole loop.
+- `continue` skips the rest of the body and moves on to the **next iteration**.
+
+```python title="break_continue.py"
+while True:
+    command = input("Command (end = stop): ").strip()
+
+    if command == "":
+        continue          # ignore empty input, ask again
+    if command == "end":
+        break             # leave the loop
+
+    print(f"Running: {command}")
+
+print("Program finished.")
+```
+
+The `while True` + `break` pattern is common when the decision to stop is made in the middle of the loop body.
+
+## Nested loops
+
+The inner loop finishes on **every** iteration of the outer loop. That is how you process a table, a matrix, or combinations of values.
+
+```python title="schedule.py"
+for day in range(1, 4):
+    print(f"Day {day}")
+
+    for lesson in range(1, 3):
+        print(f"  Lesson {lesson}")
+```
+
+The result is six lessons: two for each of the three days.
+
+## Complete example: three orders
+
+```python title="orders.py" {8-10}
+grand_total = 0.0
+
+for order_number in range(1, 4):
+    print(f"\nOrder {order_number}")
+    item_count = int(input("Number of items: "))
+    order_total = 0.0
+
+    for item_number in range(1, item_count + 1):
+        price = float(input(f"Price of item {item_number}: "))
+        order_total += price
+
+    grand_total += order_total
+    print(f"Order total: {order_total:.2f} €")
+
+print(f"\nTotal revenue: {grand_total:.2f} €")
+```
+
+## Test yourself
+
+<Question q="What values does `range(2, 10, 3)` produce?">
+`2, 5, 8`. It starts at `2`, adds `3`, and stops before `10`.
+</Question>
+
+<Question q="What is the difference between `break` and `continue`?">
+`break` ends the whole loop. `continue` skips only the rest of the current iteration and the loop carries on with the next one.
+</Question>
+
+<Question q="How many times does `print()` run in `for i in range(3):` → `for j in range(4):` → `print(i, j)`?">
+12 times. The inner loop (4 iterations) runs completely for each of the 3 outer iterations: 3 × 4 = 12.
+</Question>
+
+<Question q="What is a sentinel, and what value should it not have?">
+A special value that ends input (e.g. `-1` or `"end"`). It must not be a value the user could enter as valid data.
+</Question>
+
+<Question q="Why does this loop never end? `i = 0` → `while i < 5:` → `print(i)`">
+`i` never changes in the body, so `i < 5` stays true forever. It is missing `i += 1`.
+</Question>
+
+## Exercises
+
+### 3.1 · Sum until a sentinel
+
+Keep reading numbers. The value `-1` ends input and is **not** added to the sum. At the end print how many values there were, the sum, and the average. Handle the case where the user enters no values.
+
+<p class="practises">You practise: `while`, sentinel, accumulator, `break`, division by zero.</p>
+
+<Solution>
+```python title="sum_sentinel.py"
+total = 0.0
+count = 0
+
+while True:
+    value = float(input("Number (-1 = stop): "))
+    if value == -1:
+        break
+
+    total += value
+    count += 1
+
+print(f"Count: {count}")
+print(f"Sum: {total:g}")
+
+if count > 0:
+    print(f"Average: {total / count:g}")
+else:
+    print("Cannot compute an average — no values were entered.")
+```
+
+The `:g` format prints a number without needless zeros (`7.0` → `7`).
+</Solution>
+
+### 3.2 · Multiplication table
+
+Use nested loops to print a multiplication table from 1 to 10. Align the columns.
+
+```text title="Short preview"
+  1   2   3   4   5
+  2   4   6   8  10
+  3   6   9  12  15
+```
+
+<p class="practises">You practise: nested `for`, `range`, `print(..., end="")`.</p>
+
+<Solution variant="hint">
+In an f-string you set a minimum right-aligned width with `f"{value:>4}"`. To stop `print()` from starting a new line, pass `end=""`.
+</Solution>
+
+<Solution>
+```python title="times_table.py"
+SIZE = 10
+
+print("    ", end="")
+for column in range(1, SIZE + 1):
+    print(f"{column:>4}", end="")
+print()
+print("    " + "────" * SIZE)
+
+for row in range(1, SIZE + 1):
+    print(f"{row:>2} │", end="")
+    for column in range(1, SIZE + 1):
+        print(f"{row * column:>4}", end="")
+    print()
+```
+</Solution>

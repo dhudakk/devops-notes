@@ -1,0 +1,258 @@
+---
+title: Podmienky a logika
+description: Ako nechať program rozhodovať — porovnávanie, if/elif/else a logické operátory.
+kind: chapter
+sidebar:
+  order: 2
+  label: 02 · Podmienky
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `=` hodnotu **priraďuje**, `==` hodnoty **porovnáva**.
+- Vetvy `if` / `elif` / `else` sa testujú zhora nadol a vykoná sa **najviac jedna** — prvá pravdivá.
+- Pri intervaloch začni **najprísnejšou** hranicou (napr. `>= 90` pred `>= 75`).
+- `and` = obe pravdivé, `or` = aspoň jedna pravdivá, `not` = obráti hodnotu.
+- Text pred porovnaním normalizuj: `answer.strip().lower()`.
+</KeyPoints>
+
+## Vetvenie programu
+
+Bez podmienok program vykoná každý riadok zhora nadol. Podmienka pridá vetvenie: blok kódu sa vykoná iba vtedy, keď je výraz pravdivý.
+
+```python
+age = int(input("Vek: "))
+
+if age >= 18:
+    print("Vstup povolený")
+else:
+    print("Vstup nepovolený")
+```
+
+Odsadenie je súčasť syntaxe. Všetky riadky patriace do vetvy majú rovnaké odsadenie — štandardne **4 medzery**.
+
+## Porovnávacie operátory
+
+| Operátor | Význam | Príklad |
+| --- | --- | --- |
+| `==` | rovná sa | `role == "admin"` |
+| `!=` | nerovná sa | `status != "closed"` |
+| `<`, `>` | menšie, väčšie | `temperature > 30` |
+| `<=`, `>=` | menšie/väčšie alebo rovné | `score >= 50` |
+
+Python podporuje aj reťazené porovnanie, ktoré sa číta ako v matematike:
+
+```python
+temperature = 22
+
+if 18 <= temperature <= 24:
+    print("Komfortná teplota")
+```
+
+## Viac možností s `elif`
+
+Vetvy sa testujú zhora nadol a vykoná sa **prvá pravdivá**. Ostatné sa už ani nevyhodnotia. Preto dávame prísnejšie pravidlá vyššie.
+
+```python title="grade.py"
+score = int(input("Úspešnosť v percentách: "))
+
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+elif score >= 60:
+    grade = "C"
+else:
+    grade = "Nesplnené"
+
+print(f"Výsledok: {grade}")
+```
+
+## Logické operátory
+
+| Operátor | Pravdivé, keď… |
+| --- | --- |
+| `a and b` | sú pravdivé **obe** strany |
+| `a or b` | je pravdivá **aspoň jedna** strana |
+| `not a` | `a` je nepravdivé |
+
+```python
+has_ticket = True
+is_banned = False
+age = 20
+
+if has_ticket and age >= 18 and not is_banned:
+    print("Môžeš vstúpiť")
+```
+
+Zložitú podmienku rozdeľ na pomenované časti. Kód sa potom číta ako veta:
+
+```python
+is_adult = age >= 18
+has_permission = has_ticket and not is_banned
+
+if is_adult and has_permission:
+    print("Môžeš vstúpiť")
+```
+
+## Pravdivosť hodnôt
+
+Podmienka nemusí byť iba `True`/`False`. Python vie vyhodnotiť pravdivosť akejkoľvek hodnoty:
+
+| Nepravdivé (*falsy*) | Pravdivé (*truthy*) |
+| --- | --- |
+| `False`, `None`, `0`, `0.0` | všetko ostatné |
+| prázdny reťazec `""` | `"text"`, aj `" "` (medzera) |
+| prázdne kolekcie `[]`, `{}`, `()`, `set()` | `[0]`, `{"a": 1}` |
+
+```python
+name = input("Meno: ").strip()
+
+if name:
+    print(f"Ahoj, {name}")
+else:
+    print("Meno je prázdne.")
+```
+
+## Text v podmienkach
+
+Porovnávanie reťazcov rozlišuje veľkosť písmen a medzery. Vstup preto pred porovnaním normalizujeme pomocou `strip()` a `lower()`.
+
+```python
+answer = input("Pokračovať? (áno/nie): ").strip().lower()
+
+if answer == "áno":
+    print("Pokračujem")
+elif answer == "nie":
+    print("Končím")
+else:
+    print("Neznáma odpoveď")
+```
+
+## Kompletný príklad: registrácia na workshop
+
+Pravidlá:
+
+- účastník musí mať aspoň 15 rokov,
+- ak má menej než 18, potrebuje súhlas zákonného zástupcu,
+- registrácia musí byť otvorená a kapacita nesmie byť naplnená.
+
+```python title="registration.py" {8-9}
+age = int(input("Vek účastníka: "))
+guardian_answer = input("Má súhlas zákonného zástupcu? (áno/nie): ")
+has_guardian_consent = guardian_answer.strip().lower() == "áno"
+
+registration_open = True
+free_places = 4
+
+meets_age_rule = age >= 18 or (age >= 15 and has_guardian_consent)
+can_register = registration_open and free_places > 0 and meets_age_rule
+
+if can_register:
+    print("Registrácia bola úspešná.")
+elif not registration_open:
+    print("Registrácia je zatvorená.")
+elif free_places <= 0:
+    print("Workshop je plný.")
+else:
+    print("Účastník nespĺňa vekové podmienky.")
+```
+
+## Časté chyby
+
+:::caution[Poradie hraníc]
+Ak najprv otestuješ `score >= 60`, hodnota `95` skončí už v tejto vetve a nikdy nedostane „A“. Pri intervaloch začínaj najvyššou hranicou.
+:::
+
+:::tip[Booleovská premenná nepotrebuje `== True`]
+Namiesto `if is_ready == True:` píš priamo `if is_ready:`. Zápor zapíš ako `if not is_ready:`.
+:::
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi `=` a `==`?">
+`=` priraďuje hodnotu premennej (`x = 5`). `==` porovnáva dve hodnoty a vracia `True` alebo `False` (`x == 5`).
+</Question>
+
+<Question q="Koľko vetiev z `if` / `elif` / `elif` / `else` sa môže vykonať?">
+Práve jedna — prvá, ktorej podmienka je pravdivá. Ak nie je pravdivá žiadna, vykoná sa `else`. Bez `else` sa nemusí vykonať žiadna.
+</Question>
+
+<Question q="Čo vypíše program pre `score = 95`, ak je prvá podmienka `if score >= 60:` a druhá `elif score >= 90:`?">
+Výsledok pre prvú vetvu (`>= 60`). Vetva `>= 90` sa nikdy nevyhodnotí, pretože každé číslo `>= 90` je aj `>= 60`. Preto začínaj najprísnejšou hranicou.
+</Question>
+
+<Question q="Kedy je `has_ticket and not is_banned` pravdivé?">
+Keď `has_ticket` je `True` **a zároveň** `is_banned` je `False`.
+</Question>
+
+<Question q='Ktoré z hodnôt sú v podmienke nepravdivé: `0`, `"0"`, `""`, `[]`, `None`, `" "`?'>
+`0`, `""`, `[]` a `None`. Reťazec `"0"` aj `" "` (medzera) sú neprázdne, takže sú pravdivé.
+</Question>
+
+## Cvičenia
+
+### 2.1 · Teplotný poradca
+
+Načítaj teplotu a vypíš jednu z možností:
+
+- pod `0`: mráz,
+- od `0` do `14`: chladno,
+- od `15` do `24`: príjemne,
+- od `25`: teplo.
+
+<p class="practises">Precvičíš: `if` / `elif` / `else`, poradie hraníc.</p>
+
+<Solution>
+```python title="teplota.py"
+temperature = float(input("Teplota (°C): "))
+
+if temperature < 0:
+    message = "Mrzne."
+elif temperature < 15:
+    message = "Je chladno."
+elif temperature < 25:
+    message = "Je príjemne."
+else:
+    message = "Je teplo."
+
+print(message)
+```
+
+Keďže sa vetvy testujú postupne, druhá podmienka už nemusí kontrolovať `temperature >= 0` — záporné hodnoty zachytila prvá vetva.
+</Solution>
+
+### 2.2 · Registrácia na workshop
+
+Používateľ zadá vek a informáciu o súhlase zákonného zástupcu. Účasť je povolená od 18 rokov, alebo od 15 rokov so súhlasom. Program musí vysvetliť **dôvod** zamietnutia.
+
+**Bonus:** pridaj kapacitu a stav otvorenia registrácie.
+
+<p class="practises">Precvičíš: logické operátory, `elif` reťazec, normalizáciu textu.</p>
+
+<Solution>
+```python title="registracia.py"
+age = int(input("Vek: "))
+answer = input("Súhlas zákonného zástupcu? (áno/nie): ")
+has_guardian_consent = answer.strip().lower() == "áno"
+
+registration_open = True
+free_places = 3
+
+if not registration_open:
+    print("Registrácia je zatvorená.")
+elif free_places <= 0:
+    print("Workshop je plný.")
+elif age >= 18:
+    print("Registrácia bola úspešná.")
+elif age >= 15 and has_guardian_consent:
+    print("Registrácia bola úspešná so súhlasom zástupcu.")
+elif age >= 15:
+    print("Neplnoletý účastník potrebuje súhlas zástupcu.")
+else:
+    print("Minimálny vek je 15 rokov.")
+```
+</Solution>

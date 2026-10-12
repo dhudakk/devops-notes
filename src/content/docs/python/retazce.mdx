@@ -1,0 +1,247 @@
+---
+title: Reťazce
+description: Práca s textom — indexovanie, čistenie, delenie, spájanie, vyhľadávanie a formátovanie.
+kind: chapter
+sidebar:
+  order: 6
+  label: 06 · Reťazce
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Reťazec (`str`) je **nemenná** postupnosť znakov — indexuješ a režeš ho ako zoznam, ale znak neprepíšeš.
+- Metódy (`.strip()`, `.lower()`, `.replace()`…) vracajú **nový** reťazec; pôvodný nemenia.
+- `text.split(",")` rozdelí text na zoznam, `", ".join(items)` spojí zoznam do textu.
+- `text.split()` bez argumentu delí podľa ľubovoľného množstva medzier.
+- F-string formáty: `:.2f` desatinné miesta, `:>5` zarovnanie doprava, `:.0%` percentá.
+</KeyPoints>
+
+## Reťazec ako postupnosť
+
+Reťazec (`str`) je nemenná postupnosť Unicode znakov. Indexuješ a režeš ho rovnako ako zoznam.
+
+```python
+language = "Python"
+
+print(language[0])     # P
+print(language[-1])    # n
+print(language[1:4])   # yth
+print(language[::-1])  # nohtyP
+print(len(language))   # 6
+print("th" in language)  # True
+```
+
+## Čistenie a normalizácia
+
+```python
+raw_name = "  mÁrIa novÁková  "
+
+clean_name = raw_name.strip().title()
+print(clean_name)  # Mária Nováková
+```
+
+| Metóda | Použitie |
+| --- | --- |
+| `.strip()` | odstráni medzery a nové riadky na okrajoch |
+| `.lower()`, `.upper()` | zmení veľkosť písmen |
+| `.title()`, `.capitalize()` | veľké začiatočné písmená slov / iba prvého znaku |
+| `.replace(old, new)` | nahradí všetky výskyty |
+| `.startswith(prefix)`, `.endswith(suffix)` | testuje začiatok / koniec |
+| `.find(text)` | index prvého výskytu alebo `-1` |
+| `.count(text)` | počet výskytov |
+| `.isdigit()`, `.isalpha()`, `.isalnum()` | obsahuje iba číslice / písmená / oboje |
+
+Pri porovnávaní používateľského vstupu je `.casefold()` robustnejšie než `.lower()`, najmä pri rôznych jazykoch.
+
+```python
+answer = input("Áno alebo nie? ").strip().casefold()
+
+if answer == "áno":
+    print("Potvrdené")
+```
+
+## `split()` a `join()`
+
+`split()` rozdelí reťazec na zoznam. `join()` urobí opačnú operáciu — volá sa na **oddeľovači**.
+
+```python
+line = "python,git,terraform"
+topics = line.split(",")        # ['python', 'git', 'terraform']
+
+label = " · ".join(topics)
+print(label)                    # python · git · terraform
+
+print("a   b  c".split())       # ['a', 'b', 'c'] — bez argumentu ignoruje viac medzier
+```
+
+## List comprehension
+
+Pri dátach od používateľa zvyčajne očistíme aj jednotlivé časti:
+
+```python
+raw_topics = " Python, Git , Kubernetes "
+topics = [topic.strip() for topic in raw_topics.split(",")]
+
+print(topics)  # ['Python', 'Git', 'Kubernetes']
+```
+
+Zápis v hranatých zátvorkách je **list comprehension** — kompaktný spôsob, ako vytvoriť nový zoznam transformáciou inej kolekcie. Môže obsahovať aj filter:
+
+```python
+words = ["git", "", "docker", " "]
+non_empty = [word for word in words if word.strip()]   # ['git', 'docker']
+lengths = [len(word) for word in non_empty]             # [3, 6]
+```
+
+Je to skrátený zápis pre cyklus:
+
+```python
+non_empty = []
+for word in words:
+    if word.strip():
+        non_empty.append(word)
+```
+
+## Formátovanie pomocou f-stringov
+
+```python
+name = "Eva"
+completed = 7
+total = 8
+ratio = completed / total
+
+print(f"{name}: {completed}/{total} ({ratio:.0%})")  # Eva: 7/8 (88%)
+```
+
+| Formát | Príklad | Výsledok |
+| --- | --- | --- |
+| `:.2f` | `f"{3.14159:.2f}"` | `3.14` |
+| `:.0%` | `f"{0.875:.0%}"` | `88%` |
+| `:>6` | `f"{'ab':>6}"` | `'    ab'` |
+| `:<6` | `f"{'ab':<6}"` | `'ab    '` |
+| `:^6` | `f"{'ab':^6}"` | `'  ab  '` |
+| `:03` | `f"{7:03}"` | `007` |
+| `!r` | `f"{'ab'!r}"` | `'ab'` (s úvodzovkami) |
+
+## Reťazce sú nemenné
+
+```python
+word = "python"
+# word[0] = "P"  # TypeError: 'str' object does not support item assignment
+
+word = "P" + word[1:]
+print(word)  # Python
+```
+
+Metódy ako `.replace()` alebo `.upper()` vracajú **nový** reťazec. Ak výsledok nepriradíš, zmena sa stratí:
+
+```python
+name = "eva"
+name.upper()         # výsledok sa zahodí
+name = name.upper()  # správne
+```
+
+## Kompletný príklad: rozbor e-mailu
+
+```python title="email.py"
+email = input("E-mail: ").strip().casefold()
+local_part, separator, domain = email.partition("@")
+
+is_basic_format_valid = bool(local_part and separator and "." in domain)
+
+if is_basic_format_valid:
+    print(f"Používateľ: {local_part}")
+    print(f"Doména: {domain}")
+else:
+    print("E-mail nemá očakávaný základný formát.")
+```
+
+`partition("@")` vráti n-ticu troch častí: text pred oddeľovačom, oddeľovač a text za ním. Ak sa `@` nenájde, oddeľovač aj posledná časť sú prázdne.
+
+:::caution[Toto nie je úplná validácia e-mailu]
+Pravidlá e-mailových adries sú zložité. V produkčnej aplikácii použi overenú knižnicu a adresu potvrď odkazom zaslaným používateľovi.
+:::
+
+## Otestuj sa
+
+<Question q='Čo vypíše `"Python"[1:4]`?'>
+`yth` — znaky na indexoch 1, 2 a 3.
+</Question>
+
+<Question q='Prečo `word[0] = "P"` vyvolá chybu?'>
+Reťazce sú nemenné. Musíš vytvoriť nový reťazec, napr. `word = "P" + word[1:]`.
+</Question>
+
+<Question q='Čo vrátia `"a,,b".split(",")` a `"a   b".split()`?'>
+`['a', '', 'b']` — pri explicitnom oddeľovači vznikne prázdna časť. `['a', 'b']` — bez argumentu `split()` berie viac medzier ako jeden oddeľovač.
+</Question>
+
+<Question q='Čo vypíše `"-".join(["2026", "10", "13"])`?'>
+`2026-10-13`. `join` sa volá na oddeľovači a spojí prvky zoznamu (musia to byť reťazce).
+</Question>
+
+<Question q='Po `name = "eva"` a `name.upper()` — aká je hodnota `name`?'>
+Stále `"eva"`. `upper()` vráti nový reťazec, ktorý sa nikam neuložil. Správne je `name = name.upper()`.
+</Question>
+
+## Cvičenia
+
+### 6.1 · Iniciály a používateľské meno
+
+Načítaj celé meno (môže obsahovať nadbytočné medzery a zlú veľkosť písmen, napr. `"  jana  MÁRIA   nováková "`). Vypíš:
+
+- upravené meno: `Jana Mária Nováková`,
+- iniciály: `J. M. N.`,
+- používateľské meno z prvého písmena krstného mena a celého priezviska malými písmenami: `jnováková`.
+
+<p class="practises">Precvičíš: `split()`, `join()`, indexovanie, `.title()`, `.lower()`, list comprehension.</p>
+
+<Solution>
+```python title="iniciatly.py"
+raw_name = input("Celé meno: ")
+parts = raw_name.split()
+
+if parts:
+    full_name = " ".join(parts).title()
+    initials = " ".join(part[0].upper() + "." for part in parts)
+    username = (parts[0][0] + parts[-1]).lower()
+
+    print(f"Meno: {full_name}")
+    print(f"Iniciály: {initials}")
+    print(f"Používateľ: {username}")
+else:
+    print("Meno je prázdne.")
+```
+</Solution>
+
+### 6.2 · Palindróm
+
+Napíš funkciu `is_palindrome(text)`, ktorá vráti `True`, ak sa text číta rovnako odpredu aj odzadu. Ignoruj veľkosť písmen, medzery a interpunkciu.
+
+```python title="Očakávané správanie"
+is_palindrome("Jelenovi pivo nelej!")  # True
+is_palindrome("Python")                # False
+```
+
+<p class="practises">Precvičíš: `.casefold()`, `.isalnum()`, `join`, rez `[::-1]`.</p>
+
+<Solution variant="hint">
+Najprv si vytvor „čistý“ text iba z písmen a číslic. Potom ho porovnaj s jeho obrátenou verziou `clean[::-1]`.
+</Solution>
+
+<Solution>
+```python title="palindrom.py"
+def is_palindrome(text):
+    clean = "".join(char for char in text.casefold() if char.isalnum())
+    return clean == clean[::-1]
+
+
+print(is_palindrome("Jelenovi pivo nelej!"))  # True
+print(is_palindrome("Python"))               # False
+```
+
+`char for char in ... if ...` bez hranatých zátvoriek je **generátorový výraz** — funguje ako list comprehension, ale hodnoty posiela priamo do `join` bez vytvorenia zoznamu.
+</Solution>

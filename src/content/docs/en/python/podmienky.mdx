@@ -1,0 +1,258 @@
+---
+title: Conditions and Logic
+description: Letting a program decide — comparisons, if/elif/else, and logical operators.
+kind: chapter
+sidebar:
+  order: 2
+  label: 02 · Conditions
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `=` **assigns** a value, `==` **compares** values.
+- `if` / `elif` / `else` branches are tested top to bottom and **at most one** runs — the first true one.
+- For ranges, start with the **strictest** bound (e.g. `>= 90` before `>= 75`).
+- `and` = both true, `or` = at least one true, `not` = flips the value.
+- Normalise text before comparing it: `answer.strip().lower()`.
+</KeyPoints>
+
+## Branching
+
+Without conditions a program runs every line from top to bottom. A condition adds a branch: a block runs only when the expression is true.
+
+```python
+age = int(input("Age: "))
+
+if age >= 18:
+    print("Entry allowed")
+else:
+    print("Entry denied")
+```
+
+Indentation is part of the syntax. Every line in a branch has the same indentation — **4 spaces** by convention.
+
+## Comparison operators
+
+| Operator | Meaning | Example |
+| --- | --- | --- |
+| `==` | equal to | `role == "admin"` |
+| `!=` | not equal to | `status != "closed"` |
+| `<`, `>` | less than, greater than | `temperature > 30` |
+| `<=`, `>=` | less/greater than or equal | `score >= 50` |
+
+Python also supports chained comparisons, which read like maths:
+
+```python
+temperature = 22
+
+if 18 <= temperature <= 24:
+    print("Comfortable temperature")
+```
+
+## More options with `elif`
+
+Branches are tested top to bottom and the **first true one** runs. The rest are not even evaluated. That is why stricter rules go higher.
+
+```python title="grade.py"
+score = int(input("Score in percent: "))
+
+if score >= 90:
+    grade = "A"
+elif score >= 75:
+    grade = "B"
+elif score >= 60:
+    grade = "C"
+else:
+    grade = "Fail"
+
+print(f"Result: {grade}")
+```
+
+## Logical operators
+
+| Operator | True when… |
+| --- | --- |
+| `a and b` | **both** sides are true |
+| `a or b` | **at least one** side is true |
+| `not a` | `a` is false |
+
+```python
+has_ticket = True
+is_banned = False
+age = 20
+
+if has_ticket and age >= 18 and not is_banned:
+    print("You may enter")
+```
+
+Split a complex condition into named parts. The code then reads like a sentence:
+
+```python
+is_adult = age >= 18
+has_permission = has_ticket and not is_banned
+
+if is_adult and has_permission:
+    print("You may enter")
+```
+
+## Truthiness
+
+A condition does not have to be exactly `True`/`False`. Python can evaluate the truthiness of any value:
+
+| False (*falsy*) | True (*truthy*) |
+| --- | --- |
+| `False`, `None`, `0`, `0.0` | everything else |
+| empty string `""` | `"text"`, even `" "` (a space) |
+| empty collections `[]`, `{}`, `()`, `set()` | `[0]`, `{"a": 1}` |
+
+```python
+name = input("Name: ").strip()
+
+if name:
+    print(f"Hello, {name}")
+else:
+    print("The name is empty.")
+```
+
+## Text in conditions
+
+String comparison is case- and whitespace-sensitive. Normalise input with `strip()` and `lower()` before comparing.
+
+```python
+answer = input("Continue? (yes/no): ").strip().lower()
+
+if answer == "yes":
+    print("Continuing")
+elif answer == "no":
+    print("Stopping")
+else:
+    print("Unknown answer")
+```
+
+## Complete example: workshop registration
+
+Rules:
+
+- a participant must be at least 15,
+- under 18 they need a guardian's consent,
+- registration must be open and there must be free places.
+
+```python title="registration.py" {8-9}
+age = int(input("Participant age: "))
+guardian_answer = input("Guardian consent? (yes/no): ")
+has_guardian_consent = guardian_answer.strip().lower() == "yes"
+
+registration_open = True
+free_places = 4
+
+meets_age_rule = age >= 18 or (age >= 15 and has_guardian_consent)
+can_register = registration_open and free_places > 0 and meets_age_rule
+
+if can_register:
+    print("Registration successful.")
+elif not registration_open:
+    print("Registration is closed.")
+elif free_places <= 0:
+    print("The workshop is full.")
+else:
+    print("The participant does not meet the age rules.")
+```
+
+## Common mistakes
+
+:::caution[Order of bounds]
+If you test `score >= 60` first, `95` ends up in that branch and never gets an “A”. For ranges, start with the highest bound.
+:::
+
+:::tip[A boolean does not need `== True`]
+Instead of `if is_ready == True:` write `if is_ready:`. For the negative, use `if not is_ready:`.
+:::
+
+## Test yourself
+
+<Question q="What is the difference between `=` and `==`?">
+`=` assigns a value to a variable (`x = 5`). `==` compares two values and returns `True` or `False` (`x == 5`).
+</Question>
+
+<Question q="How many branches of `if` / `elif` / `elif` / `else` can run?">
+Exactly one — the first whose condition is true. If none is true, `else` runs. Without `else`, possibly none.
+</Question>
+
+<Question q="What does the program print for `score = 95` if the first condition is `if score >= 60:` and the second `elif score >= 90:`?">
+The result of the first branch (`>= 60`). The `>= 90` branch is never evaluated, because every number `>= 90` is also `>= 60`. Always start with the strictest bound.
+</Question>
+
+<Question q="When is `has_ticket and not is_banned` true?">
+When `has_ticket` is `True` **and** `is_banned` is `False`.
+</Question>
+
+<Question q='Which of these values are false in a condition: `0`, `"0"`, `""`, `[]`, `None`, `" "`?'>
+`0`, `""`, `[]`, and `None`. The strings `"0"` and `" "` (a space) are not empty, so they are true.
+</Question>
+
+## Exercises
+
+### 2.1 · Temperature advisor
+
+Read a temperature and print one of:
+
+- below `0`: freezing,
+- from `0` to `14`: cold,
+- from `15` to `24`: pleasant,
+- from `25`: warm.
+
+<p class="practises">You practise: `if` / `elif` / `else`, order of bounds.</p>
+
+<Solution>
+```python title="temperature.py"
+temperature = float(input("Temperature (°C): "))
+
+if temperature < 0:
+    message = "Freezing."
+elif temperature < 15:
+    message = "It's cold."
+elif temperature < 25:
+    message = "It's pleasant."
+else:
+    message = "It's warm."
+
+print(message)
+```
+
+Because branches are tested in order, the second condition no longer needs `temperature >= 0` — the first branch already caught negative values.
+</Solution>
+
+### 2.2 · Workshop registration
+
+The user enters an age and whether they have a guardian's consent. Entry is allowed from 18, or from 15 with consent. The program must explain **why** a registration is rejected.
+
+**Bonus:** add capacity and an open/closed registration state.
+
+<p class="practises">You practise: logical operators, an `elif` chain, text normalisation.</p>
+
+<Solution>
+```python title="registration_check.py"
+age = int(input("Age: "))
+answer = input("Guardian consent? (yes/no): ")
+has_guardian_consent = answer.strip().lower() == "yes"
+
+registration_open = True
+free_places = 3
+
+if not registration_open:
+    print("Registration is closed.")
+elif free_places <= 0:
+    print("The workshop is full.")
+elif age >= 18:
+    print("Registration successful.")
+elif age >= 15 and has_guardian_consent:
+    print("Registration successful with guardian consent.")
+elif age >= 15:
+    print("A minor needs guardian consent.")
+else:
+    print("The minimum age is 15.")
+```
+</Solution>

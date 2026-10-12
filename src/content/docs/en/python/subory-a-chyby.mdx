@@ -1,0 +1,353 @@
+---
+title: Files and Errors
+description: Storing data permanently and handling exceptions safely — open, with, try/except, JSON.
+kind: chapter
+sidebar:
+  order: 8
+  label: 08 · Files and errors
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Open files with `with open(...) as file:` — the file closes itself, even if an error happens.
+- Modes: `"r"` read, `"w"` write (**erases** the content), `"a"` append. For text, always pass `encoding="utf-8"`.
+- `try` / `except SpecificError:` catches a predictable error. Never use a bare `except:`.
+- Typical exceptions: `ValueError` (bad format), `FileNotFoundError`, `KeyError`, `IndexError`, `ZeroDivisionError`.
+- Save data as **JSON** (`json.dump` / `json.load`). Never load `pickle` from an untrusted source.
+</KeyPoints>
+
+## Opening a file with `with`
+
+Variables disappear when a program ends. A file lets you keep data permanently.
+
+The `with` context manager closes the file automatically at the end of the block — even if an error happens inside.
+
+```python title="read_notes.py"
+with open("notes.txt", "r", encoding="utf-8") as file:
+    content = file.read()
+
+print(content)
+```
+
+| Mode | Meaning | If the file does not exist | If it exists |
+| --- | --- | --- | --- |
+| `"r"` | read (default) | `FileNotFoundError` | reads from the start |
+| `"w"` | write | it is created | content is **erased** |
+| `"a"` | append | it is created | writes at the end |
+| `"rb"`, `"wb"` | binary read / write | — | — |
+
+:::caution[Mode `w` overwrites]
+Opening an existing file in `"w"` mode erases its content. To add records, use `"a"`.
+:::
+
+## Writing and appending
+
+```python title="write_log.py"
+with open("workshop.txt", "w", encoding="utf-8") as file:
+    file.write("Python workshop\n")
+    file.write("Day 2\n")
+
+with open("workshop.txt", "a", encoding="utf-8") as file:
+    file.write("Topic: files and exceptions\n")
+```
+
+`write()` does not add a newline — include `\n` yourself.
+
+## Reading line by line
+
+For a large file it is more efficient to iterate over lines than to load everything at once.
+
+```python title="participants.py"
+with open("participants.txt", "r", encoding="utf-8") as file:
+    for line_number, line in enumerate(file, start=1):
+        participant = line.strip()
+        print(f"{line_number}. {participant}")
+```
+
+| Approach | Returns |
+| --- | --- |
+| `file.read()` | the whole content as one string |
+| `file.readlines()` | a list of lines (including `\n`) |
+| `for line in file:` | lines one at a time — saves memory |
+
+`strip()` removes the trailing newline and extra spaces.
+
+## Exceptions with `try` / `except`
+
+A predictable error does not have to end the whole program.
+
+```python title="safe_read.py"
+filename = input("File name: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        print(file.read())
+except FileNotFoundError:
+    print(f"File {filename!r} does not exist.")
+except PermissionError:
+    print("You do not have permission to open the file.")
+```
+
+Catch **specific** exceptions. A bare `except:` would also hide programming errors (a typo in a variable name) that you need to see.
+
+### `else` and `finally`
+
+```python
+try:
+    number = int(input("Number: "))
+except ValueError:
+    print("That is not a whole number.")
+else:
+    print(f"Doubled: {number * 2}")   # only if NO error happened
+finally:
+    print("Done.")                    # always, with or without an error
+```
+
+### Raising an exception: `raise`
+
+Your own function can report an error itself. The caller catches it like any built-in exception.
+
+```python
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Cannot divide by zero.")
+    return a / b
+
+
+try:
+    print(divide(10, 0))
+except ValueError as error:
+    print(error)  # Cannot divide by zero.
+```
+
+## Safe numeric input
+
+A loop plus an exception: keep asking until you get a valid number.
+
+```python title="number_input.py"
+while True:
+    try:
+        quantity = int(input("Quantity: "))
+    except ValueError:
+        print("Enter a whole number.")
+        continue
+
+    if quantity > 0:
+        break
+    print("The quantity must be positive.")
+
+print(f"Saving {quantity} pcs.")
+```
+
+## Saving data: JSON and pickle
+
+**JSON** is a text format readable by people and by other languages. Dictionaries and lists go into it directly.
+
+```python title="save_json.py"
+import json
+
+progress = {"lesson": 8, "completed": True, "topics": ["files", "exceptions"]}
+
+with open("progress.json", "w", encoding="utf-8") as file:
+    json.dump(progress, file, ensure_ascii=False, indent=2)
+
+with open("progress.json", "r", encoding="utf-8") as file:
+    restored = json.load(file)
+
+print(restored["topics"])  # ['files', 'exceptions']
+```
+
+`ensure_ascii=False` keeps accented characters readable, `indent=2` pretty-prints the file. A corrupted file raises `json.JSONDecodeError` when loaded.
+
+**pickle** stores any Python object in a binary file (modes `"wb"` / `"rb"`):
+
+```python title="save_pickle.py"
+import pickle
+
+with open("progress.pkl", "wb") as file:
+    pickle.dump(progress, file)
+
+with open("progress.pkl", "rb") as file:
+    restored = pickle.load(file)
+```
+
+:::danger[Never load an untrusted pickle]
+`pickle.load()` can run arbitrary code while loading. Use it only for files you created yourself. Use JSON for exchanging data between systems.
+:::
+
+## Mini project: task log
+
+```python title="task_log.py"
+from datetime import datetime
+
+task = input("Completed task: ").strip()
+
+if task:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open("tasks.log", "a", encoding="utf-8") as file:
+        file.write(f"[{timestamp}] {task}\n")
+    print("The task was saved.")
+else:
+    print("Not saving an empty task.")
+```
+
+## Test yourself
+
+<Question q='What is the difference between the `"w"` and `"a"` modes?'>
+`"w"` creates the file or **erases** its content and writes from the start. `"a"` writes at the **end** of the existing content. Both create the file if it does not exist.
+</Question>
+
+<Question q="Why open a file with `with`?">
+`with` closes the file automatically at the end of the block — even if an exception happens inside. You do not have to call `file.close()`.
+</Question>
+
+<Question q="Why avoid a bare `except:`?">
+It catches absolutely every error, including programming mistakes (a typo, `NameError`) and even `Ctrl+C`. Errors you need to see get swallowed.
+</Question>
+
+<Question q="When does the `else` block run with `try`, and when does `finally`?">
+`else` only when **no** exception happened in `try`. `finally` always — with or without an error.
+</Question>
+
+<Question q='Which exception does `int("abc")` raise, and which does `open("missing.txt")` raise if the file does not exist?'>
+`ValueError` and `FileNotFoundError`.
+</Question>
+
+<Question q="Why is JSON better than pickle for saving data?">
+JSON is readable text that other languages and tools can process. `pickle` is binary, works only in Python, and loading it from an unknown source can run malicious code.
+</Question>
+
+## Exercises
+
+### 8.1 · Text file analysis
+
+Read the path to a `.txt` file and print:
+
+- the number of lines,
+- the number of words,
+- the number of non-whitespace characters,
+- the longest line.
+
+Open the file with UTF-8 and handle `FileNotFoundError`.
+
+<p class="practises">You practise: `with open`, `readlines`, `split`, `max` with `key`, `try`/`except`.</p>
+
+<Solution>
+```python title="file_analysis.py"
+filename = input("Path to a text file: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        lines = file.readlines()
+except FileNotFoundError:
+    print(f"File {filename!r} does not exist.")
+except PermissionError:
+    print("Cannot read the file — permission denied.")
+else:
+    word_count = sum(len(line.split()) for line in lines)
+    character_count = sum(len("".join(line.split())) for line in lines)
+    longest_line = max((line.rstrip("\n") for line in lines), key=len, default="")
+
+    print(f"Lines: {len(lines)}")
+    print(f"Words: {word_count}")
+    print(f"Non-whitespace characters: {character_count}")
+    print(f"Longest line: {longest_line}")
+```
+
+`"".join(line.split())` joins the words without spaces, so `len(...)` counts only non-whitespace characters. `default=""` prevents an error for an empty file.
+</Solution>
+
+### 8.2 · Final project: daily tracker
+
+This brings the whole course together. Build a console program that lets you:
+
+1. add a completed task,
+2. show all tasks,
+3. filter them by category,
+4. save them to a file and load them on the next run.
+
+Represent a record as a dictionary, keep records in a list, and store them on disk as JSON.
+
+```python title="Suggested record shape"
+task = {
+    "title": "Finish the Python exercise",
+    "category": "study",
+    "completed": True,
+}
+```
+
+<p class="practises">You practise: functions, a menu in a loop, a list of dictionaries, JSON, exceptions.</p>
+
+<Solution variant="hint">
+Split the program into `load_tasks()`, `save_tasks(tasks)`, `add_task(tasks)`, and `show_tasks(tasks, category=None)`. The main part is a `while True` menu with `break` on “quit”. If the file does not exist yet, `load_tasks()` returns an empty list.
+</Solution>
+
+<Solution>
+```python title="tracker.py"
+import json
+from pathlib import Path
+
+DATA_FILE = Path("tasks.json")
+
+
+def load_tasks():
+    try:
+        with DATA_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        print("The data file is corrupted. Starting with an empty list.")
+        return []
+
+
+def save_tasks(tasks):
+    with DATA_FILE.open("w", encoding="utf-8") as file:
+        json.dump(tasks, file, ensure_ascii=False, indent=2)
+
+
+def add_task(tasks):
+    title = input("Task title: ").strip()
+    category = input("Category: ").strip().casefold()
+    if title:
+        tasks.append({"title": title, "category": category, "completed": True})
+        save_tasks(tasks)
+        print("The task was saved.")
+
+
+def show_tasks(tasks, category=None):
+    selected = [
+        task for task in tasks
+        if category is None or task["category"] == category
+    ]
+    if not selected:
+        print("No tasks found.")
+        return
+    for position, task in enumerate(selected, start=1):
+        print(f"{position}. {task['title']} [{task['category']}]")
+
+
+tasks = load_tasks()
+
+while True:
+    print("\n1 — add | 2 — show | 3 — filter | 0 — quit")
+    choice = input("Choice: ").strip()
+
+    if choice == "1":
+        add_task(tasks)
+    elif choice == "2":
+        show_tasks(tasks)
+    elif choice == "3":
+        category = input("Category: ").strip().casefold()
+        show_tasks(tasks, category)
+    elif choice == "0":
+        break
+    else:
+        print("Unknown choice.")
+```
+
+`Path` from `pathlib` is the modern way to work with paths; `DATA_FILE.open(...)` works the same as `open(DATA_FILE, ...)`. The solution saves after every addition. A larger application would separate the user interface, the data model, and storage.
+</Solution>

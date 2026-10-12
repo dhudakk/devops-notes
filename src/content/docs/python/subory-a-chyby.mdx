@@ -1,0 +1,353 @@
+---
+title: Súbory a chyby
+description: Trvalé uloženie dát a bezpečné ošetrenie výnimiek — open, with, try/except, JSON.
+kind: chapter
+sidebar:
+  order: 8
+  label: 08 · Súbory a chyby
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Súbor otváraj cez `with open(...) as file:` — zatvorí sa sám, aj keď nastane chyba.
+- Režimy: `"r"` čítanie, `"w"` zápis (**prepíše** obsah), `"a"` pridanie na koniec. Pri texte vždy `encoding="utf-8"`.
+- `try` / `except KonkrétnaChyba:` zachytí predvídateľnú chybu. Holé `except:` nepoužívaj.
+- Typické výnimky: `ValueError` (zlý formát), `FileNotFoundError`, `KeyError`, `IndexError`, `ZeroDivisionError`.
+- Na ukladanie dát použi **JSON** (`json.dump` / `json.load`). `pickle` nikdy nenačítavaj z nedôveryhodného zdroja.
+</KeyPoints>
+
+## Otváranie súboru cez `with`
+
+Premenné po skončení programu zaniknú. Súbor umožní dáta uložiť natrvalo.
+
+Kontextový manažér `with` súbor po skončení bloku automaticky zatvorí — aj keď počas práce vznikne chyba.
+
+```python title="read_notes.py"
+with open("notes.txt", "r", encoding="utf-8") as file:
+    content = file.read()
+
+print(content)
+```
+
+| Režim | Význam | Ak súbor neexistuje | Ak existuje |
+| --- | --- | --- | --- |
+| `"r"` | čítanie (predvolený) | `FileNotFoundError` | číta od začiatku |
+| `"w"` | zápis | vytvorí sa | **vymaže** obsah |
+| `"a"` | pridanie | vytvorí sa | píše na koniec |
+| `"rb"`, `"wb"` | binárne čítanie / zápis | — | — |
+
+:::caution[Režim `w` prepisuje]
+Otvorenie existujúceho súboru v režime `"w"` vymaže jeho pôvodný obsah. Ak chceš záznamy pridávať, použi `"a"`.
+:::
+
+## Zápis a pridávanie
+
+```python title="write_log.py"
+with open("workshop.txt", "w", encoding="utf-8") as file:
+    file.write("Python workshop\n")
+    file.write("Deň 2\n")
+
+with open("workshop.txt", "a", encoding="utf-8") as file:
+    file.write("Téma: súbory a výnimky\n")
+```
+
+`write()` nepridáva nový riadok automaticky — vlož `\n` sám.
+
+## Čítanie po riadkoch
+
+Pri veľkom súbore je efektívnejšie iterovať po riadkoch než celý obsah načítať naraz.
+
+```python title="participants.py"
+with open("participants.txt", "r", encoding="utf-8") as file:
+    for line_number, line in enumerate(file, start=1):
+        participant = line.strip()
+        print(f"{line_number}. {participant}")
+```
+
+| Spôsob | Vráti |
+| --- | --- |
+| `file.read()` | celý obsah ako jeden reťazec |
+| `file.readlines()` | zoznam riadkov (vrátane `\n`) |
+| `for line in file:` | riadky jeden po druhom — šetrí pamäť |
+
+`strip()` odstráni koncový znak nového riadka aj nadbytočné medzery.
+
+## Výnimky cez `try` / `except`
+
+Predvídateľná chyba nemusí ukončiť celý program.
+
+```python title="safe_read.py"
+filename = input("Názov súboru: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        print(file.read())
+except FileNotFoundError:
+    print(f"Súbor {filename!r} neexistuje.")
+except PermissionError:
+    print("Na otvorenie súboru nemáš oprávnenie.")
+```
+
+Zachytávaj **konkrétne** výnimky. Holé `except:` by skrylo aj programátorské chyby (preklep v názve premennej), ktoré potrebuješ vidieť.
+
+### `else` a `finally`
+
+```python
+try:
+    number = int(input("Číslo: "))
+except ValueError:
+    print("To nie je celé číslo.")
+else:
+    print(f"Dvojnásobok: {number * 2}")   # iba ak chyba NENASTALA
+finally:
+    print("Hotovo.")                      # vždy, s chybou aj bez
+```
+
+### Vyvolanie výnimky: `raise`
+
+Vlastná funkcia môže chybu oznámiť sama. Volajúci ju zachytí rovnako ako vstavanú výnimku.
+
+```python
+def divide(a, b):
+    if b == 0:
+        raise ValueError("Nulou nemožno deliť.")
+    return a / b
+
+
+try:
+    print(divide(10, 0))
+except ValueError as error:
+    print(error)  # Nulou nemožno deliť.
+```
+
+## Bezpečný číselný vstup
+
+Kombinácia cyklu a výnimky: pýtaj sa, kým nedostaneš platné číslo.
+
+```python title="number_input.py"
+while True:
+    try:
+        quantity = int(input("Počet kusov: "))
+    except ValueError:
+        print("Zadaj celé číslo.")
+        continue
+
+    if quantity > 0:
+        break
+    print("Počet musí byť kladný.")
+
+print(f"Ukladám {quantity} ks.")
+```
+
+## Ukladanie dát: JSON a pickle
+
+**JSON** je textový formát čitateľný pre ľudí aj iné jazyky. Slovníky a zoznamy doň uložíš priamo.
+
+```python title="save_json.py"
+import json
+
+progress = {"lesson": 8, "completed": True, "topics": ["súbory", "výnimky"]}
+
+with open("progress.json", "w", encoding="utf-8") as file:
+    json.dump(progress, file, ensure_ascii=False, indent=2)
+
+with open("progress.json", "r", encoding="utf-8") as file:
+    restored = json.load(file)
+
+print(restored["topics"])  # ['súbory', 'výnimky']
+```
+
+`ensure_ascii=False` zachová diakritiku čitateľnú, `indent=2` súbor pekne naformátuje. Poškodený súbor vyvolá pri načítaní `json.JSONDecodeError`.
+
+**pickle** ukladá ľubovoľné Python objekty do binárneho súboru (režimy `"wb"` / `"rb"`):
+
+```python title="save_pickle.py"
+import pickle
+
+with open("progress.pkl", "wb") as file:
+    pickle.dump(progress, file)
+
+with open("progress.pkl", "rb") as file:
+    restored = pickle.load(file)
+```
+
+:::danger[Nikdy nenačítavaj nedôveryhodný pickle]
+`pickle.load()` môže pri načítaní spustiť ľubovoľný kód. Používaj ho iba pre súbory, ktoré si sám vytvoril. Na výmenu dát medzi systémami použi JSON.
+:::
+
+## Mini projekt: denník úloh
+
+```python title="task_log.py"
+from datetime import datetime
+
+task = input("Dokončená úloha: ").strip()
+
+if task:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open("tasks.log", "a", encoding="utf-8") as file:
+        file.write(f"[{timestamp}] {task}\n")
+    print("Úloha bola uložená.")
+else:
+    print("Prázdnu úlohu neukladám.")
+```
+
+## Otestuj sa
+
+<Question q='Aký je rozdiel medzi režimami `"w"` a `"a"`?'>
+`"w"` súbor vytvorí alebo **vymaže** jeho obsah a píše od začiatku. `"a"` píše na **koniec** existujúceho obsahu. Oba súbor vytvoria, ak neexistuje.
+</Question>
+
+<Question q="Prečo otvárať súbor cez `with`?">
+`with` súbor automaticky zatvorí po skončení bloku — aj keď vo vnútri nastane výnimka. Nemusíš volať `file.close()`.
+</Question>
+
+<Question q="Prečo nepoužívať holé `except:`?">
+Zachytí úplne každú chybu, aj programátorské (preklep, `NameError`) a dokonca `Ctrl+C`. Chyby, ktoré potrebuješ vidieť, sa tak stratia.
+</Question>
+
+<Question q="Kedy sa vykoná blok `else` a kedy `finally` pri `try`?">
+`else` iba vtedy, keď v `try` **nenastala** výnimka. `finally` vždy — s chybou aj bez nej.
+</Question>
+
+<Question q='Akú výnimku vyvolá `int("abc")` a akú `open("chyba.txt")`, ak súbor neexistuje?'>
+`ValueError` a `FileNotFoundError`.
+</Question>
+
+<Question q="Prečo je na ukladanie dát lepší JSON než pickle?">
+JSON je čitateľný text, ktorý spracuje aj iný jazyk či nástroj. `pickle` je binárny, funguje iba v Pythone a jeho načítanie z neznámeho zdroja môže spustiť škodlivý kód.
+</Question>
+
+## Cvičenia
+
+### 8.1 · Analýza textového súboru
+
+Načítaj cestu k `.txt` súboru a vypíš:
+
+- počet riadkov,
+- počet slov,
+- počet neprázdnych znakov (bez medzier a nových riadkov),
+- najdlhší riadok.
+
+Súbor otvor s UTF-8 a ošetri `FileNotFoundError`.
+
+<p class="practises">Precvičíš: `with open`, `readlines`, `split`, `max` s `key`, `try`/`except`.</p>
+
+<Solution>
+```python title="analyza_suboru.py"
+filename = input("Cesta k textovému súboru: ").strip()
+
+try:
+    with open(filename, "r", encoding="utf-8") as file:
+        lines = file.readlines()
+except FileNotFoundError:
+    print(f"Súbor {filename!r} neexistuje.")
+except PermissionError:
+    print("Súbor nemožno čítať — chýba oprávnenie.")
+else:
+    word_count = sum(len(line.split()) for line in lines)
+    character_count = sum(len("".join(line.split())) for line in lines)
+    longest_line = max((line.rstrip("\n") for line in lines), key=len, default="")
+
+    print(f"Riadky: {len(lines)}")
+    print(f"Slová: {word_count}")
+    print(f"Neprázdne znaky: {character_count}")
+    print(f"Najdlhší riadok: {longest_line}")
+```
+
+`"".join(line.split())` spojí slová bez medzier, takže `len(...)` spočíta iba neprázdne znaky. `default=""` zabráni chybe pri prázdnom súbore.
+</Solution>
+
+### 8.2 · Záverečný projekt: denný tracker
+
+Spája celý kurz. Vytvor konzolový program, ktorý umožní:
+
+1. pridať dokončenú úlohu,
+2. zobraziť všetky úlohy,
+3. filtrovať ich podľa kategórie,
+4. uložiť ich do súboru a pri ďalšom spustení načítať.
+
+Záznam reprezentuj slovníkom, záznamy drž v zozname a na disk ich ukladaj ako JSON.
+
+```python title="Navrhovaný tvar záznamu"
+task = {
+    "title": "Dokončiť Python cvičenie",
+    "category": "study",
+    "completed": True,
+}
+```
+
+<p class="practises">Precvičíš: funkcie, menu v cykle, zoznam slovníkov, JSON, výnimky.</p>
+
+<Solution variant="hint">
+Rozdeľ program na funkcie `load_tasks()`, `save_tasks(tasks)`, `add_task(tasks)` a `show_tasks(tasks, category=None)`. Hlavná časť je `while True` s menu a `break` pri voľbe „koniec“. Ak súbor ešte neexistuje, `load_tasks()` vráti prázdny zoznam.
+</Solution>
+
+<Solution>
+```python title="tracker.py"
+import json
+from pathlib import Path
+
+DATA_FILE = Path("tasks.json")
+
+
+def load_tasks():
+    try:
+        with DATA_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        print("Súbor s dátami je poškodený. Začínam s prázdnym zoznamom.")
+        return []
+
+
+def save_tasks(tasks):
+    with DATA_FILE.open("w", encoding="utf-8") as file:
+        json.dump(tasks, file, ensure_ascii=False, indent=2)
+
+
+def add_task(tasks):
+    title = input("Názov úlohy: ").strip()
+    category = input("Kategória: ").strip().casefold()
+    if title:
+        tasks.append({"title": title, "category": category, "completed": True})
+        save_tasks(tasks)
+        print("Úloha bola uložená.")
+
+
+def show_tasks(tasks, category=None):
+    selected = [
+        task for task in tasks
+        if category is None or task["category"] == category
+    ]
+    if not selected:
+        print("Nenašli sa žiadne úlohy.")
+        return
+    for position, task in enumerate(selected, start=1):
+        print(f"{position}. {task['title']} [{task['category']}]")
+
+
+tasks = load_tasks()
+
+while True:
+    print("\n1 — pridať | 2 — zobraziť | 3 — filtrovať | 0 — koniec")
+    choice = input("Voľba: ").strip()
+
+    if choice == "1":
+        add_task(tasks)
+    elif choice == "2":
+        show_tasks(tasks)
+    elif choice == "3":
+        category = input("Kategória: ").strip().casefold()
+        show_tasks(tasks, category)
+    elif choice == "0":
+        break
+    else:
+        print("Neznáma voľba.")
+```
+
+`Path` z modulu `pathlib` je moderný spôsob práce s cestami; `DATA_FILE.open(...)` funguje rovnako ako `open(DATA_FILE, ...)`. Riešenie ukladá súbor po každom pridaní. Vo väčšej aplikácii by sme oddelili používateľské rozhranie, dátový model a ukladanie.
+</Solution>

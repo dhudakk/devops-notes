@@ -1,55 +1,24 @@
 ---
 title: DevOps Notes
-description: Praktická knižnica poznámok pre nástroje, jazyky a workflow moderného DevOps.
-template: splash
-hero:
-  tagline: Z lekcií a surových prepisov robíme čisté, overené a použiteľné technické poznámky — s príkladmi, cvičeniami a riešeniami na jednom mieste.
-  actions:
-    - text: Otvoriť Python kurz
-      link: /devops-notes/python/
-      icon: right-arrow
-      variant: primary
-    - text: Prezrieť všetky témy
-      link: '#kurzy'
-      icon: open-book
-      variant: minimal
+description: Moje poznámky na DevOps skúšku — každá téma ako kurz s kapitolami, otázkami na overenie a cvičeniami s riešením.
+kind: home
+tableOfContents: false
+prev: false
+next: false
 ---
 
-<div class="stat-grid">
-  <div class="stat-card"><strong>SK + EN</strong><p>každý dokončený kurz v slovenčine aj angličtine</p></div>
-  <div class="stat-card"><strong>Prakticky</strong><p>kopírovateľný kód, úlohy a skryté referenčné riešenia</p></div>
-  <div class="stat-card"><strong>Modulárne</strong><p>samostatné kurzy, ktoré sa dajú postupne rozširovať</p></div>
-</div>
+import CourseGrid from '../../components/CourseGrid.astro';
 
 ## Kurzy
 
-<div id="kurzy" class="course-grid">
-  <a class="course-card available" href="/devops-notes/python/">
-    <span class="course-icon">Py</span>
-    <span class="course-status">Dostupné</span>
-    <h3>Python</h3>
-    <p>Od premenných a podmienok po funkcie, súbory a dátové štruktúry.</p>
-    <span class="course-meta">8 kapitol · 10 cvičení · SK + EN</span>
-  </a>
-  <div class="course-card planned">
-    <span class="course-icon">Git</span>
-    <span class="course-status">Pripravuje sa</span>
-    <h3>Git</h3>
-    <p>História zmien, vetvy, spolupráca, konflikty a každodenný workflow.</p>
-    <span class="course-meta">Ďalší kurz</span>
-  </div>
-  <div class="course-card planned">
-    <span class="course-icon">Tf</span>
-    <span class="course-status">Plánované</span>
-    <h3>Terraform</h3>
-    <p>Infrastructure as Code, state, moduly a bezpečné nasadzovanie infraštruktúry.</p>
-    <span class="course-meta">Budúci kurz</span>
-  </div>
-  <div class="course-card planned">
-    <span class="course-icon">K8s</span>
-    <span class="course-status">Plánované</span>
-    <h3>Kubernetes</h3>
-    <p>Workloads, networking, konfigurácia a prevádzka kontajnerových aplikácií.</p>
-    <span class="course-meta">Budúci kurz</span>
-  </div>
-</div>
+<CourseGrid />
+
+## Ako sa učiť z týchto poznámok
+
+<ol class="study-steps">
+  <li><strong>Prečítaj kapitolu</strong>Začni boxom „Kľúčové body“ — povie ti, čo si máš z kapitoly odniesť.</li>
+  <li><strong>Otestuj sa</strong>Na konci kapitoly odpovedz na otázky nahlas a až potom rozbaľ odpoveď.</li>
+  <li><strong>Vyrieš cvičenia</strong>Najprv bez nápovedy. Riešenie otvor až keď máš vlastnú verziu.</li>
+  <li><strong>Označ ako preštudované</strong>Tlačidlo pri nadpise si zapamätá postup v tomto prehliadači.</li>
+  <li><strong>Pred skúškou</strong>Prejdi ťahák kurzu a otázky zo všetkých kapitol.</li>
+</ol>

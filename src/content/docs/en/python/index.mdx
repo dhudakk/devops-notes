@@ -1,0 +1,36 @@
+---
+title: Python
+description: Python programming fundamentals — from the first print to files, exceptions, and JSON. Chapters build on each other, so work through them in order.
+kind: overview
+sidebar:
+  order: 0
+  label: Course overview
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../../components/ChapterList.astro';
+
+## Chapters
+
+<ChapterList course="python" />
+
+## For revision
+
+<CardGrid>
+  <LinkCard title="Cheat sheet" description="The whole course on one page: syntax, methods, and common traps." href="/devops-notes/en/python/tahak/" />
+  <LinkCard title="Sources" description="Slides, the demo document, and which chapter came from which material." href="/devops-notes/en/python/zdroje/" />
+</CardGrid>
+
+## How to approach an exercise
+
+1. **Input → processing → output.** First write down what data the program gets, what it does with it, and what it prints.
+2. **Predict the result** before running it. If it differs, find out why — that is where you learn the most.
+3. **Test the edge values:** exactly `0`, `15`, `18`, empty input, text instead of a number.
+
+Checklist before handing in:
+
+- The program runs without a syntax error.
+- Variable and function names say what they hold or do.
+- Every loop has a clear exit condition.
+- An error state prints an understandable message, not a traceback.
+- Repeated logic lives in a function.

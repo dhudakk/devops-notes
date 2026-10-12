@@ -1,0 +1,309 @@
+---
+title: Funkcie a moduly
+description: Rozdelenie programu na malé, čitateľné a znovupoužiteľné časti — parametre, return, scope a import.
+kind: chapter
+sidebar:
+  order: 4
+  label: 04 · Funkcie a moduly
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Funkcia = pomenovaný blok kódu s **jednou** jasnou úlohou. Definuješ ju cez `def`.
+- **Parameter** je meno v definícii, **argument** je hodnota pri volaní.
+- `return` výsledok **vráti** volajúcemu; `print()` ho iba **zobrazí**. Bez `return` funkcia vráti `None`.
+- Premenné vytvorené vo funkcii sú **lokálne** — mimo nej neexistujú.
+- Modul = `.py` súbor. Načítaš ho cez `import modul` alebo `from modul import meno`.
+</KeyPoints>
+
+## Definícia a volanie
+
+Funkcia je pomenovaný blok kódu. Rozklad veľkého problému na menšie časti zlepšuje čitateľnosť, testovanie aj opätovné použitie.
+
+```python
+def print_header():
+    print("=" * 30)
+    print("      PYTHON WORKSHOP")
+    print("=" * 30)
+
+
+print_header()
+```
+
+Medzi definíciami funkcií a zvyškom programu nechaj podľa štýlu PEP 8 **dva prázdne riadky**.
+
+## Parametre a argumenty
+
+**Parameter** je meno v definícii funkcie. **Argument** je konkrétna hodnota odovzdaná pri volaní.
+
+```python
+def greet(name, language="sk"):
+    if language == "sk":
+        return f"Ahoj, {name}!"
+    return f"Hello, {name}!"
+
+
+print(greet("Mária"))                 # pozičný argument
+print(greet("John", language="en"))   # pomenovaný (keyword) argument
+```
+
+Parameter s predvolenou hodnotou (`language="sk"`) musí byť **za** parametrami bez predvolenej hodnoty. `def greet(language="sk", name):` je `SyntaxError`.
+
+## Návratová hodnota
+
+`return` odovzdá výsledok volajúcemu a **okamžite** ukončí funkciu.
+
+```python
+def total_price(unit_price, quantity, discount=0.0):
+    subtotal = unit_price * quantity
+    return subtotal * (1 - discount)
+
+
+price = total_price(49.90, 3, discount=0.10)
+print(f"Spolu: {price:.2f} €")
+```
+
+Funkcia bez `return` vráti `None`. Niekedy sa jej neformálne hovorí „void funkcia“, no technicky vždy nejakú hodnotu vráti.
+
+```python
+def show_status(message):
+    print(f"Stav: {message}")
+
+
+result = show_status("hotovo")
+print(result)  # None
+```
+
+### Booleovské funkcie
+
+Funkcia, ktorá vracia `True`/`False`, pomenúva pravidlo. Názov začni `is_`, `has_` alebo `can_`.
+
+```python
+def is_valid_age(age):
+    return 0 <= age <= 120
+
+
+if is_valid_age(28):
+    print("Vek je platný")
+```
+
+### Viac návratových hodnôt
+
+Funkcia môže vrátiť viac hodnôt naraz. Python ich zabalí do n-tice a pri priradení ich môžeš rozbaliť.
+
+```python
+def convert_minutes(total_minutes):
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    return hours, minutes
+
+
+hours, minutes = convert_minutes(135)
+print(f"{hours} h {minutes} min")  # 2 h 15 min
+```
+
+## Lokálny a globálny scope
+
+Premenná vytvorená vo funkcii je **lokálna** — mimo funkcie neexistuje (`NameError`). Globálne premenné vo funkcii čítať môžeš, ale meniť globálny stav z funkcií komplikuje testovanie.
+
+```python
+VAT_RATE = 0.20  # globálna konštanta je v poriadku
+
+
+def price_with_vat(net_price):
+    gross_price = net_price * (1 + VAT_RATE)  # lokálna premenná
+    return gross_price
+
+
+print(price_with_vat(100))  # 120.0
+# print(gross_price)        # NameError — mimo funkcie neexistuje
+```
+
+:::caution[`global` používaj zriedka]
+Na **čítanie** globálnej hodnoty `global` netreba. Je potrebné až pri jej **priradení** vo funkcii — a to je často signál, že by funkcia mala hodnotu radšej prijať ako parameter a vrátiť cez `return`.
+:::
+
+## Moduly
+
+Modul je Python súbor s funkciami, triedami alebo konštantami. `import` sprístupní jeho mená.
+
+```python title="random_demo.py"
+import math
+import random
+
+radius = 3
+area = math.pi * radius**2
+roll = random.randint(1, 6)  # 1 až 6 vrátane
+
+print(f"Obsah kruhu: {area:.2f}")
+print(f"Hod kockou: {roll}")
+```
+
+| Zápis | Použitie v kóde |
+| --- | --- |
+| `import math` | `math.sqrt(16)` |
+| `from math import sqrt` | `sqrt(16)` |
+| `import math as m` | `m.sqrt(16)` |
+
+`math` a `random` patria do **štandardnej knižnice** — sú súčasťou Pythonu. Balíky ako NumPy či pandas sa inštalujú osobitne cez `pip`:
+
+```bash title="Terminál"
+python -m pip install pandas
+```
+
+### Vlastný modul
+
+Funkcie môžeš uložiť do samostatného `.py` súboru a importovať ich. Pri tomto jednoduchom príklade musia byť oba súbory v **tom istom priečinku**.
+
+```python title="helpers.py"
+def format_price(value):
+    return f"{value:.2f} €"
+
+
+def calculate_discount(price, percent):
+    return price * percent / 100
+```
+
+```python title="main.py"
+from helpers import calculate_discount, format_price
+
+price = 120.0
+discount = calculate_discount(price, 15)
+
+print(format_price(price - discount))  # 102.00 €
+```
+
+**Balík** (*package*) je priečinok, ktorý organizuje viac modulov.
+
+## Kompletný príklad: registračný modul
+
+```python title="registration.py"
+MINIMUM_AGE = 15
+
+
+def can_register(age, has_guardian_consent):
+    if age >= 18:
+        return True
+    return age >= MINIMUM_AGE and has_guardian_consent
+
+
+def registration_message(name, allowed):
+    if allowed:
+        return f"{name}: registrácia úspešná"
+    return f"{name}: registrácia zamietnutá"
+
+
+name = input("Meno: ").strip()
+age = int(input("Vek: "))
+answer = input("Súhlas zástupcu? (áno/nie): ").strip().lower()
+
+allowed = can_register(age, answer == "áno")
+print(registration_message(name, allowed))
+```
+
+## Otestuj sa
+
+<Question q='Čo je parameter a čo argument v `def greet(name):` a `greet("Eva")`?'>
+`name` je parameter (meno v definícii). `"Eva"` je argument (hodnota pri volaní).
+</Question>
+
+<Question q="Aký je rozdiel medzi `return` a `print()` vo funkcii?">
+`return` odovzdá hodnotu volajúcemu, ktorý ju môže uložiť a ďalej použiť, a ukončí funkciu. `print()` hodnotu iba zobrazí v konzole. Funkcia, ktorá iba printuje, vráti `None`.
+</Question>
+
+<Question q="Prečo je `def f(a=1, b):` chyba?">
+Parametre s predvolenou hodnotou musia byť za parametrami bez nej. Správne je `def f(b, a=1):`.
+</Question>
+
+<Question q="Čo vráti `convert_minutes(135)`, ak funkcia končí `return hours, minutes`?">
+N-ticu `(2, 15)`. Rozbaliť ju môžeš cez `hours, minutes = convert_minutes(135)`.
+</Question>
+
+<Question q="Aký je rozdiel medzi `import math` a `from math import sqrt`?">
+Pri `import math` voláš `math.sqrt(...)` — meno modulu je súčasťou volania. Pri `from math import sqrt` voláš priamo `sqrt(...)`.
+</Question>
+
+## Cvičenia
+
+### 4.1 · Kalkulačka z funkcií
+
+Vytvor funkcie `add`, `subtract`, `multiply` a `divide`. Hlavná časť programu načíta dve čísla a operáciu (`+ - * /`) a vypíše výsledok. Delenie nulou musí vypísať zrozumiteľnú správu, nie chybu.
+
+**Bonus:** presuň funkcie do `calculator.py` a importuj ich v `main.py`.
+
+<p class="practises">Precvičíš: `def`, `return`, `if`/`elif`, vlastný modul.</p>
+
+<Solution>
+```python title="calculator.py"
+def add(a, b):
+    return a + b
+
+
+def subtract(a, b):
+    return a - b
+
+
+def multiply(a, b):
+    return a * b
+
+
+def divide(a, b):
+    return a / b
+```
+
+```python title="main.py"
+from calculator import add, divide, multiply, subtract
+
+first = float(input("Prvé číslo: "))
+operator = input("Operácia (+, -, *, /): ").strip()
+second = float(input("Druhé číslo: "))
+
+result = None
+
+if operator == "+":
+    result = add(first, second)
+elif operator == "-":
+    result = subtract(first, second)
+elif operator == "*":
+    result = multiply(first, second)
+elif operator == "/" and second == 0:
+    print("Nulou nemožno deliť.")
+elif operator == "/":
+    result = divide(first, second)
+else:
+    print("Neznáma operácia.")
+
+if result is not None:
+    print(f"Výsledok: {result:g}")
+```
+
+`result is not None` testuje, či sa výsledok podarilo vypočítať. Po kapitolách 7 a 8 môžeš `if` reťazec nahradiť slovníkom `{"+": add, ...}` a delenie nulou ošetriť výnimkou.
+</Solution>
+
+### 4.2 · Formátovanie trvania
+
+Napíš funkciu `format_duration(seconds)`, ktorá vráti reťazec v tvare `1 h 02 min 05 s`. Funkcia nič nevypisuje — iba **vracia** text. Over ju na hodnotách `3725`, `59` a `0`.
+
+<p class="practises">Precvičíš: parametre, `return`, `//` a `%`, formát `:02`.</p>
+
+<Solution variant="hint">
+Hodiny = `seconds // 3600`. Zvyšok po hodinách = `seconds % 3600`, z neho minúty cez `// 60` a sekundy cez `% 60`. `f"{5:02}"` vypíše `05`.
+</Solution>
+
+<Solution>
+```python title="trvanie.py"
+def format_duration(seconds):
+    hours = seconds // 3600
+    minutes = seconds % 3600 // 60
+    rest = seconds % 60
+    return f"{hours} h {minutes:02} min {rest:02} s"
+
+
+print(format_duration(3725))  # 1 h 02 min 05 s
+print(format_duration(59))    # 0 h 00 min 59 s
+print(format_duration(0))     # 0 h 00 min 00 s
+```
+</Solution>

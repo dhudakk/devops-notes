@@ -1,0 +1,36 @@
+---
+title: Python
+description: Základy programovania v Pythone — od prvého printu po súbory, výnimky a JSON. Kapitoly na seba nadväzujú, takže ich prechádzaj v poradí.
+kind: overview
+sidebar:
+  order: 0
+  label: Prehľad kurzu
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../components/ChapterList.astro';
+
+## Kapitoly
+
+<ChapterList course="python" />
+
+## Na opakovanie
+
+<CardGrid>
+  <LinkCard title="Ťahák" description="Celý kurz na jednej stránke: syntax, metódy a typické pasce." href="/devops-notes/python/tahak/" />
+  <LinkCard title="Zdroje" description="Prezentácie, demo dokument a z čoho vznikla ktorá kapitola." href="/devops-notes/python/zdroje/" />
+</CardGrid>
+
+## Postup pri riešení úlohy
+
+1. **Vstup → spracovanie → výstup.** Najprv si napíš, aké údaje program dostane, čo s nimi urobí a čo vypíše.
+2. **Odhadni výsledok** pred spustením. Ak sa líši, hľadaj prečo — tam sa učíš najviac.
+3. **Otestuj hraničné hodnoty:** presne `0`, `15`, `18`, prázdny vstup, text namiesto čísla.
+
+Kontrolný zoznam pred odovzdaním:
+
+- Program sa spustí bez syntaktickej chyby.
+- Názvy premenných a funkcií hovoria, čo obsahujú alebo robia.
+- Každý cyklus má jasnú podmienku ukončenia.
+- Chybový stav vypíše zrozumiteľnú správu, nie traceback.
+- Opakovaná logika je presunutá do funkcie.

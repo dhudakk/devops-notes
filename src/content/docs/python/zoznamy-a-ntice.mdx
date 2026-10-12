@@ -1,0 +1,233 @@
+---
+title: Zoznamy a n-tice
+description: Ukladanie viacerých hodnôt — indexovanie, rezy, úpravy, kopírovanie a vnorené kolekcie.
+kind: chapter
+sidebar:
+  order: 5
+  label: 05 · Zoznamy a n-tice
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `list` je usporiadaný a **meniteľný** — `[1, 2, 3]`. `tuple` je usporiadaná a **nemenná** — `(1, 2, 3)`.
+- Prvý prvok má index `0`, posledný `-1`. Pravá hranica rezu sa **nezahŕňa**: `items[1:3]` = prvky 1 a 2.
+- `items.sort()` mení pôvodný zoznam a vracia `None`; `sorted(items)` vráti **nový** zoznam.
+- `alias = original` **nekopíruje** — obe mená ukazujú na ten istý zoznam. Kópia: `original.copy()`.
+- Index aj hodnotu naraz dostaneš cez `enumerate(items, start=1)`.
+</KeyPoints>
+
+## Zoznam a n-tica
+
+Zoznam (`list`) uchováva usporiadanú kolekciu hodnôt a môžeš ho meniť. N-tica (`tuple`) je tiež usporiadaná, ale po vytvorení je **nemenná**.
+
+```python
+topics = ["Python", "Git", "Terraform"]
+coordinates = (48.1486, 17.1077)
+```
+
+## Indexy a rezy
+
+Indexovanie začína **nulou**. Záporný index počíta od konca.
+
+```python
+topics = ["Python", "Git", "Terraform", "Kubernetes"]
+#            0        1         2            3
+#           -4       -3        -2           -1
+
+print(topics[0])      # Python
+print(topics[-1])     # Kubernetes
+print(topics[1:3])    # ['Git', 'Terraform']
+print(topics[:2])     # ['Python', 'Git']
+print(topics[2:])     # ['Terraform', 'Kubernetes']
+print(topics[::-1])   # obrátené poradie
+```
+
+Rovnako ako pri `range()`, pravá hranica rezu sa **nezahŕňa**. Index mimo rozsahu (`topics[10]`) vyvolá `IndexError`, rez mimo rozsahu (`topics[2:10]`) nie.
+
+## Úprava zoznamu
+
+```python title="list_operations.py"
+participants = ["Eva", "Marek"]
+
+participants.append("Zuzana")   # pridá na koniec
+participants.insert(1, "Adam")  # vloží na index 1
+participants.remove("Marek")    # odstráni prvý výskyt hodnoty
+last_added = participants.pop() # odoberie a vráti posledný prvok
+
+print(participants)  # ['Eva', 'Adam']
+print(last_added)    # Zuzana
+```
+
+| Zápis | Výsledok |
+| --- | --- |
+| `len(items)` | počet prvkov |
+| `value in items` | `True`, ak zoznam hodnotu obsahuje |
+| `items.index(x)` | index prvého výskytu `x` |
+| `items.count(x)` | počet výskytov `x` |
+| `items.sort()` | zoradí **pôvodný** zoznam, vráti `None` |
+| `sorted(items)` | vráti **nový** zoradený zoznam |
+| `sum(items)`, `min(items)`, `max(items)` | súčet, minimum, maximum |
+
+:::caution[Častá pasca]
+`items = items.sort()` zoznam stratí — `sort()` vracia `None`. Píš buď `items.sort()`, alebo `items = sorted(items)`.
+:::
+
+## Pozor na zdieľaný zoznam
+
+Priradenie **nevytvorí kópiu**. Obe mená budú odkazovať na ten istý objekt.
+
+```python
+original = [1, 2, 3]
+alias = original
+copy = original.copy()
+
+alias.append(4)
+
+print(original)  # [1, 2, 3, 4]  ← zmenil sa aj originál
+print(copy)      # [1, 2, 3]
+```
+
+Pre plochý zoznam stačí `.copy()` alebo rez `[:]`. Pri vnorených zoznamoch použi `copy.deepcopy()`.
+
+## Prechádzanie zoznamu
+
+```python
+prices = [12.50, 8.90, 25.00]
+total = 0.0
+
+for price in prices:
+    total += price
+
+print(f"Spolu: {total:.2f} €")  # rovnaký výsledok dá sum(prices)
+```
+
+Ak potrebuješ hodnotu aj jej poradie, použi `enumerate()`:
+
+```python
+for position, topic in enumerate(topics, start=1):
+    print(f"{position}. {topic}")
+```
+
+## Vnorené zoznamy
+
+Tabuľku môžeš reprezentovať ako zoznam riadkov.
+
+```python title="matrix.py"
+attendance = [
+    [True, True, False],
+    [True, False, True],
+]
+
+print(attendance[1][2])  # True — riadok 1, stĺpec 2
+
+for student_number, days in enumerate(attendance, start=1):
+    attended = sum(days)  # True sa pri sčítaní správa ako 1
+    print(f"Študent {student_number}: {attended} dni")
+```
+
+## Kedy použiť n-ticu
+
+N-tica sa hodí pre pevne danú skupinu hodnôt — RGB farbu, súradnice alebo viac výsledkov funkcie.
+
+```python
+primary_color = (76, 224, 179)
+latitude, longitude = (48.1486, 17.1077)  # rozbalenie
+single = (42,)                            # jednoprvková n-tica potrebuje čiarku
+```
+
+Nemennosť má hranice: ak n-tica obsahuje zoznam, samotný vnorený zoznam stále môžeš meniť.
+
+## Otestuj sa
+
+<Question q='Čo vypíše `topics[1:3]` pre `topics = ["Python", "Git", "Terraform", "Kubernetes"]`?'>
+`['Git', 'Terraform']` — indexy 1 a 2. Index 3 (pravá hranica) sa nezahŕňa.
+</Question>
+
+<Question q="Aký je rozdiel medzi `list` a `tuple`?">
+Oba sú usporiadané a indexovateľné. `list` môžeš meniť (`append`, `remove`, priradenie na index), `tuple` po vytvorení nie.
+</Question>
+
+<Question q="Po `alias = original` a `alias.append(4)` — zmení sa `original`?">
+Áno. `alias` a `original` sú dve mená pre ten istý zoznam. Samostatnú kópiu vytvoríš cez `original.copy()` alebo `original[:]`.
+</Question>
+
+<Question q="Čo bude v premennej `x` po `x = [3, 1, 2].sort()`?">
+`None`. Metóda `sort()` zoradí zoznam na mieste a nič nevracia. Nový zoradený zoznam vráti `sorted([3, 1, 2])`.
+</Question>
+
+<Question q="Ako vytvoríš n-ticu s jedným prvkom?">
+S čiarkou: `(42,)`. Samotné `(42)` je iba číslo v zátvorkách.
+</Question>
+
+## Cvičenia
+
+### 5.1 · Štatistika bodov
+
+Načítavaj body študentov (celé čísla), kým používateľ nezadá prázdny riadok. Potom vypíš počet, minimum, maximum, priemer, zoradený zoznam a koľko študentov je **nad priemerom**. Ošetri prípad, keď nezadá nič.
+
+<p class="practises">Precvičíš: `append`, `len`, `sum`, `min`/`max`, `sorted`, prechádzanie zoznamu.</p>
+
+<Solution>
+```python title="statistika.py"
+scores = []
+
+while True:
+    raw = input("Body (prázdny riadok = koniec): ").strip()
+    if not raw:
+        break
+    scores.append(int(raw))
+
+if scores:
+    average = sum(scores) / len(scores)
+
+    above_average = 0
+    for score in scores:
+        if score > average:
+            above_average += 1
+
+    print(f"Počet: {len(scores)}")
+    print(f"Minimum / maximum: {min(scores)} / {max(scores)}")
+    print(f"Priemer: {average:.1f}")
+    print(f"Zoradené: {sorted(scores)}")
+    print(f"Nad priemerom: {above_average}")
+else:
+    print("Nezadal si žiadne body.")
+```
+</Solution>
+
+### 5.2 · Rotácia zoznamu
+
+Napíš funkciu `rotate(items, k)`, ktorá vráti **nový** zoznam posunutý o `k` miest doprava. Pôvodný zoznam sa nesmie zmeniť.
+
+```python title="Očakávané správanie"
+rotate([1, 2, 3, 4, 5], 2)   # [4, 5, 1, 2, 3]
+rotate([1, 2, 3, 4, 5], 7)   # [4, 5, 1, 2, 3]  — 7 krokov je to isté ako 2
+rotate([], 3)                # []
+```
+
+<p class="practises">Precvičíš: rezy, záporné indexy, `%`, spájanie zoznamov cez `+`.</p>
+
+<Solution variant="hint">
+Posledných `k` prvkov je `items[-k:]`, zvyšok je `items[:-k]`. Spoj ich operátorom `+`. Počet krokov zmenši cez `k % len(items)` — a pozor na prázdny zoznam.
+</Solution>
+
+<Solution>
+```python title="rotacia.py"
+def rotate(items, k):
+    if not items:
+        return []
+    k = k % len(items)
+    return items[-k:] + items[:-k]
+
+
+numbers = [1, 2, 3, 4, 5]
+print(rotate(numbers, 2))  # [4, 5, 1, 2, 3]
+print(rotate(numbers, 7))  # [4, 5, 1, 2, 3]
+print(numbers)             # [1, 2, 3, 4, 5] — originál ostal nezmenený
+```
+
+Rez vždy vytvorí nový zoznam, takže originál ostane nezmenený. Pri `k == 0` funguje vzorec tiež: `-0` je `0`, takže `items[0:] + items[:0]` je celý zoznam plus prázdny zoznam.
+</Solution>
