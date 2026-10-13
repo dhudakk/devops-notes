@@ -130,3 +130,18 @@ Solution code and a short explanation.
 ```
 
 Use single quotes for a `q` that contains double quotes: `<Question q='What does `print("a")` do?'>`.
+
+### Drawing a DAG
+
+`Pipeline` draws tasks as boxes joined by arrows. A string is one task, an object adds an Airflow state colour, an array is a set of parallel tasks, and `{ group, steps }` is a task group:
+
+```mdx
+import Pipeline from '../../../components/Pipeline.astro';
+
+<Pipeline steps={['scrape_data', 'process_data']} caption="Optional text under the diagram." />
+<Pipeline steps={[{ label: 'scrape_data', state: 'failed' }, { label: 'process_data', state: 'upstream_failed' }]} />
+<Pipeline steps={[['ping', 'http_check'], 'scrape_data']} />
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'http_check'] }, 'scrape_data']} />
+```
+
+Keep labels short — they do not wrap, and long ones overflow on phones.

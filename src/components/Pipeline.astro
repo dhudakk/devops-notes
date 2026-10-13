@@ -2,29 +2,50 @@
 /**
  * A DAG drawn as a row of task boxes joined by arrows (wraps on narrow screens).
  * Steps can carry an Airflow task state to show its colour.
+ * An array step is a set of tasks that run in parallel; `{ group, steps }` draws a task group.
  *
  * <Pipeline steps={["Scrape Data", "Process Data", "Publish Data"]} />
  * <Pipeline steps={[{ label: "Scrape Data", state: "failed" }, { label: "Process Data", state: "upstream_failed" }]} />
+ * <Pipeline steps={[["ping", "http"], "Scrape Data"]} />
+ * <Pipeline steps={[{ group: "Healthcheck", steps: ["ping", "http"] }, "Scrape Data"]} />
  */
 type State = 'success' | 'failed' | 'upstream_failed' | 'running' | 'queued' | 'up_for_retry' | 'skipped';
+type Task = string | { label: string; state?: State };
+type Step = Task | Task[] | { group: string; steps: Task[] };
 
 interface Props {
-  steps: (string | { label: string; state?: State })[];
+  steps: Step[];
   /** Short text under the diagram. */
   caption?: string;
 }
 
 const { steps, caption } = Astro.props;
-const items = steps.map((step) => (typeof step === 'string' ? { label: step } : step));
+const toTask = (task: Task) => (typeof task === 'string' ? { label: task, state: undefined } : task);
+const items = steps.map((step) => {
+  if (Array.isArray(step)) return { group: undefined, tasks: step.map(toTask) };
+  if (typeof step === 'object' && 'group' in step) return { group: step.group, tasks: step.steps.map(toTask) };
+  return { group: undefined, tasks: [toTask(step)] };
+});
 ---
 
 <figure class="pipeline not-content">
   <ol>
     {
       items.map((item, index) => (
-        <li class:list={['pipeline__step', item.state && `is-${item.state}`]}>
-          <span class="pipeline__label">{item.label}</span>
-          {item.state && <span class="pipeline__state">{item.state}</span>}
+        <li
+          class:list={[
+            'pipeline__item',
+            item.tasks.length > 1 && 'is-parallel',
+            item.group && 'is-group',
+          ]}
+        >
+          {item.group && <span class="pipeline__group-label">{item.group}</span>}
+          {item.tasks.map((task) => (
+            <span class:list={['pipeline__step', task.state && `is-${task.state}`]}>
+              <span class="pipeline__label">{task.label}</span>
+              {task.state && <span class="pipeline__state">{task.state}</span>}
+            </span>
+          ))}
           {index < items.length - 1 && <span class="pipeline__arrow" aria-hidden="true" />}
         </li>
       ))
@@ -48,22 +69,48 @@ const items = steps.map((step) => (typeof step === 'string' ? { label: step } : 
     list-style: none;
   }
 
-  .pipeline__step {
-    --state: var(--nb-border);
+  .pipeline__item {
     position: relative;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
+    gap: 0.4rem;
     margin-inline-end: 2.25rem;
+  }
+
+  .pipeline__item:last-child {
+    margin-inline-end: 0;
+  }
+
+  /* parallel tasks: a bracket on the right joins them into one arrow */
+  .pipeline__item.is-parallel {
+    border-inline-end: 2px solid var(--sl-color-gray-3);
+    padding-inline-end: 0.6rem;
+  }
+
+  .pipeline__item.is-group {
+    border: 1.5px dashed var(--sl-color-gray-3);
+    border-radius: 0.6rem;
+    padding: 0.35rem 0.6rem 0.6rem;
+  }
+
+  .pipeline__group-label {
+    color: var(--sl-color-gray-2);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .pipeline__step {
+    --state: var(--nb-border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     border: 1.5px solid var(--sl-color-text-accent);
     border-inline-start: 5px solid var(--state);
     border-radius: 0.5rem;
     background: var(--sl-color-bg);
     padding: 0.45rem 0.8rem;
-  }
-
-  .pipeline__step:last-child {
-    margin-inline-end: 0;
   }
 
   .pipeline__label {

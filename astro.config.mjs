@@ -37,6 +37,8 @@ for (const prefix of ['', '/en']) {
   redirects[`${prefix}/python/tahak`] = `${base}${prefix}/python-basics/tahak/`;
   redirects[`${prefix}/python`] = `${base}${prefix}/python-basics/`;
   redirects[`${prefix}/cvicenia`] = `${base}${prefix}/python-basics/`;
+  // Day 3 split the old chapter 12 into chapters 12–17
+  redirects[`${prefix}/python-advanced/validacia-a-healthcheck`] = `${base}${prefix}/python-advanced/validacia-dat/`;
 }
 
 export default defineConfig({

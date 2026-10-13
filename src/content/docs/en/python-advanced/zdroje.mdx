@@ -18,6 +18,7 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | --- | --- |
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
+| 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
 
 ## Which chapter comes from where
 
@@ -34,8 +35,14 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | [09 · First DAG](/devops-notes/en/python-advanced/prvy-dag/) | day 2 — slides pp. 7–9; transcript (DAG parameters, cron, catchup, UI) |
 | [10 · Tasks and XCom](/devops-notes/en/python-advanced/tasky-a-xcom/) | day 2 — slides pp. 9–13; transcript (states, logs, XCom, `dag.test()`, parameters) |
 | [11 · Connections and Variables](/devops-notes/en/python-advanced/connections-a-variables/) | day 2 — slides pp. 13–14, 21–23; transcript (Connections, hooks) |
-| [12 · Validation and healthcheck](/devops-notes/en/python-advanced/validacia-a-healthcheck/) | day 2 — slides pp. 14–21 (the day 2 transcript ends at hooks) |
-| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26 |
+| [12 · Data validation](/devops-notes/en/python-advanced/validacia-dat/) | day 2 — slides pp. 14–21; day 3 — transcript part 1 (the schema step by step, jsonschemavalidator.net, CLI, Python) |
+| [13 · Project structure](/devops-notes/en/python-advanced/struktura-projektu/) | day 3 — transcript part 1 (where to keep the path, `__file__`, pathlib, `constants.py`, imports); slides pp. 7–8 (DRY, `tasks.py`, refactoring) |
+| [14 · Logging and errors](/devops-notes/en/python-advanced/logovanie-a-chyby/) | day 2 — slides pp. 14–21; day 3 — transcript part 2 (levels, logger, `airflow.cfg`, status code, `sys.exit` vs. an exception, HTTPStatus) |
+| [15 · Healthcheck and retries](/devops-notes/en/python-advanced/healthcheck/) | day 2 — slides pp. 14–21; day 3 — transcript part 2 (ping, `@task.bash`, sh, parallel tasks, retries, the RustFS lab); slides pp. 2–3 (RustFS, task groups) |
+| [16 · S3 and boto3](/devops-notes/en/python-advanced/s3-a-boto3/) | day 3 — slides pp. 1, 4–7 (RustFS compose, boto3, `publish_data`) |
+| [17 · Dynamic mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/) | day 3 — slides pp. 3–4, 8–11 (Param, context, `.partial()`/`.expand()`, a file per city) |
+| [08 · Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/) | extended from the day 3 transcript (systemd, parallelism) |
+| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26, day 3 p. 12 |
 
 ## Corrections to the slides
 
@@ -53,3 +60,15 @@ The API key from the slides and the lab machines' password and IP addresses are 
 - In the cheat sheet: `logging.getLogger(__file__)` → usually `__name__`; the “error-level message” example uses `logger.warning`.
 - For the VS Code server cleanup script: the comment says “every two hours”, the crontab entry is `@midnight`, and the file names differ (`vscode-cleanup.bash` vs `vscode-server-cleanup.sh`).
 - The short day 2 `airflow.cfg` made tasks fail (no `jwt_secret`) — the notes describe the generated-config approach.
+
+### Day 3 (verified on Airflow 3.3.2)
+
+- RustFS healthcheck: `raise AirflowFailException(RustFS service is unhealthy.')` is missing its opening quote.
+- The boto3 and `publish_data` examples call `minio.Bucket(...)`, but the variable is named `storage`. The first `publish_data` version has a `line` parameter while the DAG calls `publish_data.expand(entry=...)` — the argument name in `.expand()` must match the parameter.
+- `Path(mkstemp(...)[1])` leaves the file descriptor open; the notes close it with `os.close(fd)` and delete the temporary file in `finally`.
+- A slide claims a `Param` in the DAG function's signature does not get registered. On Airflow 3.3.2 it does (with its type and title); the value is still available only inside a task through the context, so the `params=` + `get_current_context()` approach stands.
+- The lab text speaks of “the MinIO service”, but the compose file runs RustFS. The cheat sheet's credentials are replaced with placeholders.
+- Lecture: with the sh module, `ping(host, timeout=2)` does **not** replace `-w 2` — sh turns it into the option `--timeout=2`. Use `ping("-w", 2, host)` or `_timeout=2`.
+- Lecture: a task with `retries=3` ran 4 times — that is correct (the first run + 3 retries).
+- Lecture: `from airflow.exceptions import AirflowFailException` reports *deprecated* in Airflow 3; use `from airflow.sdk.exceptions import …`.
+- Lecture: the relative import `from .constants import …` in a DAG file does not work even with `dags/__init__.py` (*attempted relative import with no known parent package*); `from constants import …` works.

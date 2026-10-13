@@ -60,7 +60,7 @@ export AIRFLOW_HOME=$(pwd)/airflow_home
 | `[core] max_active_runs_per_dag` | `1` (predvolené 16) | koľko behov jedného DAG-u naraz |
 | `[api] expose_config` | `True` | konfigurácia sa zobrazí aj vo webovom UI |
 
-Nižšie hodnoty paralelizmu sú zo slajdov — laboratórne stroje majú iba **2 jadrá, 4 GB RAM a 20 GB disk**.
+Nižšie hodnoty paralelizmu sú zo slajdov — laboratórne stroje majú iba **2 jadrá, 4 GB RAM a 20 GB disk**. Na 3. deň ich lektor odporučil znížiť všetkým (`parallelism = 4`): SQLite je aj tak úzke hrdlo a tasky sa vykonávajú prakticky za sebou. Po zmene reštartuj Airflow.
 
 Airflow používa na prístup k databáze najpopulárnejšie Python ORM **SQLAlchemy**; `sql_alchemy_conn` je jeho *connection string*. **SQLite** (všetko v jednom súbore) stačí na kurz, ale je pomalšie a nepodporuje paralelizmus — **v produkcii nie**, tam patrí PostgreSQL.
 
@@ -150,13 +150,22 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 ```
 
+Unit si môžeš napísať hoci aj v priečinku `~/airflow` vo VS Code a potom ho skopírovať — do `/etc/systemd/system/` môže zapisovať iba root:
+
 ```bash
-sudo systemctl daemon-reload
+sudo cp airflow.service /etc/systemd/system/
+sudo systemctl daemon-reload            # systemd si načíta nový unit
 sudo systemctl enable --now airflow     # spusti teraz aj po reštarte
 sudo systemctl status airflow           # stav a posledné logy
 sudo journalctl -u airflow -f           # živý log
 sudo systemctl restart airflow          # čistý reštart bez osirotených procesov
 ```
+
+- `WantedBy=multi-user.target` — služba sa spustí po štarte systému (po sieťovom subsystéme).
+- `Restart=on-failure` — keď Airflow spadne, systemd ho sám znova spustí.
+- Pred prvým spustením **zastav `airflow standalone`**, ktorý beží v termináli (`Ctrl+C`) — inak je port 8080 obsadený. Na kurze pomohol aj `sudo reboot`, ktorý upratal zvyšné procesy.
+- Po zmene `airflow.cfg` treba `sudo systemctl restart airflow`.
+- Existujú aj používateľské unity (`systemctl --user`, súbory v `~/.config/systemd/user/`), ktoré nepotrebujú `sudo` — na kurze sme ich nepoužili.
 
 ## PostgreSQL v Dockeri (voliteľné)
 
@@ -250,6 +259,8 @@ Pridanie do crontabu (každú polnoc; existujúci záznam sa nahradí):
 | UI beží, ale žiadne DAG-y | spustil si iba `airflow api-server` → spusti `airflow standalone` |
 | tasky padajú, stav *queued* / *state mismatch*, v logoch JWT | osekaný `airflow.cfg` bez `jwt_secret` → obnov vygenerovaný config |
 | stroj zamŕza, padá SSH / VS Code | došla RAM → zapni swap, sleduj `free -h` |
+| systemd služba beží, ale UI nefunguje / port obsadený | v termináli ešte beží `airflow standalone` → `Ctrl+C`, prípadne `sudo reboot` |
+| `ModuleNotFoundError` pre vlastný modul | modul nie je priamo v `dags/` (napr. omylom v `__pycache__`) — pozri [Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/#importy) |
 | VS Code podčiarkuje `from airflow.sdk import dag` | vyber interpreter z venv a *Python: Restart Language Server* |
 
 V priečinku `dags/` sa po načítaní objaví `__pycache__` — predkompilovaný bajtkód modulu. Je to vedľajší efekt toho, že Python súbor načítal.

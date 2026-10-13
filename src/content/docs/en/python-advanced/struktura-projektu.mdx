@@ -1,0 +1,293 @@
+---
+title: Project Structure — Paths, Constants, and Modules
+description: Where to keep the path to the data (not absolute, not a Variable), the special variables __file__ and __name__, the pathlib module, constants.py and tasks.py in the dags folder, import order, and why relative imports do not work in dags.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Project structure
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Data (the schema, the dataset) goes into **`~/airflow/data/`**, and the path to it is defined **once** — in the **`dags/constants.py`** module.
+- Do not write the path as an absolute one. Derive it from **`__file__`** (the absolute path of the current module): `Path(__file__).parent.parent / "data"`.
+- Work with paths through **`pathlib.Path`**, not as strings: `/` joins paths, `.parent`, `.name`, `.suffix`, `.exists()`, `.mkdir(parents=True)`.
+- Import order: **standard library → third-party libraries → your own modules**, groups separated by a blank line.
+- Airflow adds the `dags/` folder to `sys.path`, so **`from constants import DATA_PATH`** works. A relative `from .constants import …` in a DAG file **does not**.
+- Pull repeated code (DRY) into your own modules: `constants.py` for constants, `tasks.py` for shared tasks.
+</KeyPoints>
+
+## The problem: where are the files
+
+The `validate_data` task needs the schema file, and `publish_data` writes the dataset. What is wrong with this?
+
+```python
+with open("openweathermap.schema.json") as file:     # relative path
+    ...
+```
+
+A relative path is resolved against the **current working directory of the process** — wherever someone started Airflow. Under systemd it is the unit's `WorkingDirectory`, but when the instructor started Airflow from his home folder the day before, the dataset ended up in `~` instead of `~/airflow`. You cannot build on that.
+
+In the course we went through several options:
+
+| Idea | Why not |
+| --- | --- |
+| an absolute path in the code (`/home/ubuntu/airflow/data`) | stops matching once the project moves (Git → another machine, another user) |
+| the same variable at the top of every DAG | breaks **DRY** (*Don't Repeat Yourself*) — a change means editing every file |
+| an Airflow **Variable** | can change during a run (half of the tasks would use one path and half another), and anyone with UI access can change it |
+| **a separate module with constants** | ✔ one place, part of the code (versioned), deliberately not changeable at run time |
+
+The convention we chose: all data lives in a **`data/`** folder in `AIRFLOW_HOME`, and we build the path to it relative to where the code lives.
+
+```text
+~/airflow/                         ← AIRFLOW_HOME
+├── airflow.cfg
+├── dags/
+│   ├── constants.py               ← paths and other constants
+│   ├── tasks.py                   ← shared tasks
+│   └── weather_scraper.py         ← the DAG
+└── data/
+    ├── openweathermap.schema.json
+    └── dataset.csv
+```
+
+## The special variables `__name__` and `__file__`
+
+Every module gets special variables set when it is loaded:
+
+| Variable | Contents |
+| --- | --- |
+| `__name__` | the module's name when imported (`"constants"`); `"__main__"` when you run the module directly (`python constants.py`) |
+| `__file__` | the **absolute path** of the module's file, e.g. `/home/ubuntu/airflow/dags/constants.py` |
+
+`__file__` is exactly what we need — Python itself tells us where the file is, with no need to find out the working directory. (In the interactive interpreter `__file__` does not exist — you are not in a module there.)
+
+## The pathlib module
+
+From `/home/ubuntu/airflow/dags/constants.py` we need `/home/ubuntu/airflow/data`. String operations could do it (`rsplit("/", 2)[0] + "/data"`), but a path **is not a plain string** — sometimes it has a trailing slash and sometimes not, double slashes appear, Windows uses backslashes… The standard library's module for paths is **`pathlib`**. Forget `os.path` too — it also works mostly with strings.
+
+`pathlib` treats a path as an **object**:
+
+```python
+>>> from pathlib import Path
+>>> p = Path(".")
+>>> p.exists()
+True
+>>> a = p.absolute()
+>>> a
+PosixPath('/home/ubuntu/airflow/dags')
+>>> a.parent                        # like cd ..
+PosixPath('/home/ubuntu/airflow')
+>>> a.parent.parent.parent
+PosixPath('/home')
+```
+
+### Joining paths with `/`
+
+```python
+>>> x = a / "a" / "b"               # not a + "/a" + "/b"
+>>> x
+PosixPath('/home/ubuntu/airflow/dags/a/b')
+>>> x.exists()
+False
+>>> x.mkdir(parents=True)           # like mkdir -p — creates missing parents too
+>>> x.rmdir()                       # removes b
+>>> x.parent.rmdir()                # removes a
+```
+
+`/` inserts the separator for you (the right one for the system). Watch out: a part starting with a slash (`a / "/b"`) counts as the root — the result is `/b`.
+
+### Parts of a path
+
+```python
+>>> p = Path("/home/ubuntu/backup/file.tar.gz")
+```
+
+| Property | Value |
+| --- | --- |
+| `p.anchor` | `'/'` (the root; on Windows e.g. `'C:\\'`) |
+| `p.parent` | `PosixPath('/home/ubuntu/backup')` |
+| `p.name` | `'file.tar.gz'` |
+| `p.stem` | `'file.tar'` — the name without the last suffix |
+| `p.suffix` | `'.gz'` |
+| `p.suffixes` | `['.tar', '.gz']` |
+
+More useful methods: `.is_file()`, `.is_dir()`, `.read_text()`, `.write_text()`, `.open()`, `.unlink(missing_ok=True)` (delete a file), `.iterdir()`, `.glob("*.csv")`.
+
+`Path` has a string representation, so `print(DATA_PATH)` prints an ordinary path, and functions like `open()` accept the path directly.
+
+## constants.py
+
+Python **has no constants** — everything is a variable. The convention says: a name in **UPPER_CASE** = a constant, do not change it.
+
+```python title="dags/constants.py"
+"""Values shared by all DAGs."""
+
+from pathlib import Path
+
+# ~/airflow — derived from this file's location, so it works wherever Airflow lives
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"
+SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+DATASET_PATH = DATA_PATH / "dataset.csv"
+```
+
+`Path(__file__)` is `…/airflow/dags/constants.py`, the first `.parent` is `…/airflow/dags`, the second `…/airflow`. As long as the folder structure stays the same, it does not matter where the whole project lives.
+
+In the DAG you import the constants:
+
+```python
+from constants import DATASET_PATH, SCHEMA_PATH
+
+schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+with DATASET_PATH.open("a", encoding="utf-8") as dataset:
+    print(entry, file=dataset)
+```
+
+Move the existing `dataset.csv` into `data/` (`mv dataset.csv data/`) — from now on every measurement is appended there.
+
+## Imports
+
+### Order
+
+Ruff (and PEP 8) wants imports in three groups separated by a blank line:
+
+```python
+import json                           # 1. standard library
+import logging
+from pathlib import Path
+
+import httpx                          # 2. third-party libraries (pip install …)
+from airflow.sdk import dag, task
+
+from constants import DATA_PATH       # 3. your own project modules
+```
+
+Ruff (rule `I001` — *Import block is un-sorted or un-formatted*) does not know that `constants` is your module and puts it among the third-party libraries. Tell it in the configuration:
+
+```toml title="~/airflow/ruff.toml"
+src = ["dags"]
+```
+
+With `src`, Ruff knows where to look for your own modules and treats `constants` as first-party. Tested: without this setting `ruff check` reports `I001`; with it, everything passes.
+
+### Why not a relative import
+
+In the course we also tried the dotted form, which means “from the current package”:
+
+```python
+from .constants import DATA_PATH      # ✘ does not work in a DAG file
+```
+
+A **package** is a folder of modules that contains an `__init__.py` file (which may be empty). Even adding `dags/__init__.py` does not help, though:
+
+```text
+ImportError: attempted relative import with no known parent package
+```
+
+Airflow does not load DAG files as part of a `dags` package, but as standalone modules — and it adds the `dags/` folder to `sys.path`. That is why **the absolute import `from constants import …` works** (verified on Airflow 3.3.2 with and without `__init__.py`).
+
+:::caution[Modules belong in `dags/`, not in `__pycache__`]
+A participant accidentally saved `constants.py` into `dags/__pycache__/`, and Airflow reported `ModuleNotFoundError: No module named 'constants'`. Python creates `__pycache__` itself (precompiled bytecode) — do not put anything in it, and you do not even need to look inside.
+:::
+
+## DRY: the tasks.py module
+
+When more DAGs appear later, we would copy tasks like the RustFS healthcheck into each one. The fix is the same as with the constants — **a module of your own**:
+
+```python title="dags/tasks.py"
+"""Tasks shared by several DAGs."""
+
+import logging
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import BaseHook, task
+from airflow.sdk.exceptions import AirflowFailException
+
+from constants import STORAGE_CONN
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection(STORAGE_CONN)
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException("RustFS is unhealthy.")
+```
+
+In the DAG: `from tasks import is_rustfs_alive`. Connection names (`"openweathermap"`, `"rustfs"`) repeat too — they belong in `constants.py`.
+
+**Refactoring** = changing the structure of code **without changing its behaviour** (*Refactoring is the process of restructuring existing source code without changing its external behavior.*). The steps:
+
+1. move the function / constant into the new module,
+2. delete it from the original module,
+3. import it from the new module,
+4. check that the DAG does exactly what it did before.
+
+## Test yourself
+
+<Question q="Why is keeping the data path in an Airflow Variable a bad idea?">
+A Variable can change during a DAG run (some tasks would use the old path and some the new one), and anyone with UI access can change it. The data path should be a fixed part of the code.
+</Question>
+
+<Question q="What do `__file__` and `__name__` contain when you import a module?">
+`__file__` is the absolute path of the module's file. `__name__` is the module's name (e.g. `constants`); when run directly it is `"__main__"`.
+</Question>
+
+<Question q="How do you get `~/airflow/data` from `Path(__file__)` of `~/airflow/dags/constants.py`?">
+`Path(__file__).parent.parent / "data"`.
+</Question>
+
+<Question q='What do `Path("report.tar.gz").stem` and `.suffix` return?'>
+`stem` is `"report.tar"`, `suffix` is `".gz"` (all suffixes are in `.suffixes`: `[".tar", ".gz"]`).
+</Question>
+
+<Question q="What is the pathlib equivalent of `mkdir -p`?">
+`path.mkdir(parents=True)` — it also creates missing parent folders. With `exist_ok=True` it does not fail if the folder already exists.
+</Question>
+
+<Question q="In what order do imports go?">
+Standard library, then third-party libraries, then your own modules — each group separated by a blank line.
+</Question>
+
+<Question q="Why does `from constants import X` work in a DAG, but `from .constants import X` does not?">
+Airflow adds the `dags/` folder to `sys.path` and loads DAG files as standalone modules, not as part of a package. The absolute import finds the module; the relative one fails with *attempted relative import with no known parent package*.
+</Question>
+
+## Exercises
+
+### 13.1 · The data folder creates itself
+
+Change `constants.py` so that on import it creates the `data/` folder if it does not exist yet (and does not fail if it does).
+
+<Solution>
+```python
+DATA_PATH = Path(__file__).parent.parent / "data"
+DATA_PATH.mkdir(parents=True, exist_ok=True)
+```
+
+`exist_ok=True` ensures that loading the module repeatedly (Airflow parses DAGs over and over) does not end with `FileExistsError`.
+</Solution>
+
+### 13.2 · List of datasets
+
+Write a function `list_datasets() -> list[str]` that returns the sorted names of all `.csv` files in `DATA_PATH` without the suffix (e.g. `["dataset", "kosice-sk"]`).
+
+<Solution>
+```python
+from constants import DATA_PATH
+
+
+def list_datasets() -> list[str]:
+    return sorted(path.stem for path in DATA_PATH.glob("*.csv"))
+```
+</Solution>

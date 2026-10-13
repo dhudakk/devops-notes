@@ -9,6 +9,7 @@ sidebar:
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 import ChapterList from '../../../../components/ChapterList.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
 
 ## Chapters
 
@@ -17,7 +18,7 @@ import ChapterList from '../../../../components/ChapterList.astro';
 ## Revision and extras
 
 <CardGrid>
-  <LinkCard title="Cheat sheet" description="Commands and code from the course on one page: venv, pip, httpx, jq, click, exceptions, VS Code." href="/devops-notes/en/python-advanced/tahak/" />
+  <LinkCard title="Cheat sheet" description="Commands and code from the course on one page: venv, pip, httpx, jq, click, Airflow, JSON Schema, pathlib, sh, boto3." href="/devops-notes/en/python-advanced/tahak/" />
   <LinkCard title="Mirek's wisdoms" description="Tips, tools, and remarks from the instructor that are not strictly course material." href="/devops-notes/en/python-advanced/mudrosti/terminal-a-windows/" />
   <LinkCard title="Sources" description="Slides from each day and which chapter came from which material." href="/devops-notes/en/python-advanced/zdroje/" />
 </CardGrid>
@@ -26,10 +27,9 @@ import ChapterList from '../../../../components/ChapterList.astro';
 
 Throughout the course we build one workflow:
 
-```text
-[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
-```
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['OpenWeatherMap', 'RustFS'] }, 'Scrape Data', 'Validate Data', 'Process Data', 'Publish Data → S3']} caption="Scrape sends JSON, Process returns a CSV line; from day 3 for each city separately." />
 
 1. **Day 1** — the workflow as a Python script split into three functions: functions, HTTP, JSON, CSV, and exceptions.
-2. **Day 2** — the script becomes a command-line tool (click); then Apache Airflow: installation, the first DAG, tasks and XCom, Connections and Variables, data validation, a healthcheck, and retries.
-3. **Next** — more tasks and more of Airflow on top of the same workflow.
+2. **Day 2** — the script becomes a command-line tool (click); then Apache Airflow: installation, the first DAG, tasks and XCom, Connections and Variables.
+3. **Day 3** — Airflow as a systemd service; validating data with JSON Schema, project structure (pathlib, `constants.py`), logging and errors, healthchecks (ping, sh, HTTP) running in parallel with retries. From the slides: RustFS/S3 and boto3, task groups, and dynamic mapping for several places.
+4. **Next** — publishing to S3 and more of Airflow on top of the same workflow.

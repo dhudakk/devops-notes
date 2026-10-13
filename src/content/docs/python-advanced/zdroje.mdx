@@ -18,6 +18,7 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | --- | --- |
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
+| 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
 
 ## Z čoho je ktorá kapitola
 
@@ -34,8 +35,14 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | [09 · Prvý DAG](/devops-notes/python-advanced/prvy-dag/) | deň 2 — slajdy s. 7–9; prepis (parametre DAG-u, cron, catchup, UI) |
 | [10 · Tasky a XCom](/devops-notes/python-advanced/tasky-a-xcom/) | deň 2 — slajdy s. 9–13; prepis (stavy, logy, XCom, `dag.test()`, parametre) |
 | [11 · Connections a Variables](/devops-notes/python-advanced/connections-a-variables/) | deň 2 — slajdy s. 13–14, 21–23; prepis (Connections, hooky) |
-| [12 · Validácia a healthcheck](/devops-notes/python-advanced/validacia-a-healthcheck/) | deň 2 — slajdy s. 14–21 (prepis 2. dňa končí pri hookoch) |
-| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26 |
+| [12 · Validácia dát](/devops-notes/python-advanced/validacia-dat/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 1. časti (schéma krok za krokom, jsonschemavalidator.net, CLI, Python) |
+| [13 · Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/) | deň 3 — prepis 1. časti (kam s cestou, `__file__`, pathlib, `constants.py`, importy); slajdy s. 7–8 (DRY, `tasks.py`, refaktoring) |
+| [14 · Logovanie a chyby](/devops-notes/python-advanced/logovanie-a-chyby/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 2. časti (úrovne, logger, `airflow.cfg`, stavový kód, `sys.exit` vs. výnimka, HTTPStatus) |
+| [15 · Healthcheck a retries](/devops-notes/python-advanced/healthcheck/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 2. časti (ping, `@task.bash`, sh, paralelné tasky, retries, RustFS lab); slajdy s. 2–3 (RustFS, task groups) |
+| [16 · S3 a boto3](/devops-notes/python-advanced/s3-a-boto3/) | deň 3 — slajdy s. 1, 4–7 (RustFS kompozícia, boto3, `publish_data`) |
+| [17 · Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/) | deň 3 — slajdy s. 3–4, 8–11 (Param, kontext, `.partial()`/`.expand()`, súbor pre mesto) |
+| [08 · Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/) | doplnené z prepisu 3. dňa (systemd, paralelizmus) |
+| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26, deň 3 s. 12 |
 
 ## Opravy oproti slajdom
 
@@ -53,3 +60,15 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 - V ťaháku: `logging.getLogger(__file__)` → bežne `__name__`; pri „správe s úrovňou error“ je `logger.warning`.
 - Pri skripte na upratanie VS Code servera: komentár hovorí „každé dve hodiny“, záznam v crontabe je `@midnight`, a názov súboru sa líši (`vscode-cleanup.bash` vs. `vscode-server-cleanup.sh`).
 - Krátky `airflow.cfg` z 2. dňa spôsobil padanie taskov (chýba `jwt_secret`) — v poznámkach je postup s vygenerovaným configom.
+
+### Deň 3 (overené na Airflow 3.3.2)
+
+- Healthcheck RustFS: v `raise AirflowFailException(RustFS service is unhealthy.')` chýba úvodná úvodzovka.
+- Ukážky boto3 a `publish_data` volajú `minio.Bucket(...)`, ale premenná sa volá `storage`. Prvá verzia `publish_data` má parameter `line`, kým DAG volá `publish_data.expand(entry=...)` — názov argumentu v `.expand()` musí sedieť s parametrom.
+- `Path(mkstemp(...)[1])` nechá otvorený file descriptor; v poznámkach sa zatvára cez `os.close(fd)` a dočasný súbor sa maže vo `finally`.
+- Slajd tvrdí, že `Param` v signatúre funkcie DAG-u sa nezaregistruje. Na Airflow 3.3.2 sa zaregistruje (aj s typom a názvom); hodnota je však aj tak dostupná až v tasku cez kontext, takže postup s `params=` a `get_current_context()` platí.
+- Zadanie labu hovorí o „službe MinIO“, kompozícia však spúšťa RustFS. Prihlasovacie údaje z ťaháku sú nahradené zástupnými textami.
+- Prednáška: `ping(host, timeout=2)` cez modul sh **nenahrádza** `-w 2` — sh z neho urobí prepínač `--timeout=2`. Správne `ping("-w", 2, host)` alebo `_timeout=2`.
+- Prednáška: task s `retries=3` sa spustil 4-krát — je to správne (prvý beh + 3 opakovania).
+- Prednáška: `from airflow.exceptions import AirflowFailException` v Airflow 3 hlási *deprecated*; správne `from airflow.sdk.exceptions import …`.
+- Prednáška: relatívny import `from .constants import …` v DAG súbore nefunguje ani s `dags/__init__.py` (*attempted relative import with no known parent package*); funguje `from constants import …`.

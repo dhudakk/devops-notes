@@ -64,3 +64,39 @@ Mirek's favourite line while he waits for someone with real-world experience to 
 At PyCon Mirek gave a talk where a new DAG just would not appear for ages — he stalled, talked, played for time, and nothing. In the course, tasks failed because of the missing `jwt_secret`, and it ended in an “unplanned coffee break” until he found the problem. Shit happens — what matters is knowing where to look (the logs!).
 
 <p class="wisdom-day">Day 2</p>
+
+## Shit happens
+
+One day the service's developers change the data format and tell nobody. The instructor, in turn, had Airflow crash during a demo, dropped out of the call, or had his machine freeze. That is what validation and healthchecks are for — and some perspective: “You see, it happens to me during training too. But that makes it all the more interesting.”
+
+<p class="wisdom-day">Day 3</p>
+
+## The demo effect
+
+You prepare everything, explain the magic, run it — and it does not work. That is called the **demo effect**.
+
+<p class="wisdom-day">Day 3</p>
+
+## Who is supposed to remember all that?
+
+Is it `enable` or `enable --now`? “A million tools, who's supposed to remember all that — well, Claude and ChatGPT.”
+
+<p class="wisdom-day">Day 3</p>
+
+## Labs are where you grow
+
+When a lab runs long, it does not matter: “These labs are where you grow, because you finally sit down and have to do something.” Five extra minutes are just a bonus.
+
+<p class="wisdom-day">Day 3</p>
+
+## MicroPython and testing hardware
+
+Mirek is working out how to test (with pytest, in CI) code in **MicroPython** — a lean implementation of Python for microcontrollers:
+
+- MicroPython needs roughly **256 kB of flash and 16 kB of RAM** at minimum — a classic Arduino (2 kB RAM, 32 kB flash) is not enough, a Raspberry Pi Pico (~150 MHz) is,
+- how do you test in CI that the thermometer reports 100 °C and the device raises an alarm? “You stick it in the kettle” — that will not work in GitHub Actions,
+- real products deal with the battery (it cannot run 24/7), connection outages (it must not freeze on an exception — there is no Docker to restart it), and Wi-Fi (an SSID and password hard-coded in the source is no solution).
+
+Tutorials about blinking an LED are “baby projects” — a professional view is a completely different kind of coding and thinking. “Lego for grown-ups.”
+
+<p class="wisdom-day">Day 3</p>

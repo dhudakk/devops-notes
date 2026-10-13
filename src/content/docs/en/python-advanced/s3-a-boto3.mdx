@@ -1,0 +1,259 @@
+---
+title: S3 Object Storage and boto3
+description: Why the dataset does not belong on a node's disk, RustFS as S3 storage in a Docker Compose setup, the boto3 library (bucket, upload, download, listing objects), and a publish_data task that appends measurements to a dataset in S3.
+kind: chapter
+day: 3
+sidebar:
+  order: 16
+  label: 16 · S3 and boto3
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+:::note[From the day 3 slides]
+This chapter comes from the day 3 slides; the lecture covers it on day 4. The code is tested on Airflow 3.3.2 and boto3 against a local S3.
+:::
+
+<KeyPoints>
+- Airflow can run in a Kubernetes cluster — a task runs on **any node**, so a local file would be scattered across several machines. The dataset therefore belongs in **one shared store**: S3.
+- **RustFS** is an open-source, S3-compatible store (a MinIO replacement): the API on port **9000**, the web console on **9001**.
+- **boto3** (from AWS) works with **any** S3-compatible store: `boto3.resource("s3", endpoint_url=..., aws_access_key_id=..., aws_secret_access_key=...)`.
+- `bucket = storage.Bucket("datasets")` → `.upload_file(Filename, Key)`, `.download_file(Key, Filename)`, `.objects.all()`.
+- A missing object in `download_file` → `botocore.exceptions.ClientError` (404).
+</KeyPoints>
+
+## Why S3
+
+So far `publish_data` appends measurements to `~/airflow/data/dataset.csv`. On one machine that is enough. But Airflow can also run in a **Kubernetes cluster** — then you do not know which node a task will run on, and each node would hold a different (incomplete) version of the file.
+
+The fix: **one store** that all tasks write to, wherever they run. We use object storage compatible with **Amazon S3** (*Simple Storage Service*). The basic terms:
+
+| Term | Meaning |
+| --- | --- |
+| **bucket** | a “container” for objects, e.g. `datasets` |
+| **object** | a file in a bucket |
+| **key** | the object's name (path) in the bucket, e.g. `kosice-sk.csv` |
+
+## Lab: RustFS in Docker Compose
+
+Create a `docker-compose.yaml` that runs RustFS:
+
+- the `rustfs/rustfs` image,
+- ports 9000 (the S3 API) and 9001 (the web console),
+- credentials via environment variables (user `apache`, password `airflow` — only for the local lab),
+- the container's `/data` folder mapped to a named volume `storage`.
+
+```yaml title="docker-compose.yaml"
+services:
+  rustfs:
+    image: rustfs/rustfs
+    environment:
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_OBS_LOGGER_LEVEL=info
+      - RUSTFS_ACCESS_KEY=apache
+      - RUSTFS_SECRET_KEY=airflow
+    ports:
+      - 9000:9000
+      - 9001:9001
+    volumes:
+      - storage:/data
+
+volumes:
+  storage:
+```
+
+```bash
+docker compose up -d
+http :9000/health          # healthcheck — HTTP 200
+```
+
+Then create the **`datasets`** bucket in the console (`http://localhost:9001`). And in Airflow, the **`rustfs`** connection (Admin → Connections):
+
+| Field | Value |
+| --- | --- |
+| Connection Id | `rustfs` |
+| Connection Type | `Generic` |
+| Host | the address of the server running RustFS |
+| Schema | `http` |
+| Port | `9000` |
+| Login / Password | access key / secret key |
+
+## boto3
+
+Some services have their own libraries (e.g. MinIO), but **boto3** from AWS works with any S3-compatible store.
+
+```bash
+(venv) $ pip install boto3
+```
+
+### Connecting
+
+```python
+>>> import boto3
+>>> storage = boto3.resource(
+...     "s3",
+...     endpoint_url="http://localhost:9000",
+...     aws_access_key_id="apache",
+...     aws_secret_access_key="airflow",
+... )
+>>> for bucket in storage.buckets.all():
+...     print(bucket.name)
+datasets
+```
+
+`endpoint_url` points boto3 away from AWS to your store. Without it, it would connect straight to Amazon.
+
+### Working with a bucket
+
+```python
+>>> bucket = storage.Bucket("datasets")     # no network operation yet
+```
+
+Creating a `Bucket` object sends nothing over the network yet — you do not even know whether the bucket exists. If it does not, the first operation on it ends with an exception. You can create it from Python too:
+
+```python
+>>> bucket.create()
+```
+
+| Operation | Code |
+| --- | --- |
+| upload a file | `bucket.upload_file(Filename="local.py", Key="remote.py")` |
+| download a file | `bucket.download_file(Key="remote.py", Filename="copy.py")` |
+| list objects | `for obj in bucket.objects.all(): print(obj.key)` |
+| delete an object | `bucket.Object("remote.py").delete()` |
+
+Mind the order: in **upload** the local file comes first and the key second; in **download** the key comes first and the local file second. With keyword arguments (`Filename=`, `Key=`) you cannot mix them up.
+
+### Errors
+
+| Situation | Exception |
+| --- | --- |
+| `download_file` of a non-existent object | `botocore.exceptions.ClientError` (code `404`) |
+| `upload_file` into a non-existent bucket | `boto3.exceptions.S3UploadFailedError` |
+
+## Lab: publish_data to S3
+
+Change `publish_data` so that instead of a local file it:
+
+1. downloads the existing dataset from the bucket (if it exists) into a **temporary file**,
+2. appends the latest measurement to the temporary file,
+3. uploads the updated dataset back to RustFS,
+4. deletes the temporary file.
+
+`constants.py` gains:
+
+```python
+STORAGE_CONN = "rustfs"
+DATASET_BUCKET = "datasets"
+CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+```
+
+### A temporary file: mkstemp
+
+```python
+from tempfile import mkstemp
+
+fd, name = mkstemp(prefix="weather-")    # (3, '/tmp/weather-k2j4h1x0')
+```
+
+`mkstemp()` creates a file with a unique random name in `/tmp` and returns a **pair**: a *file descriptor* (the number of the already open file) and the path. The slides use only the path (`mkstemp(...)[1]`) — but then the descriptor stays open. Close it properly with `os.close(fd)`.
+
+### Solution
+
+<Solution>
+```python
+import logging
+import os
+from pathlib import Path
+from tempfile import mkstemp
+
+import boto3
+from airflow.sdk import BaseHook, task
+from botocore.exceptions import ClientError
+
+from constants import CSV_HEADER, DATASET_BUCKET, STORAGE_CONN
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="Publish Data")
+def publish_data(entry: str) -> None:
+    logger.info("Publishing Data")
+    conn = BaseHook.get_connection(STORAGE_CONN)
+    storage = boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+    bucket = storage.Bucket(DATASET_BUCKET)
+
+    fd, temp_name = mkstemp(prefix="weather-", suffix=".csv")
+    os.close(fd)
+    path = Path(temp_name)
+    try:
+        # download the dataset; on the first run it does not exist yet
+        try:
+            bucket.download_file("dataset.csv", str(path))
+        except ClientError:
+            logger.warning("Dataset doesn't exist in bucket. Possible first time upload.")
+            path.write_text(CSV_HEADER + "\n", encoding="utf-8")
+
+        # append the new measurement
+        with path.open("a", encoding="utf-8") as file:
+            print(entry, file=file)
+
+        bucket.upload_file(str(path), "dataset.csv")
+    finally:
+        path.unlink(missing_ok=True)       # cleanup even when something fails
+```
+
+`try`/`finally` makes sure the temporary file is deleted even when the upload fails. The credentials live in the Connection, not in the code.
+</Solution>
+
+:::caution[A race when several tasks write at once]
+“Download → append → upload” is not atomic. If two tasks appended to **the same** file at once, one would overwrite the other's write. That is why in the next chapter each city gets its own file.
+:::
+
+## Test yourself
+
+<Question q="Why not store the dataset on a node's disk when Airflow runs in Kubernetes?">
+A task can run on any node — the file would be created on several machines, each with only some of the measurements. You need one shared store (S3).
+</Question>
+
+<Question q="Why boto3 when MinIO has its own library?">
+boto3 works with any S3-compatible store (AWS S3, MinIO, RustFS…), so the code does not have to change when the store does.
+</Question>
+
+<Question q="What is the `endpoint_url` parameter for?">
+It sets the address of the S3 API. Without it boto3 connects to Amazon S3; with it, to your store (e.g. `http://localhost:9000`).
+</Question>
+
+<Question q='What does `storage.Bucket("datasets")` do over the network?'>
+Nothing — it only creates an object. Whether the bucket exists shows up only at the first operation (otherwise an exception).
+</Question>
+
+<Question q="How does the argument order of `upload_file` and `download_file` differ?">
+`upload_file(Filename, Key)` — the local file first, then the key. `download_file(Key, Filename)` — the key first, then the local file.
+</Question>
+
+<Question q="What does `mkstemp()` return?">
+A pair `(fd, path)` — the number of the open file and the path to a new temporary file with a unique name. `fd` needs closing (`os.close`).
+</Question>
+
+## Exercises
+
+### 16.1 · Listing datasets in a bucket
+
+Write a function `list_datasets(bucket) -> list[str]` that returns the sorted keys of all `.csv` objects in the bucket.
+
+<Solution>
+```python
+def list_datasets(bucket) -> list[str]:
+    return sorted(obj.key for obj in bucket.objects.all() if obj.key.endswith(".csv"))
+```
+
+If there may be many objects, filter on the server by prefix instead: `bucket.objects.filter(Prefix="kosice")`.
+</Solution>

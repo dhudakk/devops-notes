@@ -1,0 +1,347 @@
+---
+title: Healthcheck, paralelné tasky a opakovanie
+description: Overenie dostupnosti služby pred sťahovaním — ping cez @task.bash a modul sh, HTTP /health; reťazenie operátorom >>, paralelné tasky v zozname, opakovanie (retries, retry_delay), task_display_name a skupiny taskov (task groups).
+kind: chapter
+day: 3
+sidebar:
+  order: 15
+  label: 15 · Healthcheck a retries
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Healthcheck** overí, že služba žije, ešte pred sťahovaním. Keď zlyhá, zvyšok DAG-u sa nespustí.
+- Task, ktorý nič nevracia, zaradíš pred iný operátorom **`>>`**: `is_service_alive() >> scrape_data(query)`.
+- Nezávislé tasky bežia **paralelne**, keď ich dáš do zoznamu: `[a(), b(), c()] >> scrape_data(query)`. Ďalší task beží, iba ak **všetky** uspejú.
+- `@task.bash` — task vráti reťazec a Airflow ho spustí ako Bash príkaz. Modul **`sh`** urobí z príkazu Python funkciu: `from sh import ping`.
+- `retries=3, retry_delay=timedelta(seconds=10)` → až **4** pokusy s 10 s pauzou. `task_display_name="…"` = čitateľný názov v UI.
+- RustFS má koncový bod **`/health`** — 200 = zdravá služba.
+</KeyPoints>
+
+## Čo je healthcheck
+
+Scraping funguje, iba ak služba na druhej strane žije. **Healthcheck** je mechanizmus, ktorým to overíš nejakým verejným alebo dostupným spôsobom. Poznáš ho aj z iných nástrojov:
+
+- **Kubernetes** — sondy (*probes*): *liveness*, *readiness*, *startup*,
+- **Docker** — inštrukcia `HEALTHCHECK` v Dockerfile; Docker potom sám hlási, či je kontajner zdravý.
+
+| Služba má… | Healthcheck | Zdravá, keď… |
+| --- | --- | --- |
+| HTTP rozhranie | požiadavka na koncový bod (`/health`, `/healthz`, `/livez`…) | vráti **200**; `5xx` = chyba na strane servera |
+| iba otvorený port | pripojenie na port (napr. FTP na 21) | spojenie sa podarí |
+| iba proces | spustenie kontrolného príkazu | príkaz skončí s návratovým kódom **0** |
+
+`/health` je najčastejší; `/healthz` pochádza z tzv. *z-pages* (Kubernetes a Google). OpenWeatherMap žiadny takýto koncový bod nemá.
+
+## Krok 1: prázdny task na začiatku
+
+Najprv iba task, ktorý nič nerobí — a zaradenie pred `scrape_data`:
+
+```python
+@task
+def is_service_alive() -> None:
+    logger.info("Checking status of the service")
+```
+
+Keby si ho v `main()` iba zavolal, v grafe by visel samostatne, s ničím nespojený. Nič nevracia, takže ho nevieš odovzdať ako argument. Na poradie taskov, ktoré si **neodovzdávajú dáta**, je **bit-shift operátor `>>`**:
+
+```python
+@dag(...)
+def main(query: str = "kosice,sk"):
+    data = is_service_alive() >> scrape_data(query)    # najprv healthcheck, potom scrape
+    valid_data = validate_data(data)
+    entry = process_data(valid_data)
+    publish_data(entry)
+```
+
+`a >> b` = „`b` beží až po úspešnom `a`“ (opačne `b << a`). Výraz vráti pravú stranu, takže `data` je výsledok `scrape_data`.
+
+<Pipeline steps={['is_service_alive', 'scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+**Načo, keď by to aj tak spadlo v `scrape_data`?** Healthcheck zastaví celý beh hneď na začiatku a jasne povie prečo. Bez neho môže sťahovanie z nedostupnej služby visieť a skúšať to znova (podľa timeoutov a `retries`) aj niekoľko minút — a medzitým sa podľa rozvrhu spustí ďalší beh.
+
+## Krok 2: ping — najnaivnejší healthcheck
+
+Overíme iba, či je **stroj** dostupný — nie, či na ňom beží služba:
+
+```bash
+ping -c 1 -w 2 api.openweathermap.org
+```
+
+| Prepínač (Linux) | Význam |
+| --- | --- |
+| `-c 1` | *count* — pošli jeden paket (inak ping beží donekonečna) |
+| `-w 2` | *deadline* — najviac 2 sekundy celkovo, potom skonči |
+| `-W 2` | *timeout* — koľko čakať na jednu odpoveď |
+
+Timeout je pri healthcheckoch dôležitý — nič nesmie ostať visieť a čakať. (Na macOS `-w` nie je; deadline je tam `-t`.)
+
+### Spôsob 1: `@task.bash`
+
+```python
+@task.bash(task_display_name="Ping OpenWeatherMap")
+def is_service_alive_in_bash() -> str:
+    conn = BaseHook.get_connection("openweathermap")
+    return f"ping -c 1 -w 2 {conn.host}"      # vrátený reťazec Airflow spustí v Bashi
+```
+
+`@task.bash` je iný typ operátora: návratová hodnota funkcie je **Bash príkaz**, ktorý Airflow spustí. Task uspeje, ak príkaz skončí s kódom 0. V logu uvidíš *Running command: ping …* a výstup príkazu. (Iná, najpriamočiarejšia cesta v čistom Pythone by bola `os.system(...)`.)
+
+### Spôsob 2: modul `sh`
+
+```bash
+(venv) $ pip install sh
+```
+
+Modul **sh** (od *shell*) je extrémne user-friendly. Mechanizmus, ktorý dokumentácia volá *bakery* (pekáreň), „upečie“ z ľubovoľného príkazu v systéme Python funkciu:
+
+```python
+>>> from sh import ls, ip, docker
+>>> ls()                                # $ ls
+>>> ls("-l", "/home/ubuntu")             # $ ls -l /home/ubuntu
+>>> ip("addr")                          # $ ip addr
+>>> docker("container", "ls")           # $ docker container ls
+```
+
+- Funkcia vráti výstup príkazu ako reťazec.
+- Nenulový návratový kód vyvolá výnimku `sh.ErrorReturnCode_<kód>` — v tasku teda stačí príkaz zavolať.
+- Špeciálne argumenty začínajú podčiarkovníkom, napr. **`_timeout=3`**: ak príkaz neskončí do 3 s, zabije ho a vyvolá `sh.TimeoutException`.
+- Ostatné pomenované argumenty sa menia na prepínače: `w=2` → `-w 2`, `timeout=2` → `--timeout=2`.
+
+```python
+from sh import ping
+
+
+@task(task_display_name="Ping OpenWeatherMap (sh)")
+def is_service_alive_sh() -> None:
+    logger.info("Checking status of the service with sh module")
+    conn = BaseHook.get_connection("openweathermap")
+    ping("-c", 1, "-w", 2, conn.host)        # failure → ErrorReturnCode → task failed
+```
+
+Je to obyčajný Python task — v logu nebude výpis príkazu ako pri `@task.bash`, iba *process started*.
+
+:::caution[`timeout=` vs. `_timeout=`]
+Na kurze zaznelo, že `ping(host, timeout=2)` nahradí `-w 2`. sh však z `timeout=2` urobí prepínač `--timeout=2`, ktorý ping nepozná. Správne je `ping("-w", 2, host)` (alebo `w=2`), prípadne `_timeout=2` — to je časový limit, ktorý stráži samotný modul sh.
+:::
+
+## Krok 3: paralelné tasky
+
+Máme dva healthchecky a neskôr pribudnú ďalšie služby. Za sebou by sa vykonali takto:
+
+```python
+data = is_service_alive_in_bash() >> is_service_alive_sh() >> scrape_data(query)
+```
+
+Ale navzájom od seba **nezávisia**. Ak každý trvá 10 s, za sebou je to 20 s, paralelne iba 10 s. Paralelné tasky dáš do **zoznamu**:
+
+```python
+data = [is_service_alive_in_bash(), is_service_alive_sh()] >> scrape_data(query)
+```
+
+<Pipeline steps={[['is_service_alive_in_bash', 'is_service_alive_sh'], 'scrape_data', 'validate_data', '…']} />
+
+`scrape_data` sa spustí, iba ak **všetky** tasky pred ním skončia úspešne. Stačí, že zlyhá jeden healthcheck, a ďalej sa nejde:
+
+<Pipeline steps={[[{ label: 'is_service_alive_in_bash', state: 'success' }, { label: 'is_service_alive_sh', state: 'failed' }], { label: 'scrape_data', state: 'upstream_failed' }, { label: 'validate_data', state: 'upstream_failed' }]} caption="Jeden healthcheck zlyhal → zvyšok je upstream_failed (oranžová)." />
+
+Toto správanie sa dá zmeniť parametrom tasku `trigger_rule` (napr. `"all_done"`, `"one_success"`); predvolené je `"all_success"` — pre healthchecky presne to, čo chceme.
+
+## Krok 4: opakovanie pri zlyhaní
+
+Služba môže byť nedostupná iba chvíľu. Task môže mať parametre, ktoré ho pri zlyhaní zopakujú:
+
+```python
+from datetime import timedelta
+
+
+@task(retries=3, retry_delay=timedelta(seconds=10))
+def is_service_alive() -> None:
+    ...
+```
+
+- **`retries=3`** = 3 **opakovania** po prvom neúspešnom pokuse, teda **až 4 behy**. (Lektor sa na kurze čudoval, prečo sa task spustil 4-krát — práve preto.)
+- **`retry_delay`** je pauza medzi pokusmi ako `timedelta` z modulu `datetime` (nie z `time`). Bez nej platí `default_task_retry_delay` z konfigurácie — **300 s**.
+- Kým čaká na ďalší pokus, task je v stave **`up_for_retry`** (žltá) a tasky za ním čakajú.
+- Opakuje sa po bežnej výnimke. **`AirflowFailException` opakovanie preskočí** — pozri [Logovanie a chyby](/devops-notes/python-advanced/logovanie-a-chyby/#ako-zastaviť-task).
+
+## Čitateľné názvy taskov
+
+Podobne ako DAG má `dag_id` a `dag_display_name`, task má **`task_display_name`** — v UI sa zobrazí namiesto názvu funkcie:
+
+```python
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    ...
+```
+
+Názov funkcie (`scrape_data`) ostáva `task_id`, ktorý sa používa v CLI a v logoch.
+
+## Lab: healthcheck RustFS
+
+Zajtra nebudeme dataset ukladať na disk servera, ale do **S3** (úložisko objektov v AWS). Na kurze namiesto AWS beží **RustFS** — open-source úložisko kompatibilné s S3 napísané v Ruste. Doteraz najznámejšie bolo **MinIO**, ale po zmene licencie už nie je (celé) open source; komunita preto vytvorila RustFS, ktorý je dokonca rýchlejší.
+
+Workflow bude závisieť aj od RustFS, takže potrebuje vlastný healthcheck. RustFS na rozdiel od OpenWeatherMap **má koncový bod `/health`**:
+
+```bash
+$ http <rustfs-host>:9000/health
+HTTP/1.1 200 OK
+...
+```
+
+Na obsahu odpovede nezáleží (`"status": "ok"`) — rozhoduje **HTTP stavový kód**.
+
+**Zadanie:** vytvor task `is_rustfs_alive()`, ktorý načíta údaje zo spojenia `rustfs` (Admin → Connections), pošle `httpx.get` na `/health` a ak nevráti `200`, vyvolá `AirflowFailException`. Zaraď ho **paralelne** k ostatným healthcheckom.
+
+<Solution>
+```python
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection("rustfs")
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException("RustFS is unhealthy.")
+```
+
+```python
+def main(query: str = "kosice,sk"):
+    data = [
+        is_service_alive_in_bash(),
+        is_service_alive_sh(),
+        is_rustfs_alive(),
+    ] >> scrape_data(query)
+    ...
+```
+
+Na slajdoch je `httpx.head` — server pošle iba hlavičky bez tela, na healthcheck to stačí. Funguje však iba vtedy, ak koncový bod HEAD podporuje. Ak chceš opakovanie pri výpadku, použi `AirflowException` a `retries`.
+</Solution>
+
+## Skupiny taskov (task groups)
+
+*Zo slajdov 3. dňa.* Keď healthcheckov pribúda, graf znepreľadňuje. **Task group** logicky zoskupí tasky v DAG-u — na vykonávanie nemá vplyv, slúži na:
+
+- lepšiu organizáciu kódu,
+- prehľadnejšie UI (skupina sa v grafe dá zbaliť a rozbaliť),
+- zoskupenie súvisiacich krokov.
+
+```python
+from airflow.sdk import task_group
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [
+        is_service_alive_in_bash(),
+        is_service_alive(),
+        is_rustfs_alive(),
+    ]
+```
+
+So skupinou sa pracuje ako s ktorýmkoľvek taskom:
+
+```python
+@dag(...)
+def main(query: str = "kosice,sk"):
+    data = tg_healthcheck() >> scrape_data(query)
+    ...
+```
+
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, 'scrape_data', '…']} />
+
+ID taskov v skupine dostanú predponu skupiny: `tg_healthcheck.is_rustfs_alive` (vypneš ju cez `prefix_group_id=False`). Rovnako môžeš zoskupiť aj sťahovanie, spracovanie a publikovanie — ukážka je v kapitole [Dynamické mapovanie taskov](/devops-notes/python-advanced/dynamicke-mapovanie/#skupina-weather-ingestion).
+
+## Otestuj sa
+
+<Question q="Aké tri druhy healthchecku poznáš a kedy je služba zdravá?">
+HTTP koncový bod (zdravá pri 200), otvorený port (spojenie sa podarí) a kontrolný príkaz (návratový kód 0).
+</Question>
+
+<Question q="Čo znamená `is_service_alive() >> scrape_data(query)`?">
+`scrape_data` sa spustí až po úspešnom skončení `is_service_alive`. Operátor `>>` určuje poradie taskov, ktoré si neodovzdávajú dáta.
+</Question>
+
+<Question q="Ako spustíš dva healthchecky paralelne pred `scrape_data` a kedy sa `scrape_data` spustí?">
+`[a(), b()] >> scrape_data(query)`. Spustí sa, iba ak oba skončia úspešne (predvolené `trigger_rule="all_success"`); ak jeden zlyhá, `scrape_data` je `upstream_failed`.
+</Question>
+
+<Question q="Čo spraví task s dekorátorom `@task.bash`?">
+Návratovú hodnotu funkcie (reťazec) spustí ako Bash príkaz. Task uspeje, ak príkaz skončí s kódom 0.
+</Question>
+
+<Question q='Čo spraví `from sh import ping` a `ping("-c", 1, host, _timeout=3)`?'>
+Modul sh vytvorí z príkazu `ping` Python funkciu. Volanie spustí `ping -c 1 <host>`; ak neskončí do 3 s, sh ho zabije a vyvolá `TimeoutException`. Nenulový návratový kód vyvolá `ErrorReturnCode`.
+</Question>
+
+<Question q="Koľkokrát sa najviac spustí task s `retries=3` a čo určuje `retry_delay`?">
+4-krát (prvý beh + 3 opakovania). `retry_delay` je pauza medzi pokusmi (`timedelta`); predvolene 300 s.
+</Question>
+
+<Question q="Prečo ping nie je dobrý healthcheck webovej služby?">
+Overí iba, že je dostupný stroj, nie že na ňom beží služba. Navyše niektoré servery na ping (ICMP) neodpovedajú vôbec.
+</Question>
+
+<Question q="Na čo slúži task group a ovplyvňuje vykonávanie DAG-u?">
+Logicky zoskupí tasky (kód, prehľadnosť UI). Vykonávanie neovplyvňuje — so skupinou sa pracuje ako s jedným taskom (`tg() >> next_task()`).
+</Question>
+
+## Cvičenia
+
+### 15.1 · Healthcheck cez otvorený port
+
+Napíš variant healthchecku, ktorý sa iba pokúsi pripojiť na `conn.host` a `conn.port` (TCP) s timeoutom 3 sekundy. Pri neúspechu vyvolá výnimku, aby sa task opakoval.
+
+<Solution variant="hint">
+Modul `socket` zo štandardnej knižnice má funkciu `socket.create_connection((host, port), timeout=3)`. Spojenie otvor cez `with`, nech sa hneď zatvorí.
+</Solution>
+
+<Solution>
+```python
+import socket
+
+
+@task(task_display_name="Port Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    try:
+        with socket.create_connection((conn.host, conn.port), timeout=3):
+            pass
+    except OSError as error:
+        raise AirflowException(f"Cannot connect to {conn.host}:{conn.port}: {error}") from error
+```
+
+`OSError` pokrýva odmietnuté spojenie, timeout aj neznámy host. Vyvolaná je obyčajná `AirflowException`, takže `retries` zaberú.
+</Solution>
+
+### 15.2 · Healthcheck HTTP HEAD s opakovaním
+
+Napíš `is_service_alive()` pre OpenWeatherMap cez `httpx.head` na koreň služby. Pri chybe spojenia alebo inom kóde ako 200 nech task zlyhá **a zopakuje sa** 3-krát s 30 s pauzou.
+
+<Solution>
+```python
+@task(
+    task_display_name="OpenWeatherMap Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=30),
+)
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    try:
+        response = httpx.head(url, follow_redirects=True, timeout=10)
+    except httpx.RequestError as error:
+        raise AirflowException(f"Service unavailable: {error}") from error
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"Service unavailable. HTTP status: {response.status_code}")
+```
+
+`httpx.RequestError` zachytí nedostupný server aj timeout; `follow_redirects=True` je potrebné, lebo koreň služby presmerúva.
+</Solution>

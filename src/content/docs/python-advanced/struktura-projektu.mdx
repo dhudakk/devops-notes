@@ -1,0 +1,293 @@
+---
+title: Štruktúra projektu — cesty, konštanty a moduly
+description: Kam s cestou k dátam (nie absolútna, nie Variable), špeciálne premenné __file__ a __name__, modul pathlib, constants.py a tasks.py v priečinku dags, poradie importov a prečo relatívny import v dags nejde.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Štruktúra projektu
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Dáta (schéma, dataset) dáme do priečinka **`~/airflow/data/`** a cestu k nemu definujeme **raz** — v module **`dags/constants.py`**.
+- Cestu nepíš absolútne. Odvoď ju od **`__file__`** (absolútna cesta k aktuálnemu modulu): `Path(__file__).parent.parent / "data"`.
+- S cestami pracuj cez **`pathlib.Path`**, nie ako s reťazcami: `/` skladá cesty, `.parent`, `.name`, `.suffix`, `.exists()`, `.mkdir(parents=True)`.
+- Poradie importov: **štandardná knižnica → knižnice tretích strán → vlastné moduly**, skupiny oddelené prázdnym riadkom.
+- Airflow pridá priečinok `dags/` do `sys.path`, takže funguje **`from constants import DATA_PATH`**. Relatívny `from .constants import …` v DAG súbore **nefunguje**.
+- Opakovaný kód (DRY) vytiahni do vlastných modulov: `constants.py` pre konštanty, `tasks.py` pre zdieľané tasky.
+</KeyPoints>
+
+## Problém: kde sú súbory
+
+Task `validate_data` potrebuje súbor so schémou a `publish_data` zapisuje dataset. Aký je problém s týmto?
+
+```python
+with open("openweathermap.schema.json") as file:     # relatívna cesta
+    ...
+```
+
+Relatívna cesta sa vyhodnocuje voči **aktuálnemu pracovnému priečinku procesu** — teda tam, odkiaľ niekto spustil Airflow. Pod systemd je to `WorkingDirectory` z unitu, ale keď lektor deň predtým spustil Airflow z domovského priečinka, dataset vznikol v `~` namiesto v `~/airflow`. Na tom sa nedá stavať.
+
+Na kurze sme prešli niekoľko možností:
+
+| Nápad | Prečo nie |
+| --- | --- |
+| absolútna cesta v kóde (`/home/ubuntu/airflow/data`) | po presune projektu (Git → iný stroj, iný používateľ) prestane sedieť |
+| tá istá premenná na začiatku každého DAG-u | porušuje **DRY** (*Don't Repeat Yourself*) — pri zmene ju musíš meniť v každom súbore |
+| Airflow **Variable** | dá sa zmeniť počas behu (polovica taskov by pracovala s jednou cestou a polovica s druhou) a zmeniť ju môže ktokoľvek s prístupom do UI |
+| **samostatný modul s konštantami** | ✔ jedno miesto, súčasť kódu (vo verzovaní), zámerne nemenné za behu |
+
+Zvolená konvencia: všetky dáta ležia v priečinku **`data/`** v `AIRFLOW_HOME` a cestu k nemu poskladáme relatívne k umiesteniu kódu.
+
+```text
+~/airflow/                         ← AIRFLOW_HOME
+├── airflow.cfg
+├── dags/
+│   ├── constants.py               ← cesty a ďalšie konštanty
+│   ├── tasks.py                   ← zdieľané tasky
+│   └── weather_scraper.py         ← DAG
+└── data/
+    ├── openweathermap.schema.json
+    └── dataset.csv
+```
+
+## Špeciálne premenné `__name__` a `__file__`
+
+Každý modul má pri načítaní nastavené špeciálne premenné:
+
+| Premenná | Obsah |
+| --- | --- |
+| `__name__` | názov modulu pri importe (`"constants"`); `"__main__"`, ak modul spúšťaš priamo (`python constants.py`) |
+| `__file__` | **absolútna cesta** k súboru modulu, napr. `/home/ubuntu/airflow/dags/constants.py` |
+
+`__file__` je presne to, čo potrebujeme — Python nám sám povie, kde súbor leží, netreba zisťovať pracovný priečinok. (V interaktívnom interpreteri `__file__` neexistuje — tam nie si v module.)
+
+## Modul pathlib
+
+Z `/home/ubuntu/airflow/dags/constants.py` potrebujeme `/home/ubuntu/airflow/data`. Dalo by sa to reťazcovými operáciami (`rsplit("/", 2)[0] + "/data"`), ale cesta **nie je obyčajný reťazec** — raz má lomítko na konci a raz nie, vzniknú dvojité lomítka, na Windows sú opačné… Na prácu s cestami je v štandardnej knižnici modul **`pathlib`**. Zabudni aj na `os.path` — tiež pracuje hlavne s reťazcami.
+
+`pathlib` sa na cestu pozerá ako na **objekt**:
+
+```python
+>>> from pathlib import Path
+>>> p = Path(".")
+>>> p.exists()
+True
+>>> a = p.absolute()
+>>> a
+PosixPath('/home/ubuntu/airflow/dags')
+>>> a.parent                        # ako cd ..
+PosixPath('/home/ubuntu/airflow')
+>>> a.parent.parent.parent
+PosixPath('/home')
+```
+
+### Skladanie ciest operátorom `/`
+
+```python
+>>> x = a / "a" / "b"               # nie a + "/a" + "/b"
+>>> x
+PosixPath('/home/ubuntu/airflow/dags/a/b')
+>>> x.exists()
+False
+>>> x.mkdir(parents=True)           # ako mkdir -p — vytvorí aj chýbajúcich rodičov
+>>> x.rmdir()                       # zmaže b
+>>> x.parent.rmdir()                # zmaže a
+```
+
+`/` vloží oddeľovač za teba (a správny pre daný systém). Pozor: časť začínajúca lomítkom (`a / "/b"`) sa berie ako koreň — výsledok je `/b`.
+
+### Časti cesty
+
+```python
+>>> p = Path("/home/ubuntu/backup/file.tar.gz")
+```
+
+| Vlastnosť | Hodnota |
+| --- | --- |
+| `p.anchor` | `'/'` (koreň; na Windows napr. `'C:\\'`) |
+| `p.parent` | `PosixPath('/home/ubuntu/backup')` |
+| `p.name` | `'file.tar.gz'` |
+| `p.stem` | `'file.tar'` — názov bez poslednej prípony |
+| `p.suffix` | `'.gz'` |
+| `p.suffixes` | `['.tar', '.gz']` |
+
+Ďalšie užitočné metódy: `.is_file()`, `.is_dir()`, `.read_text()`, `.write_text()`, `.open()`, `.unlink(missing_ok=True)` (zmazanie súboru), `.iterdir()`, `.glob("*.csv")`.
+
+`Path` má reťazcovú reprezentáciu, takže `print(DATA_PATH)` vypíše normálnu cestu, a funkcie ako `open()` cestu priamo prijmú.
+
+## constants.py
+
+V Pythone **konštanty neexistujú** — všetko je premenná. Konvencia však hovorí: názov **VEĽKÝMI_PÍSMENAMI** = konštanta, nemeň ju.
+
+```python title="dags/constants.py"
+"""Values shared by all DAGs."""
+
+from pathlib import Path
+
+# ~/airflow — derived from this file's location, so it works wherever Airflow lives
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"
+SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+DATASET_PATH = DATA_PATH / "dataset.csv"
+```
+
+`Path(__file__)` je `…/airflow/dags/constants.py`, prvý `.parent` je `…/airflow/dags`, druhý `…/airflow`. Kým štruktúra priečinkov ostane rovnaká, je jedno, kde celý projekt leží.
+
+V DAG-u konštanty importuješ:
+
+```python
+from constants import DATASET_PATH, SCHEMA_PATH
+
+schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+with DATASET_PATH.open("a", encoding="utf-8") as dataset:
+    print(entry, file=dataset)
+```
+
+Pôvodný `dataset.csv` presuň do `data/` (`mv dataset.csv data/`) — od teraz sa každé meranie pripíše tam.
+
+## Importy
+
+### Poradie
+
+Ruff (a PEP 8) vyžaduje importy v troch skupinách oddelených prázdnym riadkom:
+
+```python
+import json                           # 1. štandardná knižnica
+import logging
+from pathlib import Path
+
+import httpx                          # 2. knižnice tretích strán (pip install …)
+from airflow.sdk import dag, task
+
+from constants import DATA_PATH       # 3. vlastné moduly projektu
+```
+
+Ruff (pravidlo `I001` — *Import block is un-sorted or un-formatted*) nevie, že `constants` je tvoj modul, a zaradí ho medzi knižnice tretích strán. Povedz mu to v konfigurácii:
+
+```toml title="~/airflow/ruff.toml"
+src = ["dags"]
+```
+
+S `src` Ruff vie, kde hľadať vlastné moduly, a `constants` zaradí medzi vlastné. Odskúšané: bez tohto nastavenia `ruff check` hlási `I001`, s ním je všetko v poriadku.
+
+### Prečo nie relatívny import
+
+Na kurze sa skúšal aj zápis s bodkou, ktorý znamená „z aktuálneho balíka“:
+
+```python
+from .constants import DATA_PATH      # ✘ v DAG súbore nefunguje
+```
+
+**Balík** (*package*) je priečinok s modulmi, ktorý obsahuje (aj prázdny) súbor `__init__.py`. Ani po pridaní `dags/__init__.py` to však nepomôže:
+
+```text
+ImportError: attempted relative import with no known parent package
+```
+
+Airflow totiž DAG súbory nenačítava ako súčasť balíka `dags`, ale ako samostatné moduly — a priečinok `dags/` pridá do `sys.path`. Preto **funguje absolútny import `from constants import …`** (overené na Airflow 3.3.2 s `__init__.py` aj bez neho).
+
+:::caution[Moduly patria do `dags/`, nie do `__pycache__`]
+Účastníčka uložila `constants.py` omylom do `dags/__pycache__/` a Airflow hlásil `ModuleNotFoundError: No module named 'constants'`. `__pycache__` vytvára Python sám (predkompilovaný bajtkód) — nič doň neukladaj a nemusíš doň ani pozerať.
+:::
+
+## DRY: modul tasks.py
+
+Keď neskôr pribudnú ďalšie DAG-y, tasky ako healthcheck RustFS by sme kopírovali do každého. Riešenie je rovnaké ako pri konštantách — **vlastný modul**:
+
+```python title="dags/tasks.py"
+"""Tasks shared by several DAGs."""
+
+import logging
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import BaseHook, task
+from airflow.sdk.exceptions import AirflowFailException
+
+from constants import STORAGE_CONN
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection(STORAGE_CONN)
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException("RustFS is unhealthy.")
+```
+
+V DAG-u: `from tasks import is_rustfs_alive`. Názvy spojení (`"openweathermap"`, `"rustfs"`) sa tiež opakujú — patria do `constants.py`.
+
+**Refaktoring** = zmena štruktúry kódu **bez zmeny jeho správania** (*Refactoring is the process of restructuring existing source code without changing its external behavior.*). Postup:
+
+1. presuň funkciu / konštantu do nového modulu,
+2. v pôvodnom module ju zmaž,
+3. importuj ju z nového modulu,
+4. over, že DAG robí presne to, čo predtým.
+
+## Otestuj sa
+
+<Question q="Prečo nie je dobrý nápad mať cestu k dátam v Airflow Variable?">
+Variable sa dá zmeniť za behu DAG-u (časť taskov by použila starú a časť novú cestu) a zmeniť ju môže ktokoľvek s prístupom do UI. Cesta k dátam má byť pevná súčasť kódu.
+</Question>
+
+<Question q="Čo obsahuje `__file__` a čo `__name__`, keď modul importuješ?">
+`__file__` je absolútna cesta k súboru modulu. `__name__` je názov modulu (napr. `constants`); pri priamom spustení je to `"__main__"`.
+</Question>
+
+<Question q="Ako z `Path(__file__)` súboru `~/airflow/dags/constants.py` dostaneš `~/airflow/data`?">
+`Path(__file__).parent.parent / "data"`.
+</Question>
+
+<Question q='Čo vráti `Path("report.tar.gz").stem` a `.suffix`?'>
+`stem` je `"report.tar"`, `suffix` je `".gz"` (všetky prípony v `.suffixes`: `[".tar", ".gz"]`).
+</Question>
+
+<Question q="Čo je ekvivalentom `mkdir -p` v pathlib?">
+`cesta.mkdir(parents=True)` — vytvorí aj chýbajúce rodičovské priečinky. S `exist_ok=True` nezlyhá, ak už priečinok existuje.
+</Question>
+
+<Question q="V akom poradí patria importy?">
+Štandardná knižnica, potom knižnice tretích strán, potom vlastné moduly — každá skupina oddelená prázdnym riadkom.
+</Question>
+
+<Question q="Prečo v DAG-u funguje `from constants import X`, ale `from .constants import X` nie?">
+Airflow pridá priečinok `dags/` do `sys.path` a DAG súbory načítava ako samostatné moduly, nie ako súčasť balíka. Absolútny import modul nájde; relatívny skončí chybou *attempted relative import with no known parent package*.
+</Question>
+
+## Cvičenia
+
+### 13.1 · Priečinok na dáta vznikne sám
+
+Uprav `constants.py` tak, aby pri importe priečinok `data/` vytvoril, ak ešte neexistuje (a nezlyhal, ak existuje).
+
+<Solution>
+```python
+DATA_PATH = Path(__file__).parent.parent / "data"
+DATA_PATH.mkdir(parents=True, exist_ok=True)
+```
+
+`exist_ok=True` zabezpečí, že opakované načítanie modulu (Airflow DAG-y parsuje opakovane) neskončí chybou `FileExistsError`.
+</Solution>
+
+### 13.2 · Zoznam datasetov
+
+Napíš funkciu `list_datasets() -> list[str]`, ktorá vráti zoradené názvy všetkých `.csv` súborov v `DATA_PATH` bez prípony (napr. `["dataset", "kosice-sk"]`).
+
+<Solution>
+```python
+from constants import DATA_PATH
+
+
+def list_datasets() -> list[str]:
+    return sorted(path.stem for path in DATA_PATH.glob("*.csv"))
+```
+</Solution>

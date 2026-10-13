@@ -1,0 +1,247 @@
+---
+title: Logging and Errors in Tasks
+description: The five logging levels and how to choose between them, a logger per module, logging in Airflow (print = INFO, logging_level in airflow.cfg), checking the HTTP status code, sys.exit vs. an exception, AirflowFailException, and HTTPStatus.
+kind: chapter
+day: 3
+sidebar:
+  order: 14
+  label: 14 · Logging and errors
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Levels: `DEBUG` (10) < `INFO` (20) < `WARNING` (30) < `ERROR` (40) < `CRITICAL` (50). Messages with a level **≥ the configured one** are shown.
+- **Never DEBUG in production** — it holds developers' check prints, including sensitive data.
+- In every module: `logger = logging.getLogger(__name__)` and then `logger.info(...)`. Not `logging.info(...)` — that logs to the **root** logger.
+- In Airflow, `print()` is logged as **INFO**. Set the minimum level in `airflow.cfg`: `[logging] logging_level = INFO`.
+- Catch a bad HTTP status code right at the source: `if response.status_code != HTTPStatus.OK:` → `logger.warning(...)` and `raise AirflowFailException(...)`.
+- End a task with an **exception**, not `sys.exit(1)`. Any unhandled exception = the task is `failed`.
+</KeyPoints>
+
+## Logging levels
+
+The `logging` module is part of the standard library and can do a lot: formatting, sending messages to a file, to standard output, or to a socket, log rotation… Every message has a **level** — a number that also has a name (a constant in capitals):
+
+| Level | Number | For whom | What belongs here | Example |
+| --- | --- | --- | --- | --- |
+| `DEBUG` | 10 | developer | **anything you would print with `print()`** — check prints, variable values | `payload = {...}` |
+| `INFO` | 20 | operations | a wanted, normal state — what is happening in the system | starting a service, connecting to openweathermap.org, a user logged in |
+| `WARNING` | 30 | operations | an unwanted state, the **process** can continue | disk 50 % full, a failed login |
+| `ERROR` | 40 | operations | an unwanted state, the **application** can continue | a record was not saved because of invalid data |
+| `CRITICAL` | 50 | operations | the application **cannot** continue — the last message before it goes down | disk 100 % full, the database is unreachable |
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/log-levels.png" alt="Decision tree for the log level: for developers TRACE or DEBUG depending on whether I log the state of variables; for operations INFO if it is not an unwanted state, otherwise WARN if the process can continue, ERROR if the application can continue, else FATAL." width="1008" height="712" loading="lazy" />
+  <figcaption>The level signpost from the slides. Python has no TRACE, and FATAL is another name for CRITICAL (both 50).</figcaption>
+</figure>
+
+Levels are numbers, so you can create your own — but five are enough to make you hesitate now and then.
+
+:::danger[Never DEBUG in production]
+You never know what the developers put into debug prints. A check print of login credentials is harmless during development; in production those are real users' names and passwords. And there is a huge amount of debug output on top of that.
+:::
+
+### WARNING or ERROR?
+
+Even the instructor struggles with this. The signpost distinguishes whether the **process** (WARNING) or the **application** (ERROR) can continue. In our case:
+
+- *application* = all of Airflow, *process* = one task of one DAG,
+- `CRITICAL` would be, for example, PostgreSQL reporting a full disk — Airflow cannot work any further,
+- a bad response from the service in one task → rather **WARNING**.
+
+More hints: do you need to **notify** someone about it? Rather ERROR. A participant's tip from practice: a one-off occurrence is a WARNING; a **persistent state** needs to be dealt with.
+
+## A logger in the module
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)    # one logger per module — a global variable
+
+logger.debug("payload: %s", payload)
+logger.info("Scraping data for %s", query)
+logger.warning("Disk usage above 50 %")
+logger.error("Unexpected data from the service")
+logger.critical("Database is unreachable")
+```
+
+- The **logger's name** identifies where a message came from. The application name (`"weather"`) is not enough — there may be 20 modules. Hence `__name__`, the module's name.
+- `logging.info(...)` straight on the module works, but logs to the **root** logger — all messages would have the same source, `root`. Ruff warns about it (*`info` call on root logger*).
+- `logger.warn` is a deprecated alias and `logger.fatal` another name for `critical` — use `warning` and `critical`.
+- Pass values into the message with `%s` and arguments, not an f-string — the logger builds the message only if it is really written.
+
+In plain Python (outside Airflow) the root logger's default level is **WARNING**, so `logging.info("…")` prints nothing, but `logging.error("…")` does — in the format `ERROR:root:message`. With `logging.getLogger("Mirek")`, `Mirek` appears instead of `root`.
+
+## Logging in Airflow
+
+In the UI, each message of a task shows the time, the **level** (colour-coded), the source, and the text. Watch out:
+
+- **In Airflow, `print()` is logged as INFO**, not DEBUG as you might expect.
+- Debug messages are not shown by default — the minimum level is INFO.
+
+Set the minimum level and the format in `airflow.cfg`:
+
+```ini title="~/airflow/airflow.cfg"
+[logging]
+# messages with a level >= this one are shown: DEBUG, INFO, WARNING, ERROR, CRITICAL
+logging_level = INFO
+# terminal format: time, level, message
+simple_log_format = %%(asctime)s %%(levelname)s - %%(message)s
+```
+
+`INFO` (20) means INFO, WARNING, ERROR, and CRITICAL are shown. With `WARNING` (30), only 30, 40, and 50 — which may be enough in production. (`%%` is an escaped `%` in `airflow.cfg`.)
+
+In our DAG we replace every `print(">> Scraping Data")` with `logger.info("Scraping data")` — that is exactly the kind of message it is.
+
+:::note[Logs in containers]
+For a local application, `logging` can write to files and rotate them. Applications in **containers**, however, log to **standard output** — an aggregator collects the logs and ships them away right away. Files inside a container disappear with it, so forget log rotation there.
+:::
+
+### loguru
+
+For your own command-line tools (e.g. `workflow.py` from day 1), the instructor recommends the **[loguru](https://github.com/Delgan/loguru)** library — nothing to configure, a nice coloured format from the start:
+
+```python
+from loguru import logger
+
+logger.debug("Hello")
+logger.error("Something went wrong")
+```
+
+**It is not compatible with Airflow** — use the standard `logging` in DAGs.
+
+## Checking the HTTP status code
+
+When the API key in the Connection is missing or wrong, OpenWeatherMap returns:
+
+```json
+{"cod": 401, "message": "Invalid API key. Please see https://openweathermap.org/faq#error401 for more info."}
+```
+
+It is JSON, so `scrape_data` ends **green**, and the error shows up only later (in validation or in `process_data`). Whether the request succeeded can be decided right away, though — from the **HTTP status code**. We treat anything other than `200` as an error (whether it is `4xx` — a client error — or `5xx` — a server error, we do not distinguish here):
+
+```python
+from http import HTTPStatus
+
+from airflow.sdk.exceptions import AirflowFailException
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    logger.info("Scraping data for %s", query)
+    ...
+    response = httpx.get(url, params=params)
+    if response.status_code != HTTPStatus.OK:
+        logger.warning("Something wrong happened: HTTP %s", response.status_code)
+        raise AirflowFailException(f"Cannot get weather data: {response.text}")
+    return response.json()
+```
+
+Why pass on data you already know is bad? The task stops **as close to the source of the error as possible**.
+
+## How to stop a task
+
+### `sys.exit(1)` — better not
+
+```python
+import sys
+
+sys.exit(1)          # works, but…
+```
+
+Airflow runs each task in its own process, so `sys.exit(1)` ends only that one process — the log says *Task exited with return code 1* and the task is `failed`. It is not a proper shutdown, though: the running process is killed on the spot. Like taking a headshot in Quake and the whole game closing.
+
+### An exception
+
+The proper way in Airflow is **exceptions**. Any **unhandled** exception ends the task as `failed` immediately (if you catch it in `try`/`except`, the task carries on). You raise one with `raise`:
+
+```python
+raise TypeError("Something went wrong")   # works — but the type does not match what happened
+```
+
+It is better to pick an exception that describes what happened. Airflow has its own:
+
+```python
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+```
+
+| Exception | What it does |
+| --- | --- |
+| `AirflowException` | a general error — the task is `failed`; with `retries` set, **it is retried** |
+| `AirflowFailException` | the task fails **without retrying** — for errors a retry will not fix (wrong key, non-existent city) |
+| `AirflowSkipException` | the task is skipped (state `skipped`) |
+
+In Airflow 3 they are imported from **`airflow.sdk.exceptions`**. The older `from airflow.exceptions import …` still works but reports *deprecated* (verified on 3.3.2).
+
+## Magic numbers and HTTPStatus
+
+Rule: do not use **magic numbers** (“Bulgarian constants” in Slovak slang) — numbers in code that only their author understands. `200` is well known, but `401`? The standard library has an enum for HTTP codes, **`HTTPStatus`**:
+
+```python
+>>> from http import HTTPStatus
+>>> HTTPStatus.OK
+<HTTPStatus.OK: 200>
+>>> HTTPStatus.OK == 200
+True
+>>> HTTPStatus.BAD_REQUEST.value
+400
+>>> HTTPStatus(401).phrase
+'Unauthorized'
+```
+
+It works like our constants in `constants.py` — somewhere there is a class with the codes listed. `response.status_code != HTTPStatus.OK` reads better than `!= 200`. It is a coding-style matter, though; you can keep `200`.
+
+## Test yourself
+
+<Question q="Which messages are shown with `logging_level = WARNING`?">
+WARNING (30), ERROR (40), and CRITICAL (50) — everything with a level greater than or equal to 30.
+</Question>
+
+<Question q="What level does a message printed with `print()` get in Airflow logs?">
+INFO.
+</Question>
+
+<Question q="Why use `logger = logging.getLogger(__name__)` rather than `logging.info(...)` directly?">
+`logging.info` logs to the root logger — all messages would have the source `root`, and you cannot tell which module they came from. A logger named after the module shows the source.
+</Question>
+
+<Question q="Why not enable DEBUG in production?">
+Debug prints are for developers — they can contain sensitive data (credentials, personal data), and there is a huge amount of them.
+</Question>
+
+<Question q="OpenWeatherMap returns `401` with JSON. Why is `scrape_data` green anyway, and how do you change that?">
+The response is valid JSON, so `response.json()` succeeds. Check `response.status_code`, and raise an exception for anything other than `HTTPStatus.OK`.
+</Question>
+
+<Question q="What is the difference between `AirflowException` and `AirflowFailException`?">
+Both end the task as `failed`. After `AirflowException` the task is retried if it has `retries`; `AirflowFailException` skips retrying.
+</Question>
+
+<Question q="Why end a task with an exception rather than `sys.exit(1)`?">
+`sys.exit` kills the task's process on the spot without a proper shutdown. An exception is how Airflow handles errors: it logs it with its description, sets the state, and decides about retries by its type.
+</Question>
+
+## Exercises
+
+### 14.1 · Tell errors apart by code
+
+Change `scrape_data` so that on `401` it logs a WARNING *“check the API key”*, on `404` a WARNING *“unknown city”*, and in both cases fails without retrying. For other errors it should fail **with retries allowed**.
+
+<Solution variant="hint">
+`HTTPStatus.UNAUTHORIZED`, `HTTPStatus.NOT_FOUND`; for other errors `response.raise_for_status()` is enough — it raises `httpx.HTTPStatusError`, an ordinary exception.
+</Solution>
+
+<Solution>
+```python
+if response.status_code == HTTPStatus.UNAUTHORIZED:
+    logger.warning("401: check the API key in the connection")
+    raise AirflowFailException("Invalid API key.")
+if response.status_code == HTTPStatus.NOT_FOUND:
+    logger.warning("404: unknown city %s", query)
+    raise AirflowFailException(f"City {query} does not exist.")
+response.raise_for_status()   # other 4xx/5xx → ordinary exception → retries apply
+```
+</Solution>

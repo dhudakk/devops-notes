@@ -159,3 +159,33 @@ Z prednášky Kiwi.com: do názvu DAG-u píšu aj to, ako často sa spúšťa (n
 Mirek nahradil vygenerovaný `airflow.cfg` krátkou verziou „iba s tým, čo treba“ — a tasky začali záhadne padať. Chýbal v ňom náhodný `jwt_secret`. Ponaučenie: vygenerovaný konfigurák nechaj celý a meň v ňom iba to, čo potrebuješ.
 
 <p class="wisdom-day">Deň 2</p>
+
+## pathlib — „chcete ho používať“
+
+Keď robíš čokoľvek s cestami — skladáš ich, oddeľuješ názov od prípony, hľadáš rodiča — použi `pathlib.Path`. Zabudni na reťazce aj na `os.path`: „Je to úplne parádna vec, nemám k tomu čo viac dodať.“ Pozri [Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/#modul-pathlib).
+
+<p class="wisdom-day">Deň 3</p>
+
+## print je DEBUG — a DEBUG nikdy v produkcii
+
+Najjednoduchšia pomôcka: všetko, čo by si vypísal `print()`-om ako kontrolný výpis, je úroveň **DEBUG**. A tú nikdy nezapínaj v produkcii — vývojári si tam vypisujú aj prihlasovacie údaje, ktoré v produkcii patria skutočným ľuďom.
+
+<p class="wisdom-day">Deň 3</p>
+
+## loguru na vlastné nástroje
+
+Na skripty a CLI nástroje odporúča knižnicu **loguru**: `from loguru import logger` a hneď loguješ s pekným farebným formátom, nič netreba nastavovať. Škoda, že s Airflow nie je kompatibilná — tam ostaň pri `logging`.
+
+<p class="wisdom-day">Deň 3</p>
+
+## sys.exit je headshot
+
+`sys.exit(1)` uprostred programu je ako headshot v Quake — celá hra sa zavrie a musíš ju štartovať znova. Chybu v Airflow tasku oznám **výnimkou**.
+
+<p class="wisdom-day">Deň 3</p>
+
+## PyCharm na diaľku potrebuje silný stroj
+
+PyCharm je stále najlepšie prostredie na Python, ale na vzdialený vývoj (ako na kurze) chce výrazne lepší stroj: kedysi zabral rovno 2 GB disku a neustále hlásil málo prostriedkov. VS Code server je skromnejší, aj keď tiež rastie (u Mireka 1,1 GB). Na remote development v PyCharme môže byť potrebná platená licencia.
+
+<p class="wisdom-day">Deň 3</p>

@@ -1,0 +1,219 @@
+---
+title: Validating Data with JSON Schema
+description: Why to check data from a service, what a schema is, how to write a JSON Schema (type, properties, required, minimum…), and how to validate with it from the command line and in Python.
+kind: chapter
+day: 3
+sidebar:
+  order: 12
+  label: 12 · Data validation
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- If the API changes the shape of its JSON, `process_data` crashes with a `KeyError` that says little. So we **check the data right after downloading it**, in a separate task.
+- A **schema** describes what the data should look like: which keys, of which type, in which range. JSON has none of its own — that is what the **JSON Schema** project is for.
+- Keywords: `type` (`object`, `string`, `integer`, `number`, `array`, `boolean`, `null`), `properties`, `required`, `minimum` / `maximum`, `exclusiveMinimum`.
+- CLI: `jsonschema -i data.json schema.json` → `echo $?` is `0` (valid) or `1` (invalid).
+- Python: `jsonschema.validate(instance=data, schema=schema)` raises `ValidationError` when the data does not match.
+</KeyPoints>
+
+## Why validate
+
+The service sends us JSON, and `process_data` counts on keys like `name` or `sys.country`. But *shit happens* — one day the service's developers move `name` under, say, `location` and tell nobody. From then on **every** run fails in `process_data`:
+
+```text
+KeyError: 'name'
+```
+
+Such an error does not say what happened. Another case: the key is right, but a string arrives instead of a number (`"26.3 °C"`). So between downloading and processing we add a task that **checks** the data — and if it does not match, fails with a clear message right where the problem started.
+
+<Pipeline steps={['scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## What a schema is
+
+In databases a **schema** describes the shape of data: a table has columns, and each column has **constraints**:
+
+- **type** — the `temperature` column is a `float`; the database rejects the string “John”,
+- **range** — a temperature in °C cannot be below absolute zero, −273.15 °C; −300 is a `float`, but invalid.
+
+Another example: a school grade in Slovak primary school is an **integer** from 1 to 9 — not 15, not 2015, not 1.7.
+
+JSON is a free format and carries no schema. There is, however, a separate project, **JSON Schema** ([json-schema.org](https://json-schema.org/)): a schema is **another JSON document** that describes what the validated document must look like. The site also has a tutorial, which we followed.
+
+## Writing a schema step by step
+
+The most comfortable place is the online validator [jsonschemavalidator.net](https://www.jsonschemavalidator.net/): paste the JSON from the service on the right (you find it in the task log after `Returned value was:`), write the schema on the left — you see errors immediately.
+
+1. **Header** — `$schema` sets the version of the standard; `title` and `description` are optional, but handy when you keep several schemas in Git.
+2. The **`type`** of the whole document — curly braces are an `object`. (JSON Schema does not know Python's `dictionary`; JSON = *JavaScript Object Notation*.) If you write `string`, the validator reports *expected string, got object*.
+3. **`properties`** — the keys at that level that you care about; the rest are ignored. Give each one a `type` and optionally a `description`:
+   - `dt` is an `integer` (with `string` the validator reports *Invalid type. Expected String but got Integer*),
+   - `name` is a `string`,
+   - `main` is again an `object` — and you describe its keys with nested `properties`.
+4. Number **constraints**: `minimum` (≥), `maximum` (≤), `exclusiveMinimum` (`>`), `exclusiveMaximum` (`<`). Temperature: `"minimum": -273.15`.
+5. **`required`** — a list of keys that **must** be present. It belongs at the object level (next to `properties`, not inside it), separately for the root and for each nested object.
+
+| JSON Schema `type` | Value | Python |
+| --- | --- | --- |
+| `object` | `{...}` | `dict` |
+| `array` | `[...]` | `list` |
+| `string` | `"text"` | `str` |
+| `integer` | `42` | `int` |
+| `number` | `42`, `15.8` | `int`, `float` |
+| `boolean` | `true` / `false` | `bool` |
+| `null` | `null` | `None` |
+
+The resulting schema for the values we use — stored in `~/airflow/data/openweathermap.schema.json` (the `.json` suffix keeps syntax highlighting working in the editor):
+
+```json title="data/openweathermap.schema.json"
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenWeatherMap current weather",
+  "type": "object",
+  "required": ["dt", "name", "main", "wind", "sys"],
+  "properties": {
+    "dt": { "type": "integer", "description": "Time of measurement, Unix time (UTC)" },
+    "name": { "type": "string", "description": "City name" },
+    "main": {
+      "type": "object",
+      "required": ["temp", "humidity", "pressure"],
+      "properties": {
+        "temp": { "type": "number", "minimum": -273.15 },
+        "humidity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "pressure": { "type": "number" }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "required": ["speed", "deg"],
+      "properties": {
+        "speed": { "type": "number", "minimum": 0 },
+        "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "sys": {
+      "type": "object",
+      "required": ["country"],
+      "properties": { "country": { "type": "string" } }
+    }
+  }
+}
+```
+
+:::tip[No need to write a schema by hand]
+Online generators (search for *JSON schema from document*) build a skeleton schema from a sample JSON. AI does even more — asked to “create a JSON schema to validate this openweathermap.org response”, Claude or ChatGPT also add ranges and descriptions. Always check the result, though.
+:::
+
+## Validating from the command line
+
+```bash
+(venv) $ pip install jsonschema
+(venv) $ jsonschema -i weather.json openweathermap.schema.json
+(venv) $ echo $?
+0
+```
+
+`-i` (*instance*) is the validated document, the last argument is the schema. If the document does not match, it prints why — e.g. `-6666 is less than the minimum of -273.15` — and exits with code `1`. Handy in Bash scripts too.
+
+The `jsonschema` CLI reports that it is deprecated and recommends `check-jsonschema` (a separate package):
+
+```bash
+check-jsonschema --schemafile openweathermap.schema.json weather.json
+```
+
+## Validating in Python
+
+In ipython, step by step:
+
+```python
+import json
+
+import httpx
+import jsonschema
+
+payload = httpx.get(url).json()                    # data from the service (a dict)
+
+with open("openweathermap.schema.json", encoding="utf-8") as file:
+    schema = json.load(file)                        # the schema (also a dict)
+
+jsonschema.validate(instance=payload, schema=schema)   # valid → nothing happens
+
+payload["main"]["temp"] = -6666
+jsonschema.validate(instance=payload, schema=schema)   # jsonschema.ValidationError
+```
+
+The `jsonschema` module has essentially one function you need — `validate`. (In ipython, `jsonschema.validate?` shows its documentation.)
+
+## The validate_data() task
+
+```python
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+```
+
+The task only checks the data and **returns it unchanged** — the next task receives it through XCom:
+
+```python
+def main():
+    data = scrape_data("kosice,sk")
+    valid_data = validate_data(data)
+    entry = process_data(valid_data)
+    publish_data(entry)
+```
+
+Where `SCHEMA_PATH` comes from, and why not a plain `open("openweathermap.schema.json")`, is covered in [Project structure](/devops-notes/en/python-advanced/struktura-projektu/). `logger` and `AirflowFailException` are in [Logging and errors](/devops-notes/en/python-advanced/logovanie-a-chyby/).
+
+## Test yourself
+
+<Question q="Why is it better when `validate_data` fails rather than `process_data` with a `KeyError`?">
+The error appears right at the source, with a clear message (e.g. which key is missing or which value is out of range). A `KeyError` in processing does not tell you the API changed.
+</Question>
+
+<Question q="In JSON Schema, what type is a value in curly braces, and what are `42` and `15.8`?">
+Curly braces are an `object`. `42` is an `integer` (and also a `number`), `15.8` is a `number`.
+</Question>
+
+<Question q="What is the difference between `minimum` and `exclusiveMinimum`?">
+`minimum` allows the boundary value itself (≥), `exclusiveMinimum` does not (>).
+</Question>
+
+<Question q="Where in a schema does `required` belong?">
+At the object level — next to `type` and `properties`, not inside `properties`. Each nested object has its own `required`.
+</Question>
+
+<Question q="How do you tell in a Bash script whether a JSON document matches a schema?">
+`jsonschema -i document.json schema.json` and then `$?`: `0` = it matches, `1` = it does not.
+</Question>
+
+## Exercises
+
+### 12.1 · Ranges for wind and time
+
+Add to the schema that `wind.deg` is in the range 0–360, `wind.speed` cannot be negative, and `dt` is a positive integer. Check that a document with `"deg": 400` fails validation.
+
+<Solution>
+```json
+"dt": { "type": "integer", "exclusiveMinimum": 0 },
+"wind": {
+  "type": "object",
+  "required": ["speed", "deg"],
+  "properties": {
+    "speed": { "type": "number", "minimum": 0 },
+    "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+  }
+}
+```
+
+For `"deg": 400`, `jsonschema -i weather.json openweathermap.schema.json` prints `400 is greater than the maximum of 360`, and `echo $?` returns `1`.
+</Solution>

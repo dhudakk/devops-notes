@@ -9,6 +9,7 @@ sidebar:
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 import ChapterList from '../../../components/ChapterList.astro';
+import Pipeline from '../../../components/Pipeline.astro';
 
 ## Kapitoly
 
@@ -17,7 +18,7 @@ import ChapterList from '../../../components/ChapterList.astro';
 ## Na opakovanie a mimo osnovy
 
 <CardGrid>
-  <LinkCard title="Ťahák" description="Príkazy a kód z kurzu na jednej stránke: venv, pip, httpx, jq, click, výnimky, VS Code." href="/devops-notes/python-advanced/tahak/" />
+  <LinkCard title="Ťahák" description="Príkazy a kód z kurzu na jednej stránke: venv, pip, httpx, jq, click, Airflow, JSON schéma, pathlib, sh, boto3." href="/devops-notes/python-advanced/tahak/" />
   <LinkCard title="Mirekove múdrosti" description="Tipy, nástroje a postrehy lektora, ktoré nie sú priamo látkou kurzu." href="/devops-notes/python-advanced/mudrosti/terminal-a-windows/" />
   <LinkCard title="Zdroje" description="Slajdy z jednotlivých dní a z čoho vznikla ktorá kapitola." href="/devops-notes/python-advanced/zdroje/" />
 </CardGrid>
@@ -26,10 +27,9 @@ import ChapterList from '../../../components/ChapterList.astro';
 
 Počas celého kurzu staviame jeden workflow:
 
-```text
-[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
-```
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['OpenWeatherMap', 'RustFS'] }, 'Scrape Data', 'Validate Data', 'Process Data', 'Publish Data → S3']} caption="Scrape posiela JSON, Process vracia CSV riadok; od 3. dňa pre každé mesto zvlášť." />
 
 1. **Deň 1** — workflow ako Python skript rozdelený na tri funkcie: funkcie, HTTP, JSON, CSV a výnimky.
-2. **Deň 2** — zo skriptu nástroj príkazového riadku (click); potom Apache Airflow: inštalácia, prvý DAG, tasky a XCom, Connections a Variables, validácia dát, healthcheck a opakovanie.
-3. **Ďalej** — ďalšie tasky a možnosti Airflow nad tým istým workflowom.
+2. **Deň 2** — zo skriptu nástroj príkazového riadku (click); potom Apache Airflow: inštalácia, prvý DAG, tasky a XCom, Connections a Variables.
+3. **Deň 3** — Airflow ako systemd služba; validácia dát JSON schémou, štruktúra projektu (pathlib, `constants.py`), logovanie a chyby, healthchecky (ping, sh, HTTP) bežiace paralelne s opakovaním. Zo slajdov: RustFS/S3 a boto3, skupiny taskov a dynamické mapovanie pre viac miest.
+4. **Ďalej** — publikovanie do S3 a ďalšie možnosti Airflow nad tým istým workflowom.
