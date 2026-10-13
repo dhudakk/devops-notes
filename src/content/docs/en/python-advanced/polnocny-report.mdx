@@ -1,0 +1,619 @@
+---
+title: Jinja Templates and the Midnight Report
+description: The Jinja templating system (model, template, render, loops, whitespace), reading CSV with csv.DictReader, a midnight_report DAG that renders a Markdown report every night and uploads it to S3 with put_object, and the whole project after day 5.
+kind: chapter
+day: 5
+sidebar:
+  order: 21
+  label: 21 · Midnight report
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- A **template** is text with placeholders; the **model** is the data; **render** joins them. That separates the work of a designer, a programmer, and a database person.
+- **Jinja** (`pip install jinja2`, Airflow already has it): `{{ variable }}` inserts a value, `{% for ... %}…{% endfor %}` is a loop, a `-` at a tag strips whitespace.
+- `env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES_PATH), autoescape=False)` → `env.get_template("name.tpl.j2")` → `template.render(model)`.
+- **`csv.DictReader(file, delimiter=",")`** turns each CSV row into a dictionary using the header.
+- Upload the report to S3 straight from memory: `bucket.put_object(Key=..., Body=report, ContentType="text/markdown")`.
+- The third DAG, `midnight_report`, runs every night (`5 0 * * *`): healthcheck → report → notification.
+</KeyPoints>
+
+## Templates
+
+We have already seen a template — an f-string is one:
+
+```python
+name, surname, age = "Sherlock", "Holmes", 33
+f"{name} {surname} is {age} years old"
+```
+
+But we do not want text only for Sherlock — we want it for every person in the database. The parts of the text that change are replaced by **placeholders**, and values are filled in:
+
+| Term | Meaning |
+| --- | --- |
+| **model** | the data being filled in (e.g. a dictionary `{"name": "Juraj", ...}`) |
+| **template** | text with placeholders |
+| **controller / view** | the code that takes the model and the template, joins them, and returns the resulting text |
+
+This is the **MVC** design pattern (*model–view–controller*); web frameworks also call it **MTV** (*model–template–view*).
+
+Why is print not enough? Templates separate **roles**: a graphic designer handles the look (the template), a programmer wires it together, a database person takes care of the data. The worst thing you can see is Python code that builds an HTML page with prints — fixing that is a disaster.
+
+Plain Python's `str.format` can fill in a dictionary too:
+
+```python
+>>> model = {"name": "Juraj", "surname": "Jánošík", "age": 24}
+>>> "{name} {surname} is {age} years old".format(**model)   # or .format_map(model)
+'Juraj Jánošík is 24 years old'
+```
+
+For anything longer than one line, a templating system is better.
+
+## Jinja
+
+**Jinja** is a templating system for Python. It comes from the templates of the **Django** web framework — one of the most popular in Python (it was born in a newspaper's newsroom, which is why its documentation is excellent). Django's templates could not be used on their own, so Jinja was created as a standalone library. Its style spread to many languages — e.g. **Go templates** (Helm, Kubernetes) are strongly inspired by it. It is used by Ansible, Salt, web frameworks (Flask, FastAPI), and dbt.
+
+```bash
+(venv) $ pip install jinja2
+```
+
+The package is still called `jinja2`, although the current version is 3.x. Airflow already has it installed as a dependency.
+
+### The basics in ipython
+
+```python
+>>> import jinja2
+>>> env = jinja2.Environment()       # configuration shared by templates
+>>> template = env.from_string("{{ name }} {{ surname }} is {{ age }} years old")
+>>> template.render()
+'  is  years old'
+>>> template.render(name="Juraj", surname="Jánošík", age=24)
+'Juraj Jánošík is 24 years old'
+>>> model = {"name": "John", "surname": "Rambo", "age": 32}
+>>> template.render(model)
+'John Rambo is 32 years old'
+```
+
+- A placeholder is **double** curly braces `{{ … }}` (an f-string has single ones).
+- A value you do not supply renders as an empty string — hence `'  is  years old'`.
+- You supply data as keyword arguments or — more often — as a **dictionary**.
+
+### Templates in files
+
+Templates do not live in the code but in the `~/airflow/templates/` folder. The suffix is `.tpl.j2` — VS Code recognises a Jinja template by `.j2`. The path goes into the constants, so you do not have to hunt for it in the code:
+
+```python title="dags/constants.py"
+TEMPLATES_PATH = AIRFLOW_HOME / "templates"
+MIDNIGHT_TEMPLATE = "midnight-report.tpl.j2"
+REPORT_FILE = "midnight-report.md"
+```
+
+```python
+env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(TEMPLATES_PATH),   # where the templates are
+    autoescape=False,
+)
+template = env.get_template(MIDNIGHT_TEMPLATE)       # just the name — Jinja finds it
+report = template.render(model)
+```
+
+`autoescape=True` would replace HTML special characters (`<` → `&lt;`) — protection for HTML pages. For Markdown we turn it off.
+
+## The report template (Markdown)
+
+The format: HTML or Markdown? About half the group could write HTML, so the instructor chose **Markdown** — you write the formatting directly into the text: `#` is a heading, `**text**` bold, a table is drawn with vertical bars.
+
+```jinja title="templates/midnight-report.tpl.j2"
+# Midnight Report
+
+Generated **{{ dt }}**.
+
+| Date and time | City | Country | Temperature (°C) | Humidity (%) | Pressure (hPa) |
+| --- | --- | --- | --- | --- | --- |
+{% for entry in data -%}
+| {{ entry.dt }} | {{ entry.name }} | {{ entry.country }} | {{ entry.temp }} | {{ entry.humidity }} | {{ entry.pressure }} |
+{% endfor %}
+```
+
+### The loop and whitespace
+
+There may be a thousand table rows — they cannot be written out by hand. Jinja has **control statements** in `{% … %}`: loops, conditions, assignments, function calls.
+
+- `{% for entry in data %}` … `{% endfor %}` repeats its content for each item of the `data` list; the current item is in `entry`.
+- `entry` is a dictionary — both `{{ entry.dt }}` and `{{ entry["dt"] }}` work (verified). Do not forget the `{{ }}` — without them Jinja prints the text as it is.
+- **Whitespace:** the `{% for %}` tag on its own leaves an empty line in the output. A minus at the tag (`-%}` or `{%-`) strips whitespace on that side — thanks to `-%}` the table rows follow each other directly.
+- The units (°C, %, hPa) go into the table header, not next to every value.
+
+## Data from CSV: csv.DictReader
+
+The template's model needs a list of dictionaries:
+
+```python
+model = {
+    "dt": "2026-09-25T13:49:55+02:00",
+    "data": [
+        {"dt": "…", "name": "Kosice", "country": "SK", "temp": "15.8", "humidity": "67", "pressure": "1018"},
+        ...
+    ],
+}
+```
+
+The dataset is CSV. Without pandas (the course skipped it for lack of time), the standard **`csv`** module helps. Its **`DictReader`** turns each row into a dictionary — it takes the keys from the **header** (the first line):
+
+```python
+import csv
+
+with open(path, encoding="utf-8") as file:
+    reader = csv.DictReader(file, delimiter=",")
+    for row in reader:              # reader is iterable — one dictionary per row
+        model["data"].append(row)
+```
+
+- `delimiter` is the column separator — a comma for us (the instructor had a semicolon `";"`).
+- **The file must have a header.** Without one you could reach the values only by index (`line.split(",")[1]`). The instructor and some participants were missing the header — they added it and uploaded a new version of the file through the RustFS console.
+- The alternative is reading the file line by line (`file.readline()`), but `DictReader` is more convenient.
+
+## The midnight_report DAG
+
+<Pipeline steps={['is_rustfs_alive', 'create_report', 'notify_report']} caption="Every night at 0:05 UTC." />
+
+The project's third DAG (the first runs every 20 minutes, the second is triggered by an asset, the third once a day):
+
+1. a RustFS healthcheck (the shared `is_rustfs_alive` from `tasks.py`),
+2. `create_report`: downloads the dataset into a temporary file (if missing → `AirflowFailException`), reads it with `DictReader`, renders the template, and uploads the report to S3; deletes the temporary file in `finally`,
+3. a notification that the report is ready (`send_notification` from [Notifications](/devops-notes/en/python-advanced/notifikacie/)).
+
+The current time for the report: `pendulum.now().to_iso8601_string()` — pendulum works out the time zone itself.
+
+Without pandas we cannot easily compute yesterday's minimum, maximum, or average — for now the report is the whole dataset as a table.
+
+### Uploading the report: put_object
+
+`template.render()` returns a **string**. There is no need to save it to a file — `put_object` uploads the content straight from memory:
+
+```python
+bucket.put_object(Key=REPORT_FILE, Body=report, ContentType="text/markdown")
+```
+
+- `Body` can be a string (or `report.encode("utf-8")`),
+- `ContentType` is the MIME type — `text/markdown` for Markdown. Browsers and the console use it to know what to do with the content.
+- Watch out for typos: with `context_type=`, boto3 fails — `ParamValidationError: Unknown parameter in input: "context_type", must be one of: ACL, Body, Bucket, …`. In the course this left a DAG run hanging, and only an Airflow restart helped.
+
+The alternative: write the report to a temporary file and upload it with `upload_file`.
+
+### How to view the report
+
+- In the RustFS console: the object → *Preview*, or *Generate URL* and download it (`wget <url>`).
+- In VS Code, open the `.md` file and click *Open Preview to the Side* at the top right (`Ctrl+K V`) — the rendered Markdown with the table appears next to the source. No extension needed; it is built in.
+
+:::note[Airflow in Docker]
+To try it at home, Airflow has an official `docker-compose.yaml` (and a Helm chart for Kubernetes). It is quite “heavy” — over 270 lines, starting PostgreSQL, Redis, the API server, the scheduler (looks into the database and starts tasks according to their settings), workers (run the tasks through Celery), the triggerer, an init container, and optionally *flower* (a web UI for Celery). Expect it to eat a fair amount of system resources.
+:::
+
+## The whole project after day 5
+
+```text
+~/airflow/
+├── dags/
+│   ├── constants.py         ← paths, connections, bucket, templates, receivers Variable
+│   ├── helpers.py           ← get_storage(), send_notification()
+│   ├── assets.py            ← WEATHER_DATA
+│   ├── tasks.py             ← is_rustfs_alive
+│   ├── weather_scraper.py   ← every 20 min, mapped over all cities
+│   ├── report_builder.py    ← triggered by the asset
+│   └── midnight_report.py   ← every night
+├── data/
+│   └── openweathermap.schema.json
+├── templates/
+│   └── midnight-report.tpl.j2
+└── ruff.toml                ← src = ["dags"]
+```
+
+Packages: `pip install apache-airflow httpx jsonschema pendulum boto3 apprise`. The `openweathermap` and `rustfs` connections; the Variables `weather_city` (cities, one per line) and `weather_notification_receivers` (Apprise URLs, one per line). `report_builder.py`, `assets.py`, `tasks.py`, and the schema are unchanged from [chapter 18](/devops-notes/en/python-advanced/assety/#the-whole-project-after-day-4).
+
+```python title="dags/constants.py"
+"""Values shared by all DAGs. Python has no real constants — UPPER_CASE is the convention."""
+
+from pathlib import Path
+
+# ~/airflow — derived from this file's location, so it works wherever Airflow lives
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"
+SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+
+# Airflow Connection IDs
+WEATHER_CONN = "openweathermap"
+S3_CONN = "rustfs"
+
+# S3 (RustFS)
+BUCKET_NAME = "datasets"
+DATASET_FILE = "dataset.csv"
+CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+
+# Reports
+TEMPLATES_PATH = AIRFLOW_HOME / "templates"
+MIDNIGHT_TEMPLATE = "midnight-report.tpl.j2"
+REPORT_FILE = "midnight-report.md"
+
+# Airflow Variable with notification receivers (Apprise URLs, one per line)
+RECEIVERS_VAR = "weather_notification_receivers"
+```
+
+```python title="dags/helpers.py"
+"""Helper functions shared by several DAGs."""
+
+import logging
+
+import boto3
+from airflow.sdk import BaseHook, Variable
+from apprise import Apprise
+
+from constants import RECEIVERS_VAR, S3_CONN
+
+logger = logging.getLogger(__name__)
+
+
+def get_storage():
+    """Return a boto3 S3 resource for the RustFS connection."""
+    conn = BaseHook.get_connection(S3_CONN)
+    return boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+
+
+def send_notification(title: str, body: str) -> None:
+    """Send a push notification to every receiver from the Variable (one per line)."""
+    apprise = Apprise()
+    for receiver in Variable.get(RECEIVERS_VAR, default="").split():
+        apprise.add(receiver)
+    if not apprise.notify(title=title, body=body):
+        logger.warning("Notification was not delivered: %s", title)
+```
+
+```python title="dags/weather_scraper.py"
+"""Weather scraper: healthchecks -> scrape -> validate -> process -> publish to S3."""
+
+import json
+import logging
+from datetime import timedelta
+from http import HTTPStatus
+from pathlib import Path
+from tempfile import mkstemp
+
+import httpx
+import jsonschema
+from airflow.sdk import (
+    BaseHook,
+    Param,
+    Variable,
+    dag,
+    get_current_context,
+    task,
+    task_group,
+)
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+from botocore.exceptions import ClientError
+from pendulum import datetime, from_timestamp
+
+from assets import WEATHER_DATA
+from constants import BUCKET_NAME, CSV_HEADER, DATASET_FILE, SCHEMA_PATH, WEATHER_CONN
+from helpers import get_storage, send_notification
+from tasks import is_rustfs_alive
+
+logger = logging.getLogger(__name__)
+
+
+@task.bash(task_display_name="Ping OpenWeatherMap")
+def is_service_alive_in_bash() -> str:
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    return f"ping -c 1 -w 2 {conn.host}"
+
+
+@task(
+    task_display_name="OpenWeatherMap Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=10),
+)
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    response = httpx.head(url, follow_redirects=True, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"OpenWeatherMap unavailable: HTTP {response.status_code}")
+
+
+@task(task_display_name="Get Locations")
+def get_locations() -> list[str]:
+    """Cities for this run — from the Trigger form, or the default from the Variable."""
+    context = get_current_context()
+    return context["params"]["query"]
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    logger.info("Scraping data for %s", query)
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        logger.warning("OpenWeatherMap answered HTTP %s", response.status_code)
+        raise AirflowFailException(f"Cannot get weather for {query}: {response.text}")
+    return response.json()
+
+
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+
+
+@task(task_display_name="Process Data")
+def process_data(data: dict) -> str:
+    values = [
+        from_timestamp(data["dt"]).to_iso8601_string(),
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ",".join(str(value) for value in values)
+
+
+@task(task_display_name="Notify")
+def notify(data: dict) -> None:
+    send_notification(
+        title=f"Aktuálne počasie v {data['name']}",
+        body=(
+            f"Teplota je {data['main']['temp']} °C, "
+            f"vlhkosť {data['main']['humidity']} %, "
+            f"tlak {data['main']['pressure']} hPa."
+        ),
+    )
+
+
+# one city at a time: all mapped instances append to the same dataset.csv
+@task(
+    task_display_name="Publish Data",
+    outlets=[WEATHER_DATA],
+    max_active_tis_per_dagrun=1,
+)
+def publish_data(line: str) -> None:
+    """Download the dataset from S3, append the line, upload it back."""
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    _, temp_name = mkstemp(prefix="weather-", suffix=".csv")  # _ = fd we do not need
+    path = Path(temp_name)
+    try:
+        try:
+            bucket.download_file(DATASET_FILE, str(path))
+        except ClientError:
+            logger.warning("Dataset file not found, probably first dataset upload.")
+            with open(path, "w", encoding="utf-8") as file:
+                print(CSV_HEADER, file=file)
+
+        with open(path, "a", encoding="utf-8") as file:
+            print(line, file=file)
+
+        bucket.upload_file(str(path), DATASET_FILE)
+        logger.info("Dataset uploaded to s3://%s/%s", BUCKET_NAME, DATASET_FILE)
+    finally:
+        path.unlink(missing_ok=True)  # runs even when something above fails
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
+
+
+@task_group(
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
+)
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)
+    line = process_data(valid_data)
+    publish_data(line)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops"],
+    catchup=False,
+    params={
+        "query": Param(
+            default=Variable.get("weather_city", default="kosice,sk").split(),
+            type="array",
+            title="Locations",
+            description="List of locations. One location per line.",
+        ),
+    },
+)
+def main():
+    locations = tg_healthcheck() >> get_locations()
+    tg_weather_ingestion.expand(query=locations)
+
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+```python title="dags/midnight_report.py"
+"""Midnight report: every night, render the whole dataset as a Markdown table into S3."""
+
+import csv
+import logging
+from pathlib import Path
+from tempfile import mkstemp
+
+import jinja2
+import pendulum
+from airflow.sdk import dag, task
+from airflow.sdk.exceptions import AirflowFailException
+from botocore.exceptions import ClientError
+
+from constants import (
+    BUCKET_NAME,
+    DATASET_FILE,
+    MIDNIGHT_TEMPLATE,
+    REPORT_FILE,
+    TEMPLATES_PATH,
+)
+from helpers import get_storage, send_notification
+from tasks import is_rustfs_alive
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="Create Report")
+def create_report() -> None:
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    _, temp_name = mkstemp(prefix="report-", suffix=".csv")
+    path = Path(temp_name)
+    try:
+        # download the dataset
+        try:
+            bucket.download_file(DATASET_FILE, str(path))
+        except ClientError as error:
+            logger.warning("Dataset file not found. Nothing to do.")
+            raise AirflowFailException("Dataset file not found.") from error
+
+        # model: every CSV row becomes a dictionary (keys from the header)
+        model = {"dt": pendulum.now().to_iso8601_string(), "data": []}
+        with open(path, encoding="utf-8") as file:
+            reader = csv.DictReader(file, delimiter=",")
+            for row in reader:
+                model["data"].append(row)
+
+        # template + model -> report
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
+            autoescape=False,
+        )
+        template = env.get_template(MIDNIGHT_TEMPLATE)
+        report = template.render(model)
+
+        # upload straight from memory, no local file needed
+        bucket.put_object(Key=REPORT_FILE, Body=report, ContentType="text/markdown")
+        logger.info("Report with %s rows uploaded as %s", len(model["data"]), REPORT_FILE)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@task(task_display_name="Notify")
+def notify_report() -> None:
+    send_notification(title="Midnight report", body=f"Nový report {REPORT_FILE} je pripravený.")
+
+
+@dag(
+    "midnight_report",
+    dag_display_name="Midnight Report",
+    description="Renders the weather dataset into a Markdown report every night.",
+    schedule="5 0 * * *",
+    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+    tags=["weather", "devops", "report"],
+    catchup=False,
+)
+def main():
+    is_rustfs_alive() >> create_report() >> notify_report()
+
+
+main()
+```
+
+**How it was tested:** Airflow 3.3.2 via `airflow standalone`, a local stand-in for OpenWeatherMap (returns 404 for `nowhere`), S3 through moto, and instead of Pushbullet a local server through a `json://` URL in the Variable.
+
+- A run with the Variable (`kosice,sk`, `presov,sk`): two branches, two notifications, two rows in `dataset.csv`, and because `publish_data` is mapped, two `report_builder` runs (`asset_triggered__…`).
+- A run from the form `["zilina,sk", "nowhere", "poprad,sk"]`: Žilina and Poprad processed and notified, the `nowhere` branch failed on 404, the run `failed`.
+- `midnight_report`: S3 got `midnight-report.md` (`ContentType: text/markdown`) with a table of all rows, and a notification arrived. A scheduled run that started before the dataset existed correctly failed with *Dataset file not found*.
+- No files were left behind in the temporary directory.
+
+## Test yourself
+
+<Question q="What are the model, the template, and render?">
+The model is the data (e.g. a dictionary), the template is text with placeholders, and render joins them into the resulting text.
+</Question>
+
+<Question q='What does `env.from_string("{{ name }} is {{ age }}").render()` return?'>
+`' is '` — missing values render as empty strings.
+</Question>
+
+<Question q="What is the difference between `{{ … }}` and `{% … %}` in Jinja?">
+`{{ … }}` inserts the value of an expression. `{% … %}` is a control statement — a loop, a condition, an assignment.
+</Question>
+
+<Question q="What is the minus in `{% for entry in data -%}` for?">
+It strips whitespace (including the newline) after the tag, so the loop leaves no empty lines in the output.
+</Question>
+
+<Question q="What does `csv.DictReader` do, and what does it need?">
+It reads CSV and returns each row as a dictionary; it takes the keys from the header (the first line), so the file must have one. Set the separator with `delimiter`.
+</Question>
+
+<Question q="How do you upload a string to S3 without saving it to a file?">
+`bucket.put_object(Key="report.md", Body=report, ContentType="text/markdown")`.
+</Question>
+
+<Question q="Why `autoescape=False` for a Markdown report?">
+Autoescape replaces HTML characters (`<`, `>`, `&`) with entities — protection for HTML pages. In a Markdown report it would needlessly mangle the text.
+</Question>
+
+## Exercises
+
+### 21.1 · The number of measurements in the report
+
+Add a line *Total measurements: N* under the table in the template, without adding anything to the model.
+
+<Solution>
+```jinja
+Total measurements: **{{ data | length }}**
+```
+
+`| length` is a Jinja **filter** — it transforms a value before printing (here the length of the list). Others: `upper`, `round(1)`, `default("–")`…
+</Solution>
+
+### 21.2 · Only the latest measurement per city
+
+Change `create_report` so that the model contains only the **latest** record of each city (e.g. for a current-weather report).
+
+<Solution>
+```python
+latest = {}
+with open(path, encoding="utf-8") as file:
+    for row in csv.DictReader(file, delimiter=","):
+        latest[row["name"]] = row          # later rows overwrite earlier ones
+model["data"] = list(latest.values())
+```
+
+The dictionary key is the city, so each later row of the same city overwrites the previous one — the last one remains.
+</Solution>

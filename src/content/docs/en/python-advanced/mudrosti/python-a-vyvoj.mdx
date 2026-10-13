@@ -225,3 +225,27 @@ In C or Java a variable lives from the nearest block to its end, so a variable f
 Before you see the right result, you will see a million wrong ones — and you need to understand what is going on inside. AI can suggest an elegant solution (e.g. `NamedTemporaryFile`), but if you do not know how it works, you get stuck on the details.
 
 <p class="wisdom-day">Day 4</p>
+
+## Problems are the best school
+
+“Troubleshooting, problems like these — that is when we learn the most, because you have to find the root cause.” On day 5 everything stuck (Git stopped authenticating, a DAG would not load, runs hung) — and that is exactly where you could see how errors are hunted down.
+
+<p class="wisdom-day">Day 5</p>
+
+## Do not call functions in default values
+
+`def main(query=Param(...))` or `def f(x=Variable.get(...))` — Ruff reports B008: *Do not perform function call in argument defaults*. A default value is evaluated once, when the function is defined. Call the function inside, or prepare the value at module level (in Airflow: `params=` in `@dag`).
+
+<p class="wisdom-day">Day 5</p>
+
+## pprint for big dictionaries
+
+`print()` prints a dictionary as one endless line. `from pprint import pprint` prints it readably, key by key — ideal for finding out what is in a run's context.
+
+<p class="wisdom-day">Day 5</p>
+
+## Do not build HTML with prints
+
+Python code that builds an HTML page with prints is a mess — fixing it is a disaster. That is what templates are for: the designer handles the look, the programmer the logic, the database person the data.
+
+<p class="wisdom-day">Day 5</p>

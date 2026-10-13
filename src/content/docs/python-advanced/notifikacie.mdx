@@ -1,0 +1,196 @@
+---
+title: Notifikácie cez Apprise a Pushbullet
+description: Push notifikácie do mobilu a prehliadača — knižnica Apprise (jedna knižnica, desiatky služieb), Pushbullet a access token, apprise z príkazového riadku aj v Pythone, príjemcovia v Airflow Variable a task notify v DAG-u.
+kind: chapter
+day: 5
+sidebar:
+  order: 20
+  label: 20 · Notifikácie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Apprise** (`pip install apprise`) posiela notifikácie do takmer každej platformy — Pushbullet, Telegram, Slack, Discord, e-mail, SMS… Príjemca je **URL**, ktorej schéma určuje službu: `pbul://<access_token>`.
+- **Pushbullet** je bezplatná appka (Android, rozšírenie do prehliadača). Access token: pushbullet.com → *Settings → Account → Create Access Token*.
+- Z príkazového riadku: `apprise -t "nadpis" -b "správa" "pbul://<token>"` alebo `echo "správa" | apprise "pbul://<token>"`.
+- V Pythone: `apprise = Apprise()`, `apprise.add(url)` (aj viackrát — viac príjemcov), `apprise.notify(title=..., body=...)`.
+- Token **nepatrí do kódu** — príjemcovia sú v Airflow Variable (jeden na riadok), takže ich meníš bez zmeny kódu.
+</KeyPoints>
+
+## Apprise
+
+Chceme *wow efekt*: keď DAG stiahne počasie, príde notifikácia do mobilu. Na kurze je to len ukážka — 10 notifikácií každých 20 minút v praxi nikto nechce. Zmysel to má pri chybe, alebo napríklad pri rannej predpovedi na celý deň.
+
+Použijeme knižnicu **[Apprise](https://github.com/caronc/apprise)**: *push notifications that work with just about every platform*. Jej zoznam podporovaných služieb je obrovský — Pushbullet, Pushover, Telegram, Signal, WhatsApp, Viber, Slack, Discord, Microsoft Teams, e-mail, SMS brány, desktopové notifikácie… Keď máš účet v niektorej z nich, Apprise tam vie poslať správu.
+
+```bash
+(venv) $ pip install apprise
+```
+
+### Príjemca je URL
+
+Každý príjemca sa zapisuje ako URL — **schéma** určuje službu, zvyšok sú údaje, ktoré služba potrebuje (token, kanál, používateľ…). Syntax nájdeš v dokumentácii Apprise pri každej službe:
+
+| Služba | URL |
+| --- | --- |
+| Pushbullet (konkrétny používateľ) | `pbul://<access_token>` |
+| Pushover | `pover://<user_key>@<token>` |
+| JSON na vlastný server | `json://host:port/cesta` |
+
+## Pushbullet
+
+**Pushbullet** je bezplatný — preto ho lektor zvolil. Je appka pre Android a rozšírenie do prehliadača (na iPhone nie je; **Pushover** je platený po skúšobnom období).
+
+1. Nainštaluj appku a/alebo rozšírenie do prehliadača a prihlás sa.
+2. Na [pushbullet.com](https://www.pushbullet.com) choď do *Settings → Account → Access Tokens → Create Access Token*.
+3. Token si skopíruj — **celý** (pri kopírovaní dvojklikom ľahko vynecháš časť, napr. `o.` na začiatku).
+
+Bez rozšírenia prehliadača správu uvidíš iba v chate na stránke Pushbullet, nevyskočí notifikácia. Na firemnej sieti môže pripojenie blokovať firewall (*office or public firewalls can cause this*).
+
+### Z príkazového riadku
+
+Balík obsahuje aj nástroj `apprise` — hodí sa aj do Bash skriptov:
+
+```bash
+token="<ACCESS_TOKEN>"
+echo "hello world" | apprise "pbul://${token}"              # body from stdin
+apprise -t "Upozornenie" -b "Najvyšší čas ísť na obed" "pbul://${token}"
+```
+
+`-t` (`--title`) je nadpis, `-b` (`--body`) telo správy. `-vv` vypíše, čo sa deje.
+
+### V Pythone
+
+```python
+from apprise import Apprise
+
+apprise = Apprise()
+apprise.add("pbul://<ACCESS_TOKEN>")     # receivers — call add() for each one
+apprise.notify(title="Warning", body="Poďme na obed")
+```
+
+1. `from apprise import Apprise` — z modulu `apprise` trieda `Apprise`,
+2. vytvor inštanciu,
+3. `add()` pridá príjemcu — môžeš ich pridať viac, aj z rôznych služieb; jedna správa odíde všetkým,
+4. `notify()` správu pošle. Vráti výsledok, ktorý je pravdivý, ak sa podarilo doručiť.
+
+## Príjemcovia v Variable
+
+Token je tajomstvo — v kóde (a v Gite) nemá čo robiť. Do konštanty tiež nie: príjemcu by si menil úpravou kódu. Patrí do **Variable** — kedykoľvek ho pridáš, zmeníš alebo odoberieš v UI.
+
+**Admin → Variables → Add Variable:**
+
+| Pole | Hodnota |
+| --- | --- |
+| Key | `weather_notification_receivers` |
+| Value | Apprise URL, jedna na riadok (napr. `pbul://<token>`) |
+| Description | List of notification receivers |
+
+Názov: prefix aplikácie (`weather_`), lebo Airflow môže používať viac projektov. A nie *pushbullet_tokens* — príjemca môže byť aj na inej službe.
+
+Pomocnú funkciu dáme do `helpers.py`, aby ju mohol použiť aj polnočný report:
+
+```python title="dags/helpers.py"
+from airflow.sdk import Variable
+from apprise import Apprise
+
+from constants import RECEIVERS_VAR      # "weather_notification_receivers"
+
+
+def send_notification(title: str, body: str) -> None:
+    """Send a push notification to every receiver from the Variable (one per line)."""
+    apprise = Apprise()
+    for receiver in Variable.get(RECEIVERS_VAR, default="").split():
+        apprise.add(receiver)
+    if not apprise.notify(title=title, body=body):
+        logger.warning("Notification was not delivered: %s", title)
+```
+
+## Task notify v DAG-u
+
+Kam notifikáciu zaradiť? Na koniec, alebo hneď **po validácii** — tam už máme overené dáta ako slovník a notifikácia môže bežať **paralelne** so spracovaním a publikovaním:
+
+<Pipeline steps={['scrape_data', 'validate_data', ['notify', 'process_data → publish_data']]} caption="notify aj process_data dostanú výsledok validate_data." />
+
+```python
+@task(task_display_name="Notify")
+def notify(data: dict) -> None:
+    send_notification(
+        title=f"Aktuálne počasie v {data['name']}",
+        body=(
+            f"Teplota je {data['main']['temp']} °C, "
+            f"vlhkosť {data['main']['humidity']} %, "
+            f"tlak {data['main']['pressure']} hPa."
+        ),
+    )
+
+
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)                  # parallel with the processing below
+    line = process_data(valid_data)
+    publish_data(line)
+```
+
+Skupina je namapovaná ([Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/)), takže príde **jedna notifikácia za každé mesto** — a každému príjemcovi z Variable.
+
+Druhá možnosť z kurzu: nech `publish_data` vráti CSV riadok a `notify` ho rozdelí — `line.split(",")` a hodnoty podľa indexu (`parts[1]` je mesto, `parts[3]` teplota…). Slovník z `validate_data` je čitateľnejší.
+
+Overené na Airflow 3.3.2 so skutočným plánovačom: namiesto Pushbulletu dostával správy lokálny server cez `json://127.0.0.1:8766` (Variable obsahovala práve túto URL) — za každé mesto prišla správa *Aktuálne počasie v Kosice | Teplota je 15.8 °C, vlhkosť 67 %, tlak 1018 hPa.*
+
+## Otestuj sa
+
+<Question q="Prečo Apprise, a nie priamo API Pushbulletu?">
+Apprise je jedna knižnica pre desiatky služieb. Zmena alebo pridanie služby je iba iná URL príjemcu, kód sa nemení.
+</Question>
+
+<Question q="Ako vyzerá URL príjemcu pre Pushbullet?">
+`pbul://<access_token>` — schéma `pbul` určuje službu, za ňou je access token.
+</Question>
+
+<Question q="Ako pošleš jednu správu trom príjemcom?">
+Trikrát `apprise.add(url)` a raz `apprise.notify(...)`. V našom DAG-u sú URL v Variable, jedna na riadok.
+</Question>
+
+<Question q="Prečo nedať access token do kódu ani do `constants.py`?">
+Je to tajomstvo — skončilo by v Gite. A zmena príjemcu by znamenala zmenu kódu. Variable sa mení v UI bez zásahu do kódu.
+</Question>
+
+<Question q="Prečo je `notify` za `validate_data`, paralelne s `process_data`?">
+Dáta sú už overené a ako slovník; notifikácia nečaká na spracovanie a publikovanie a ich chyba ju nezastaví.
+</Question>
+
+## Cvičenia
+
+### 20.1 · Notifikácia pri chybe
+
+Užitočnejšia ako notifikácia pri každom behu je notifikácia **pri chybe**. Pridaj na koniec skupiny task `alert`, ktorý sa spustí iba vtedy, keď niektorý predchádzajúci task v skupine zlyhá, a pošle správu *Spracovanie mesta … zlyhalo*.
+
+<Solution variant="hint">
+Parameter tasku `trigger_rule="one_failed"` — task sa spustí, keď zlyhá aspoň jeden priamy predchodca. Zapoj ho za `publish_data` (ak zlyhá skoršie, `publish_data` je `upstream_failed`, čo sa tiež počíta).
+</Solution>
+
+<Solution>
+```python
+@task(task_display_name="Alert", trigger_rule="one_failed")
+def alert(query: str) -> None:
+    send_notification(title="Chyba", body=f"Spracovanie mesta {query} zlyhalo.")
+
+
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)
+    published = publish_data(process_data(valid_data))
+    published >> alert(query)
+```
+
+Keď všetko prejde, `alert` sa preskočí (`skipped`).
+</Solution>

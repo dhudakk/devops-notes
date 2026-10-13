@@ -1,0 +1,198 @@
+---
+title: Notifications with Apprise and Pushbullet
+description: Push notifications to your phone and browser — the Apprise library (one library, dozens of services), Pushbullet and its access token, apprise from the command line and in Python, receivers in an Airflow Variable, and a notify task in the DAG.
+kind: chapter
+day: 5
+sidebar:
+  order: 20
+  label: 20 · Notifications
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Apprise** (`pip install apprise`) sends notifications to almost any platform — Pushbullet, Telegram, Slack, Discord, e-mail, SMS… A receiver is a **URL** whose scheme picks the service: `pbul://<access_token>`.
+- **Pushbullet** is a free app (Android, a browser extension). The access token: pushbullet.com → *Settings → Account → Create Access Token*.
+- From the command line: `apprise -t "title" -b "message" "pbul://<token>"` or `echo "message" | apprise "pbul://<token>"`.
+- In Python: `apprise = Apprise()`, `apprise.add(url)` (repeatedly — several receivers), `apprise.notify(title=..., body=...)`.
+- The token **does not belong in the code** — receivers live in an Airflow Variable (one per line), so you change them without touching the code.
+</KeyPoints>
+
+## Apprise
+
+We want a *wow effect*: when the DAG downloads the weather, a notification arrives on the phone. In the course it is just a demo — nobody really wants 10 notifications every 20 minutes. It makes sense on an error, or for example for a morning forecast for the whole day.
+
+We use the **[Apprise](https://github.com/caronc/apprise)** library: *push notifications that work with just about every platform*. Its list of supported services is huge — Pushbullet, Pushover, Telegram, Signal, WhatsApp, Viber, Slack, Discord, Microsoft Teams, e-mail, SMS gateways, desktop notifications… If you have an account with one of them, Apprise can send a message there.
+
+```bash
+(venv) $ pip install apprise
+```
+
+### A receiver is a URL
+
+Every receiver is written as a URL — the **scheme** picks the service, the rest is whatever the service needs (a token, a channel, a user…). The Apprise documentation gives the syntax for each service:
+
+| Service | URL |
+| --- | --- |
+| Pushbullet (a specific user) | `pbul://<access_token>` |
+| Pushover | `pover://<user_key>@<token>` |
+| JSON to your own server | `json://host:port/path` |
+
+## Pushbullet
+
+**Pushbullet** is free — that is why the instructor chose it. It is an Android app and a browser extension (it is not on iPhone; **Pushover** is paid after a trial period).
+
+1. Install the app and/or the browser extension and sign in.
+2. On [pushbullet.com](https://www.pushbullet.com) go to *Settings → Account → Access Tokens → Create Access Token*.
+3. Copy the token — **all of it** (copying with a double-click easily misses a part, e.g. the `o.` at the start).
+
+Without the browser extension you only see the message in the chat on the Pushbullet site; no notification pops up. On a corporate network a firewall may block the connection (*office or public firewalls can cause this*).
+
+### From the command line
+
+The package also includes an `apprise` tool — handy in Bash scripts too:
+
+```bash
+token="<ACCESS_TOKEN>"
+echo "hello world" | apprise "pbul://${token}"              # body from stdin
+apprise -t "Warning" -b "High time to go for lunch" "pbul://${token}"
+```
+
+`-t` (`--title`) is the title, `-b` (`--body`) the message body. `-vv` shows what is going on.
+
+### In Python
+
+```python
+from apprise import Apprise
+
+apprise = Apprise()
+apprise.add("pbul://<ACCESS_TOKEN>")     # receivers — call add() for each one
+apprise.notify(title="Warning", body="Let's go for lunch")
+```
+
+1. `from apprise import Apprise` — the `Apprise` class from the `apprise` module,
+2. create an instance,
+3. `add()` adds a receiver — you can add several, even from different services; one message goes to all of them,
+4. `notify()` sends the message. It returns a result that is truthy if delivery succeeded.
+
+## Receivers in a Variable
+
+The token is a secret — it has no place in the code (and in Git). Not in a constant either: you would change a receiver by editing code. It belongs in a **Variable** — add, change, or remove it in the UI at any time.
+
+**Admin → Variables → Add Variable:**
+
+| Field | Value |
+| --- | --- |
+| Key | `weather_notification_receivers` |
+| Value | Apprise URLs, one per line (e.g. `pbul://<token>`) |
+| Description | List of notification receivers |
+
+The name: the application prefix (`weather_`), because several projects may use Airflow. And not *pushbullet_tokens* — a receiver may be on another service.
+
+The helper function goes into `helpers.py` so that the midnight report can use it too:
+
+```python title="dags/helpers.py"
+from airflow.sdk import Variable
+from apprise import Apprise
+
+from constants import RECEIVERS_VAR      # "weather_notification_receivers"
+
+
+def send_notification(title: str, body: str) -> None:
+    """Send a push notification to every receiver from the Variable (one per line)."""
+    apprise = Apprise()
+    for receiver in Variable.get(RECEIVERS_VAR, default="").split():
+        apprise.add(receiver)
+    if not apprise.notify(title=title, body=body):
+        logger.warning("Notification was not delivered: %s", title)
+```
+
+## A notify task in the DAG
+
+Where to put the notification? At the end, or right **after validation** — there we already have validated data as a dictionary, and the notification can run **in parallel** with processing and publishing:
+
+<Pipeline steps={['scrape_data', 'validate_data', ['notify', 'process_data → publish_data']]} caption="Both notify and process_data receive the result of validate_data." />
+
+```python
+@task(task_display_name="Notify")
+def notify(data: dict) -> None:
+    send_notification(
+        title=f"Aktuálne počasie v {data['name']}",
+        body=(
+            f"Teplota je {data['main']['temp']} °C, "
+            f"vlhkosť {data['main']['humidity']} %, "
+            f"tlak {data['main']['pressure']} hPa."
+        ),
+    )
+
+
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)                  # parallel with the processing below
+    line = process_data(valid_data)
+    publish_data(line)
+```
+
+(The message text is in Slovak, as in the course: *Current weather in …: temperature … °C, humidity … %, pressure … hPa.*)
+
+The group is mapped ([Dynamic task mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/)), so **one notification per city** arrives — to every receiver in the Variable.
+
+The other option from the course: let `publish_data` return the CSV line and have `notify` split it — `line.split(",")` and the values by index (`parts[1]` is the city, `parts[3]` the temperature…). The dictionary from `validate_data` is more readable.
+
+Verified on Airflow 3.3.2 with the real scheduler: instead of Pushbullet, a local server received the messages through a `json://127.0.0.1:8766` URL (the Variable held exactly that URL) — one message per city, e.g. *Aktuálne počasie v Kosice | Teplota je 15.8 °C, vlhkosť 67 %, tlak 1018 hPa.*
+
+## Test yourself
+
+<Question q="Why Apprise rather than Pushbullet's API directly?">
+Apprise is one library for dozens of services. Changing or adding a service is only a different receiver URL; the code stays the same.
+</Question>
+
+<Question q="What does a Pushbullet receiver URL look like?">
+`pbul://<access_token>` — the `pbul` scheme picks the service, the access token follows.
+</Question>
+
+<Question q="How do you send one message to three receivers?">
+Call `apprise.add(url)` three times and `apprise.notify(...)` once. In our DAG the URLs are in a Variable, one per line.
+</Question>
+
+<Question q="Why not put the access token in the code or in `constants.py`?">
+It is a secret — it would end up in Git. And changing a receiver would mean changing code. A Variable is changed in the UI without touching the code.
+</Question>
+
+<Question q="Why is `notify` after `validate_data`, in parallel with `process_data`?">
+The data is already validated and a dictionary; the notification does not wait for processing and publishing, and their errors do not stop it.
+</Question>
+
+## Exercises
+
+### 20.1 · A notification on error
+
+A notification **on error** is more useful than one on every run. Add an `alert` task at the end of the group that runs only when one of the previous tasks in the group fails, and sends *Processing of city … failed*.
+
+<Solution variant="hint">
+The task parameter `trigger_rule="one_failed"` — the task runs when at least one direct predecessor fails. Attach it after `publish_data` (if an earlier task fails, `publish_data` is `upstream_failed`, which counts too).
+</Solution>
+
+<Solution>
+```python
+@task(task_display_name="Alert", trigger_rule="one_failed")
+def alert(query: str) -> None:
+    send_notification(title="Chyba", body=f"Spracovanie mesta {query} zlyhalo.")
+
+
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)
+    published = publish_data(process_data(valid_data))
+    published >> alert(query)
+```
+
+When everything passes, `alert` is skipped (`skipped`).
+</Solution>

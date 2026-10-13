@@ -478,6 +478,99 @@ def main(): ...
 | 204 No Content | úspech (2xx), bez tela odpovede |
 | `NamedTemporaryFile` + boto3 | `mode="w+b"`, `download_fileobj` / `upload_fileobj`, pred uploadom `file.seek(0)` |
 
+## Mapovanie, notifikácie a šablóny
+
+<div class="sheet-grid">
+
+```python title="Param + kontext + expand" wrap
+from airflow.sdk import Param, get_current_context
+
+@dag(..., params={"query": Param(
+    default=Variable.get("weather_city").split(),
+    type="array", title="Locations",
+    description="One location per line.")})
+def main():
+    locations = tg_healthcheck() >> get_locations()
+    tg_weather_ingestion.expand(query=locations)
+
+@task
+def get_locations() -> list[str]:   # nie -> dict!
+    return get_current_context()["params"]["query"]
+
+# jednotlivé tasky:
+scrape.partial(units="metric").expand(query=cities)
+```
+
+```python title="Preskoč vetvu (mapovaná skupina)" wrap
+from airflow.sdk.exceptions import AirflowSkipException
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    raise AirflowSkipException(f"{query} not found")
+```
+
+```bash title="Apprise z príkazového riadku" wrap
+pip install apprise
+echo "hello world" | apprise "pbul://${token}"
+apprise -t "Upozornenie" -b "Ideme na obed" \
+    "pbul://${token}"
+```
+
+```python title="Apprise v Pythone" wrap
+from apprise import Apprise
+
+apprise = Apprise()
+for receiver in Variable.get(
+        "weather_notification_receivers").split():
+    apprise.add(receiver)          # pbul://<token>, …
+apprise.notify(title="Aktuálne počasie",
+               body="Teplota je 15.8 °C")
+```
+
+```python title="Jinja" wrap
+import jinja2
+
+env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
+    autoescape=False)
+template = env.get_template("midnight-report.tpl.j2")
+report = template.render({"dt": now, "data": rows})
+
+# z reťazca:
+jinja2.Environment().from_string(
+    "{{ name }} is {{ age }}").render(name="J", age=24)
+```
+
+```jinja title="Šablóna: cyklus" wrap
+| Mesto | Teplota (°C) |
+| --- | --- |
+{% for entry in data -%}
+| {{ entry.name }} | {{ entry.temp }} |
+{% endfor %}
+Spolu: {{ data | length }}
+```
+
+```python title="CSV → slovníky, report → S3" wrap
+import csv
+
+with open(path, encoding="utf-8") as file:
+    rows = list(csv.DictReader(file, delimiter=","))
+
+bucket.put_object(Key="midnight-report.md",
+                  Body=report,
+                  ContentType="text/markdown")
+```
+
+</div>
+
+| Čo | Ako |
+| --- | --- |
+| reťazec na zoznam | `"a\nb c".split()` → `['a', 'b', 'c']` (biele znaky) · `"a,b".split(",")` |
+| pekný výpis slovníka | `from pprint import pprint` · `pprint(context)` |
+| `-> dict` pri tasku | Airflow nastaví `multiple_outputs=True` a čaká slovník |
+| `.expand` vs. mapovaná skupina | `a.expand → b.expand`: jedna chyba zastaví všetky · `tg.expand(...)`: každé mesto vlastná vetva |
+| súbeh zápisov | `@task(max_active_tis_per_dagrun=1)` |
+| Markdown náhľad vo VS Code | *Open Preview to the Side* · `Ctrl+K V` |
+
 ## Užitočné drobnosti
 
 | Čo | Ako |
