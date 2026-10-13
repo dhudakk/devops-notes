@@ -74,6 +74,39 @@ In Python **everything is an object** — a variable holds not just a value but 
 ```python
 data = response.json()
 type(data)   # <class 'dict'>
+# in ipython: data?  → type, value, length (number of keys), and documentation
+```
+
+### Attributes and methods
+
+- An **attribute** (property) is a value stored in the object: `response.status_code`, `response.text`.
+- A **method** is a function defined by the object — you call it with parentheses: `response.json()`. In the object-oriented world an object's function is called a method; in practice the words mean the same.
+
+Python is an object-oriented language, but it does not force the object-oriented style on you. You cannot avoid objects though — even a string is an object, and `"text".upper()`, `.lower()`, or `.startswith()` are its methods.
+
+### HTTP status codes
+
+The status code says how an HTTP request ended. The first digit is the **category**, the other two narrow down the exact status:
+
+| Category | Meaning | Examples |
+| --- | --- | --- |
+| `1xx` | informational | `101 Switching Protocols` |
+| `2xx` | success | `200 OK`, `201 Created` |
+| `3xx` | redirection | `301 Moved Permanently`, `302 Found` |
+| `4xx` | client error | `400 Bad Request`, `401 Unauthorized`, `404 Not Found` |
+| `5xx` | server error | `500 Internal Server Error`, `503 Service Unavailable` |
+
+The **exit status** in Bash works similarly: the `$?` variable holds the return value of the last command. It is an 8-bit number (0–255), but what matters is `0` = OK, anything else = an error:
+
+```bash
+$ ls missing
+ls: cannot access 'missing': No such file or directory
+$ echo $?
+2
+$ cat /etc/shadow
+cat: /etc/shadow: Permission denied
+$ echo $?
+1
 ```
 
 ## JSON as a dictionary
@@ -145,6 +178,14 @@ A key written in source code ends up in Git, visible to everyone. In [CLI option
 
 <Question q="What parts make up the URL `https://api.openweathermap.org/data/2.5/weather?q=kosice`?">
 The scheme `https`, the domain `api.openweathermap.org`, the path `/data/2.5/weather`, and the query parameter `q=kosice`.
+</Question>
+
+<Question q="What do the HTTP status code categories `2xx`, `3xx`, `4xx`, and `5xx` mean?">
+`2xx` success (200 OK), `3xx` redirection, `4xx` client error (404 Not Found, 401 Unauthorized), `5xx` server error (500). `1xx` are informational.
+</Question>
+
+<Question q="What is the difference between an object's attribute and its method?">
+An attribute is a value stored in the object (`response.status_code`). A method is the object's function, called with parentheses (`response.json()`).
 </Question>
 
 <Question q="What is the difference between Requests and HTTPX?">

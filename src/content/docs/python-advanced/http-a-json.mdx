@@ -74,6 +74,39 @@ V Pythone je **všetko objekt** — premenná neobsahuje iba hodnotu, ale aj **m
 ```python
 data = response.json()
 type(data)   # <class 'dict'>
+# v ipythone: data?  → typ, hodnota, dĺžka (počet kľúčov) a dokumentácia
+```
+
+### Atribúty a metódy
+
+- **Atribút** (vlastnosť) je hodnota uložená v objekte: `response.status_code`, `response.text`.
+- **Metóda** je funkcia, ktorú definuje objekt — voláš ju so zátvorkami: `response.json()`. V objektovom svete sa funkcii objektu hovorí metóda; v praxi sú to synonymá.
+
+Python je objektový jazyk, ale objektový prístup od teba veľmi nevyžaduje. Objektom sa však nevyhneš — aj reťazec je objekt a `"text".upper()`, `.lower()` či `.startswith()` sú jeho metódy.
+
+### HTTP stavové kódy
+
+Stavový kód hovorí, ako dopadla HTTP požiadavka. Prvá číslica je **kategória**, zvyšné dve upresňujú konkrétny stav:
+
+| Kategória | Význam | Príklady |
+| --- | --- | --- |
+| `1xx` | informačné | `101 Switching Protocols` |
+| `2xx` | úspech | `200 OK`, `201 Created` |
+| `3xx` | presmerovanie | `301 Moved Permanently`, `302 Found` |
+| `4xx` | chyba klienta | `400 Bad Request`, `401 Unauthorized`, `404 Not Found` |
+| `5xx` | chyba servera | `500 Internal Server Error`, `503 Service Unavailable` |
+
+Podobne funguje **exit status** v Bashi: premenná `$?` obsahuje návratovú hodnotu posledného príkazu. Je to 8-bitové číslo (0–255), ale zaujíma nás hlavne `0` = OK, čokoľvek iné = chyba:
+
+```bash
+$ ls neexistuje
+ls: cannot access 'neexistuje': No such file or directory
+$ echo $?
+2
+$ cat /etc/shadow
+cat: /etc/shadow: Permission denied
+$ echo $?
+1
 ```
 
 ## JSON ako slovník
@@ -145,6 +178,14 @@ Kľúč napísaný v zdrojovom kóde skončí v Gite a uvidí ho každý. V kapi
 
 <Question q="Z akých častí sa skladá URL `https://api.openweathermap.org/data/2.5/weather?q=kosice`?">
 Schéma `https`, doména `api.openweathermap.org`, cesta `/data/2.5/weather` a parameter požiadavky `q=kosice`.
+</Question>
+
+<Question q="Čo znamenajú kategórie HTTP stavových kódov `2xx`, `3xx`, `4xx` a `5xx`?">
+`2xx` úspech (200 OK), `3xx` presmerovanie, `4xx` chyba klienta (404 Not Found, 401 Unauthorized), `5xx` chyba servera (500). `1xx` sú informačné.
+</Question>
+
+<Question q="Aký je rozdiel medzi atribútom a metódou objektu?">
+Atribút je hodnota uložená v objekte (`response.status_code`). Metóda je funkcia objektu, ktorú voláš so zátvorkami (`response.json()`).
 </Question>
 
 <Question q="Aký je rozdiel medzi Requests a HTTPX?">

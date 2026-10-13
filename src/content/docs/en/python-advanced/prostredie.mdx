@@ -94,29 +94,77 @@ pip install -r requirements.txt   # rebuilds the environment elsewhere
 deactivate                        # switches it off
 ```
 
-The first `venv` in the command is a Python module, the second is the folder name — it can be anything; `venv` or `.venv` is the convention.
+The first `venv` in the command is a Python module, the second is the folder name — it can be anything. `.venv` is common: files and folders whose names start with a dot are hidden on Linux (`ls` does not show them, `ls -a` does). In the course we keep a visible `venv`.
+
+:::note[`python` or `python3`?]
+On the lab machine `python` is just a link (symlink) to `python3` — check with `ls -lh /usr/bin/python`. So it does not matter which you type. On a fresh Ubuntu the `python` command may not exist (the `python-is-python3` package adds it); `python3` always works.
+:::
+
+### What is inside a venv
+
+The environment folder looks like a small Linux file-system tree:
+
+```text
+venv/
+├── bin/                         # python, pip, activate, and commands from installed packages
+│   ├── activate
+│   ├── pip3
+│   └── python3
+└── lib/
+    └── python3.14/
+        └── site-packages/       # where pip installs packages
+```
+
+### Which Python is running
+
+```bash
+$ which python
+/usr/bin/python                  # the system Python
+$ pip list | wc -l               # hundreds of packages system-wide (329 on the instructor's machine)
+
+$ source venv/bin/activate
+(venv) $ which python
+/home/ubuntu/venv/bin/python     # the environment's Python
+(venv) $ pip list                # only pip — the environment is empty
+```
+
+After activation the prompt shows `(venv)`. From then on `python` and `pip` work with the environment, not the system.
 
 ### The interpreter in VS Code
 
 VS Code usually detects the new environment and offers to activate it. If not:
 
-1. click the Python version in the bottom right (e.g. `3.14.4`), or open the command palette and choose **Python: Select Interpreter**,
-2. enter the path to the environment's interpreter, e.g. `/home/ubuntu/project/venv/bin/python3`.
+1. click the Python version in the bottom right (e.g. `3.14.4`), or open the command palette (**View → Command Palette**) and choose **Python: Select Interpreter**,
+2. choose **Browse** and pick the environment's interpreter, e.g. `/home/ubuntu/project/venv/bin/python3`.
 
-If VS Code still underlines `import httpx` although the package is installed, restart the language server: palette → **Python: Restart Language Server**.
+This is what makes **IntelliSense** — code completion — work: type `httpx.` and VS Code offers `get` and the package's other functions. The editor also flags problems as you type: an unused import or variable is shown greyed out and underlined.
+
+If VS Code still underlines `import httpx` although the package is installed:
+
+1. restart the language server (the editor component that “understands” Python): palette → **Python: Restart Language Server**,
+2. if even that does not help, disconnect from the server and reconnect — that is what finally worked for the instructor.
 
 ## Useful packages
 
 | Package | Purpose |
 | --- | --- |
 | **pip** | installs packages from the [PyPI](https://pypi.org) repository |
-| **ipython** | an interactive interpreter with colours and completion — type `object.` and press `Tab` to see every attribute and method |
-| **ruff** | a formatter **and** a linter in one; it took over from Black. Has a VS Code extension |
+| **ipython** | an interactive interpreter with colours and completion — type `object.` and press `Tab` to see every attribute and method. Install it as `pip install ipython` (no 3) |
+| **ruff** | a formatter **and** a linter in one. Written in Rust, so it is many times faster than Black or Flake8 — today's number one in this category |
+
+- A **formatter** changes how code looks according to rules; a **linter** also checks the code and warns about mistakes.
+- Python's formatting rules are described in **PEP 8**. PEPs (*Python Enhancement Proposals*) are documents with proposals and rules for the language. With a formatter, code looks the same no matter who writes it.
 
 ```bash
 ruff check workflow.py     # finds bugs and problems (linter)
 ruff format workflow.py    # formats the code
 ```
+
+For Ruff to format inside VS Code, the package in the environment is not enough — you also need the extension:
+
+1. press **Shift+Alt+F** (*Format Document*); VS Code reports that no formatter is installed,
+2. choose to install one, search for **Ruff**, and install it on the SSH host,
+3. from now on **Shift+Alt+F** formats the whole file according to PEP 8.
 
 ### VS Code shortcuts
 

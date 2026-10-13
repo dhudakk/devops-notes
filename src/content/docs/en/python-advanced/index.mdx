@@ -30,5 +30,6 @@ Throughout the course we build one workflow:
 [ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
 ```
 
-1. **Day 1** — the workflow as a Python script: functions, HTTP, JSON, CSV, CLI, and exceptions.
-2. **Following days** — the same workflow in Apache Airflow: scheduling, logs, retries, and monitoring.
+1. **Day 1** — the workflow as a Python script split into three functions: functions, HTTP, JSON, CSV, and exceptions.
+2. **Next day** — the script becomes a command-line tool with options (city, API key, units).
+3. **Then** — we install Apache Airflow and split the script into three tasks. The workflow gets a graphical view and we keep adding tasks; Airflow takes care of scheduling, logs, retries, and monitoring.

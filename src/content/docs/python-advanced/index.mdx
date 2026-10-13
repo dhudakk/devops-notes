@@ -30,5 +30,6 @@ Počas celého kurzu staviame jeden workflow:
 [ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
 ```
 
-1. **Deň 1** — workflow ako Python skript: funkcie, HTTP, JSON, CSV, CLI a výnimky.
-2. **Ďalšie dni** — ten istý workflow v Apache Airflow: plánovanie, logy, opakovanie a dohľad.
+1. **Deň 1** — workflow ako Python skript rozdelený na tri funkcie: funkcie, HTTP, JSON, CSV a výnimky.
+2. **Ďalší deň** — zo skriptu spravíme nástroj príkazového riadku s parametrami (mesto, API kľúč, jednotky).
+3. **Potom** — nainštalujeme Apache Airflow a skript rozbijeme na tri tasky. Workflow dostane grafickú podobu a budeme pridávať ďalšie tasky; Airflow sa postará o plánovanie, logy, opakovanie a dohľad.
