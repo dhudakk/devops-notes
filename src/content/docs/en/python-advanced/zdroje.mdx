@@ -20,11 +20,12 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 | 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
 | 4 | [Day 4: Processing Data (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.4.pdf) |
+| 5 | [Day 5: Creating Reports (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.5.pdf) |
 
 ## Which chapter comes from where
 
-:::note[The day 4 slides]
-Most of the day 4 slides cover the **pandas** library (DataFrame, filtering, aggregations, serialisation through pyarrow) and a midnight report. The lecture skipped them for lack of time — so the day 4 notes follow the transcript (task groups, S3, assets). Only the `daily_report` skeleton and `helpers.py` come from the slides.
+:::note[The day 4 and 5 slides]
+Most of the day 4 slides cover the **pandas** library (DataFrame, filtering, aggregations, serialisation through pyarrow) and a midnight report. The lecture skipped them for lack of time — so the day 4 notes follow the transcript (task groups, S3, assets). Only the `daily_report` skeleton and `helpers.py` come from the slides. Likewise, the day 5 slides also cover charts with **plotly** and a min/max/average report with pandas — not lectured; the day 5 notes follow the transcript (mapping, Apprise, Jinja).
 :::
 
 | Chapter | Source |
@@ -47,9 +48,11 @@ Most of the day 4 slides cover the **pandas** library (DataFrame, filtering, agg
 | [16 · Task groups](/devops-notes/en/python-advanced/skupiny-taskov/) | day 3 — slides pp. 2–3; day 4 — transcript part 1 (task groups, a group with a parameter, finding errors) |
 | [17 · S3 and boto3](/devops-notes/en/python-advanced/s3-a-boto3/) | day 3 — slides pp. 1, 4–7; day 4 — transcript parts 1 and 2 (RustFS, boto3 in ipython, the `publish_data` lab, `mkstemp`, `NamedTemporaryFile`) |
 | [18 · Assets](/devops-notes/en/python-advanced/assety/) | day 4 — transcript part 2 (polling vs. notification, Assets, `report_builder`, `helpers.py`); slides pp. 1–2 (the `daily_report` skeleton) |
-| [19 · Dynamic mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/) | day 3 — slides pp. 3–4, 8–11 (lectured on day 5) |
+| [19 · Dynamic mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/) | day 5 — transcript part 1 (Param, context, `.expand()`/`.partial()`, a mapped group, skip); day 3 — slides pp. 8–11 |
+| [20 · Notifications](/devops-notes/en/python-advanced/notifikacie/) | day 5 — transcript part 1 (Apprise, Pushbullet, a Variable with receivers, the `notify` task); slides pp. 8–10 |
+| [21 · Midnight report](/devops-notes/en/python-advanced/polnocny-report/) | day 5 — transcript parts 2 and 3 (Jinja, a Markdown template, `csv.DictReader`, `put_object`); slides pp. 1–4 |
 | [08 · Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/) | extended from the day 3 transcript (systemd, parallelism) |
-| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26, day 3 p. 12; day 4 from the transcript |
+| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26, day 3 p. 12; day 4 from the transcript; day 5 p. 11 and the transcript |
 
 ## Corrections to the slides
 
@@ -87,3 +90,13 @@ Most of the day 4 slides cover the **pandas** library (DataFrame, filtering, agg
 - `Asset(...)`: the first positional parameter is `name`, not `uri` — use keyword arguments.
 - A task group that returns something (`return data`) is attached by `>>` only to the task that produced that value — the group's other tasks do not wait for the predecessors. A group chained with `>>` should return nothing.
 - The `NamedTemporaryFile` attempt in the course failed on three things (`download_file` wants a path, text mode instead of binary, the cursor at the end of the file); a working version is in chapter 17.
+
+### Day 5 (verified on Airflow 3.3.2)
+
+- Slides: in the model example, `'age', 24` should be `'age': 24`. The import `from airflow.models import Variable` → in Airflow 3, `from airflow.sdk import Variable`.
+- The slides store one token as `PUSHBULLET_TOKEN`; in the lecture the Variable holds whole Apprise receiver URLs (one per line) — more receivers and services without code changes.
+- Lecture: a task annotated `-> dict` that returns a list fails — `dict` as the return type turns on `multiple_outputs`. Use `-> list[str]`.
+- Lecture: in Jinja both `{{ entry.dt }}` and `{{ entry["dt"] }}` work; the attempt in the course failed on missing `{{ }}`.
+- Lecture: the instructor did not get `AirflowSkipException` working in time — with a mapped group (`tg.expand(...)`) it works: the branch is skipped, the other cities are processed, and the run ends `success`.
+- Lecture: all branches append to one `dataset.csv` — concurrent writes can overwrite each other. The notes add `max_active_tis_per_dagrun=1` to `publish_data`.
+- Lecture: `put_object(..., context_type=...)` is a typo — it is `ContentType`.

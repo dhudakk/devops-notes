@@ -20,11 +20,12 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 | 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
 | 4 | [Day 4: Processing Data (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.4.pdf) |
+| 5 | [Day 5: Creating Reports (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.5.pdf) |
 
 ## Z čoho je ktorá kapitola
 
-:::note[Slajdy 4. dňa]
-Väčšina slajdov 4. dňa je o knižnici **pandas** (DataFrame, filtrovanie, agregácie, serializácia cez pyarrow) a polnočnom reporte. Na prednáške sa to pre nedostatok času nebralo — poznámky 4. dňa preto vychádzajú z prepisu (skupiny taskov, S3, assety). Zo slajdov je iba kostra `daily_report` a `helpers.py`.
+:::note[Slajdy 4. a 5. dňa]
+Väčšina slajdov 4. dňa je o knižnici **pandas** (DataFrame, filtrovanie, agregácie, serializácia cez pyarrow) a polnočnom reporte. Na prednáške sa to pre nedostatok času nebralo — poznámky 4. dňa preto vychádzajú z prepisu (skupiny taskov, S3, assety). Zo slajdov je iba kostra `daily_report` a `helpers.py`. Podobne slajdy 5. dňa obsahujú aj grafy cez **plotly** a report s min/max/priemerom z pandas — nebrali sa; poznámky 5. dňa sú z prepisu (mapovanie, Apprise, Jinja).
 :::
 
 | Kapitola | Zdroj |
@@ -47,9 +48,11 @@ Väčšina slajdov 4. dňa je o knižnici **pandas** (DataFrame, filtrovanie, ag
 | [16 · Skupiny taskov](/devops-notes/python-advanced/skupiny-taskov/) | deň 3 — slajdy s. 2–3; deň 4 — prepis 1. časti (task groups, skupina s parametrom, hľadanie chýb) |
 | [17 · S3 a boto3](/devops-notes/python-advanced/s3-a-boto3/) | deň 3 — slajdy s. 1, 4–7; deň 4 — prepis 1. a 2. časti (RustFS, boto3 v ipythone, lab `publish_data`, `mkstemp`, `NamedTemporaryFile`) |
 | [18 · Assety](/devops-notes/python-advanced/assety/) | deň 4 — prepis 2. časti (polling vs. notifikácia, Assets, `report_builder`, `helpers.py`); slajdy s. 1–2 (kostra `daily_report`) |
-| [19 · Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/) | deň 3 — slajdy s. 3–4, 8–11 (na prednáške 5. deň) |
+| [19 · Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/) | deň 5 — prepis 1. časti (Param, kontext, `.expand()`/`.partial()`, mapovaná skupina, skip); deň 3 — slajdy s. 8–11 |
+| [20 · Notifikácie](/devops-notes/python-advanced/notifikacie/) | deň 5 — prepis 1. časti (Apprise, Pushbullet, Variable s príjemcami, task `notify`); slajdy s. 8–10 |
+| [21 · Polnočný report](/devops-notes/python-advanced/polnocny-report/) | deň 5 — prepis 2. a 3. časti (Jinja, Markdown šablóna, `csv.DictReader`, `put_object`); slajdy s. 1–4 |
 | [08 · Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/) | doplnené z prepisu 3. dňa (systemd, paralelizmus) |
-| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26, deň 3 s. 12; deň 4 z prepisu |
+| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26, deň 3 s. 12; deň 4 z prepisu; deň 5 s. 11 a prepis |
 
 ## Opravy oproti slajdom
 
@@ -87,3 +90,13 @@ Väčšina slajdov 4. dňa je o knižnici **pandas** (DataFrame, filtrovanie, ag
 - `Asset(...)`: prvý pozičný parameter je `name`, nie `uri` — píš pomenované argumenty.
 - Skupina taskov, ktorá niečo vracia (`return data`), sa pri `>>` pripojí iba k tasku, ktorý tú hodnotu vytvoril — ostatné tasky skupiny nečakajú na predchodcov. Skupina reťazená cez `>>` nech nič nevracia.
 - Pokus s `NamedTemporaryFile` na kurze zlyhal na troch veciach (`download_file` chce cestu, textový režim namiesto binárneho, kurzor na konci súboru); funkčná verzia je v kapitole 17.
+
+### Deň 5 (overené na Airflow 3.3.2)
+
+- Slajdy: v ukážke modelu `'age', 24` má byť `'age': 24`. Import `from airflow.models import Variable` → v Airflow 3 `from airflow.sdk import Variable`.
+- Slajdy ukladajú jeden token ako `PUSHBULLET_TOKEN`; na prednáške sú v Variable celé Apprise URL príjemcov (jedna na riadok) — viac príjemcov a služieb bez zmeny kódu.
+- Prednáška: task s `-> dict`, ktorý vracia zoznam, zlyhá — `dict` ako návratový typ zapne `multiple_outputs`. Správne `-> list[str]`.
+- Prednáška: v Jinja funguje `{{ entry.dt }}` aj `{{ entry["dt"] }}`; pokus na kurze zlyhal na chýbajúcich `{{ }}`.
+- Prednáška: `AirflowSkipException` lektor nestihol rozchodiť — s mapovanou skupinou (`tg.expand(...)`) funguje: vetva sa preskočí, ostatné mestá sa spracujú a beh skončí `success`.
+- Prednáška: všetky vetvy pripisujú do jedného `dataset.csv` — pri súbehu sa môžu zápisy prepísať. V poznámkach `max_active_tis_per_dagrun=1` na `publish_data`.
+- Prednáška: `put_object(..., context_type=...)` je preklep — správne `ContentType`.

@@ -40,6 +40,12 @@ const { q } = Astro.props;
     list-style: none;
   }
 
+  /* long inline code in a question must wrap instead of widening the page */
+  .question__q {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   summary::-webkit-details-marker {
     display: none;
   }

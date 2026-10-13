@@ -225,3 +225,27 @@ V C či Jave platí premenná od najbližšieho bloku po jeho koniec, takže pre
 Kým uvidíš správny výsledok, uvidíš milión nesprávnych — a potrebuješ rozumieť, čo sa deje vo vnútri. AI vie poradiť elegantné riešenie (napr. `NamedTemporaryFile`), ale keď nevieš, ako funguje, zasekneš sa na detailoch.
 
 <p class="wisdom-day">Deň 4</p>
+
+## Problémy sú najlepšia škola
+
+„Keď je troubleshooting, keď sú takéto problémy, vtedy sa najviac naučíme — lebo treba hľadať podstatu.“ Na 5. deň drhlo všetko (Git sa prestal autentifikovať, DAG sa nenačítal, behy viseli) — a práve na tom bolo vidno, ako sa chyba hľadá.
+
+<p class="wisdom-day">Deň 5</p>
+
+## Nevolaj funkcie v predvolených hodnotách
+
+`def main(query=Param(...))` alebo `def f(x=Variable.get(...))` — Ruff hlási B008: *Do not perform function call in argument defaults*. Predvolená hodnota sa vyhodnotí raz, pri definícii funkcie. Zavolaj funkciu vo vnútri, alebo hodnotu priprav na úrovni modulu (v Airflow: `params=` v `@dag`).
+
+<p class="wisdom-day">Deň 5</p>
+
+## pprint na veľké slovníky
+
+`print()` vypíše slovník ako jeden nekonečný riadok. `from pprint import pprint` ho vypíše prehľadne, po kľúčoch — ideálne na pátranie, čo je v kontexte behu.
+
+<p class="wisdom-day">Deň 5</p>
+
+## HTML neskladaj printami
+
+Python kód, ktorý printami skladá HTML stránku, je „humus“ — opravovať ho je katastrofa. Na to sú šablóny: dizajnér rieši vzhľad, programátor logiku, databázista dáta.
+
+<p class="wisdom-day">Deň 5</p>

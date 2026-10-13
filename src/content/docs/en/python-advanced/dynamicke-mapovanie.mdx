@@ -1,8 +1,8 @@
 ---
 title: Dynamic Task Mapping
-description: Weather for several places at once — DAG input parameters (Param), the run context (get_current_context), a get_locations task, .partial() and .expand(), one file per city in S3, and the complete resulting project.
+description: Weather for several places at once — a Param-type DAG parameter (array), the run context through get_current_context(), a get_locations task, .expand() and .partial(), a mapped task group so one city's error does not stop the others, and AirflowSkipException.
 kind: chapter
-day: 3
+day: 5
 sidebar:
   order: 19
   label: 19 · Dynamic mapping
@@ -13,38 +13,59 @@ import Question from '../../../../components/Question.astro';
 import Solution from '../../../../components/Solution.astro';
 import Pipeline from '../../../../components/Pipeline.astro';
 
-:::note[From the day 3 slides]
-This chapter comes from the day 3 slides; the lecture covers it on day 5. The project at the end follows the day 3 slides and is tested on Airflow 3.3.2 — the day 4 changes (`helpers.py`, assets, connection names as constants) are in the [Assets](/devops-notes/en/python-advanced/assety/) chapter.
-:::
-
 <KeyPoints>
-- **Dynamic Task Mapping** creates **N instances of the same task at run time** — one per item of the input list. You do not need to know how many there will be when you write the DAG.
-- `.expand(arg=list)` — the task “multiplies” by this argument; `.partial(arg=value)` — arguments that are the same for every instance.
-- DAG input parameters with a type, title, and description: `@dag(params={"query": Param(default=[], type="array", ...)})` — they appear in the **Trigger** form.
-- You reach a run's parameters only **inside a task**, through the context: `get_current_context()["params"]["query"]`.
-- Pass a mapped task's result on through `.expand(...)` again — each instance processes its own item.
+- **Dynamic Task Mapping** creates **at run time** one task instance per item of a list. You do not need 10 (or 800) identical DAGs that differ only in a parameter.
+- A DAG parameter as a list: `@dag(params={"query": Param(default=[...], type="array", title=..., description=...)})` — in the Trigger form it is a “one item per line” field.
+- The Variable with cities (one per line) is a string — turn it into a list with `.split()`.
+- A run's parameters are in the **context**, which you get only inside a task: `get_current_context()["params"]["query"]`.
+- `.expand(query=locations)` — one instance per item; `.partial(units="metric")` — the same value for every instance.
+- Map the **whole group**: `tg_weather_ingestion.expand(query=locations)`. One city's error then stops only its own branch; with `AirflowSkipException` the run even ends successfully.
 </KeyPoints>
 
 ## The problem
 
-We want weather for **several places**, not one. We can store several values in the `weather_city` Variable (one city per line), but how do we make sure the data for each city is downloaded and processed **separately**?
+The DAG downloads the weather for one city. We want **several** — and for each city separately: download, validate, process, and publish. A separate DAG per city makes no sense: at the university where Mirek teaches, Airflow is being prepared to grade student assignments — a DAG for one student is simple, but there are 800+ students.
 
-The answer is **Dynamic Task Mapping**. Instead of deciding how many tasks you need when writing the DAG, Airflow finds out at run time — from the length of a list.
+The answer is **Dynamic Task Mapping**: the DAG stays one, and at run time Airflow creates as many task instances as there are items in the list.
 
-<Pipeline steps={['get_locations', 'scrape_data [0..N]', 'validate_data [0..N]', 'process_data [0..N]', 'publish_data [0..N]']} caption="Each mapped task has N instances; in the UI you find them on the Mapped Tasks tab (map_index 0, 1, 2…)." />
+Two things need solving:
 
-## DAG input parameters: Param
+1. how to give a **list** of places — in the Variable and by hand when triggering,
+2. how to feed the cities to a task **one at a time**.
 
-So far a DAG parameter had only a type and a default value. The **`Param`** type adds more properties — they are used in the form for a manual run (the **Trigger** button):
+## A DAG parameter: Param
+
+So far `query` was a plain string (`query: str = …`). In the Trigger form that is a single-line field — you cannot type Enter there. The **`Param`** type from `airflow.sdk` describes a parameter in more detail:
 
 ```python
 from airflow.sdk import Param
 
+Param(
+    default=[],
+    type="array",                 # Airflow types, as strings — not Python types
+    title="Locations",
+    description="List of locations. One location per line.",
+)
+```
+
+| Property | Meaning |
+| --- | --- |
+| `type` | the value's type as a string: `"string"`, `"integer"`, `"number"`, `"boolean"`, `"array"`, `"object"` (as in [JSON Schema](/devops-notes/en/python-advanced/validacia-dat/)) |
+| `default` | the default value |
+| `title` | the field's heading in the Trigger form |
+| `description` | the description under the field |
+
+### Where it goes: `params=` in the decorator
+
+The instructor first used it as the default value of a function parameter: `def main(query=Param(...))`. Ruff underlined it (*Do not perform function call `Param` in argument defaults* — rule B008), and with several parameters the function header would be huge — each takes 5 lines. So they belong in the **`params`** dictionary of `@dag`:
+
+```python
 @dag(
+    "weather_scraper",
     ...,
     params={
         "query": Param(
-            default=[],
+            default=Variable.get("weather_city", default="kosice,sk").split(),
             type="array",
             title="Locations",
             description="List of locations. One location per line.",
@@ -55,317 +76,163 @@ def main():
     ...
 ```
 
-`type="array"` means a list — the form takes one item per line. The types and validation are the same as in [JSON Schema](/devops-notes/en/python-advanced/validacia-dat/) (`string`, `integer`, `array`, `minimum`…).
+### Cities from the Variable: `.split()`
+
+The `weather_city` Variable has the cities on separate lines — it is a **string** with `\n`. Given as the `default` of an `array` parameter, Airflow rejects it:
+
+```text
+ParamValidationError: 'kosice,sk\npresov,sk' is not of type 'array'
+```
+
+The string has to be split into a list with the **`split()`** method. Without an argument it splits on **whitespace** (space, tab, newline); with one, on the given separator (`"a,b".split(",")`):
+
+```python
+>>> "ruzomberok,sk\nkosice,sk\npresov,sk".split()
+['ruzomberok,sk', 'kosice,sk', 'presov,sk']
+```
+
+The Trigger form then shows a field with the list of places from the Variable — scheduled runs use it as it is; on a manual run you can overwrite it (e.g. just one city, to test).
+
+:::tip[When the form shows only the first city]
+For one participant the form showed only the first city. The code and the Variable were fine — old unfinished runs were hanging in Airflow. `sudo systemctl restart airflow` and refreshing the page helped.
+:::
 
 ## The run context
 
-How do you get at the parameter's value? The `main()` function runs when the DAG is **parsed**, not when it runs — at that point no run exists yet. The value is available only in the **context**: a dictionary Airflow prepares for every run. It holds metadata about the run — when it runs, which parameters it got, which DAG it is, and so on. You get the context **only inside a task**, through `get_current_context()`.
+How do you get at the parameter? The `main()` function runs when the DAG is **parsed** — no run exists yet then. The values belong to a specific run and live in the **context**.
 
-A helper task `get_locations()` returns the list of places:
-
-- if the DAG input is empty, it uses the `weather_city` Variable (one city per line),
-- otherwise it returns the given input.
+**Context** is a term you meet in applications everywhere: something like global data reachable from any part of the application. In Airflow every DAG run (and every task) has its own context — when the run was created, which DAG, which parameters, the task instance… You get it **only inside a task**, with `get_current_context()`:
 
 ```python
-from airflow.sdk import Variable, get_current_context, task
+from pprint import pprint
+
+from airflow.sdk import get_current_context, task
 
 
 @task(task_display_name="Get Locations")
 def get_locations() -> list[str]:
     context = get_current_context()
-    locations = context["params"]["query"]
-    if not locations:
-        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
-    return locations
+    pprint(context)                       # let us see what is inside
+    return context["params"]["query"]
 ```
 
-`.splitlines()` splits the Variable's multi-line value into a list. Scheduled runs have no input, so they use the Variable.
+The context is a dictionary (in Airflow 3.3 with keys such as `dag`, `dag_run`, `run_id`, `logical_date`, `params`, `task`, `ti` / `task_instance`, `triggering_asset_events`…). `print()` prints it as one long line; `pprint` (*pretty print*) prints it readably. `params` is a dictionary inside the dictionary, hence `context["params"]["query"]`.
+
+:::caution[`-> dict` is not just a note]
+The instructor first wrote `def get_locations() -> dict:`, and the task failed: *Returned output was type &lt;class 'list'&gt; expected dictionary for multiple_outputs*. When a task's return type is `dict`, Airflow infers `multiple_outputs=True` — it splits the dictionary into separate XCom values and requires a dictionary. The task returns a list, so the right annotation is `-> list[str]`.
+:::
 
 ## .expand() and .partial()
 
+If you pass the result of `get_locations()` (a list) straight into `scrape_data(locations)`, the task does not crash — but it runs **once** for the whole list. httpx turns it into a repeated parameter `?q=ruzomberok,sk&q=kosice,sk&…`, and OpenWeatherMap takes only the first city. We want one instance per city.
+
 | Method | Meaning |
 | --- | --- |
-| `.expand(arg=list)` | the argument the task is dynamically multiplied by — one instance per item |
-| `.partial(arg=value)` | arguments that are the same for every instance |
+| `.expand(arg=list)` | the argument the task is multiplied by — each item of the list is put into `arg` in turn |
+| `.partial(arg=value)` | arguments that are **the same** for every instance |
 
 ```python
-def main():
-    locations = get_locations()
-    data = tg_healthcheck() >> scrape_data.expand(query=locations)
-    valid_data = validate_data.expand(payload=data)
-    entries = process_data.expand(data=valid_data)
-    publish_data.expand(entry=entries)
+locations = get_locations()
+data = scrape_data.expand(query=locations)   # query: str ← one city at a time
+valid_data = validate_data.expand(payload=data)
 ```
 
-- `scrape_data.expand(query=locations)` → 3 instances of `scrape_data` for 3 cities.
-- `validate_data.expand(payload=data)` → a mapped task's result is a list again, so validation also runs for each city separately. The same goes for processing and publishing.
-- When you pass a mapped task's result to a **non-mapped** task (`summary(data)`), it receives a **list** of all the results at once.
+- `query` is a string (one city), `locations` is a list. `expand` “unpacks” the list and for each item runs one instance with `query` = that city.
+- A mapped task's result is a list again, so the next task is mapped with `.expand(...)` too.
+- In the graph a mapped task has **square brackets** with the number of instances after its name. The *Mapped Tasks* tab numbers the instances (*map index* 0, 1, 2…) in list order. Which city is which you find in an instance's detail under *Rendered Template*.
 
-An example with `.partial()` — the same units for every city:
+**`.partial()`** — if `scrape_data` also had a `units` parameter, the same for every city:
 
 ```python
-results = greet.partial(units="metric").expand(city=["kosice,sk", "presov,sk", "praha,cz"])
-# greet(city="kosice,sk", units="metric"), greet(city="presov,sk", units="metric"), …
+scrape_data.partial(units="metric").expand(query=locations)
+# scrape_data(query="kosice,sk", units="metric"), scrape_data(query="presov,sk", units="metric"), …
 ```
 
-If you run the DAG now:
+## When one city fails
 
-- with a list of places filled in the Trigger form → those are used,
-- without input (including scheduled runs) → the cities from the Variable are used.
+The instructor added a non-existent city `xxxx` to the list. OpenWeatherMap returned 404, its `scrape_data` failed — and **all** instances of `validate_data` and the rest were `upstream_failed`. Not even the cities that downloaded fine were processed.
 
-## One file per city
+Why: when chaining `scrape_data.expand(...)` → `validate_data.expand(...)`, the mapped `validate_data` depends on the **whole** mapped `scrape_data`. One instance fails → the dependency fails for all.
 
-If all `publish_data` instances appended to one `dataset.csv` in S3 at once, they would overwrite each other's writes (download → append → upload is not atomic). So each city gets **its own file** — we build the name from the CSV line:
+### The fix: a mapped task group
 
-```python
-_, name, country, *_ = entry.split(",")      # "2026-…,Kosice,SK,15.8,…"
-key = f"{name}-{country}.csv".lower()        # "kosice-sk.csv"
-```
-
-The whole task is in the project below.
-
-## The Weather Ingestion group
-
-You can also group downloading, validation, processing, and publishing into a [task group](/devops-notes/en/python-advanced/skupiny-taskov/):
+Instead of individual tasks, map the **whole group** — each city gets its own branch `scrape → validate → process → publish`:
 
 ```python
-@task_group(
-    "weather_ingestion",
-    group_display_name="Weather Ingestion",
-    tooltip="Retrieve, process and upload weather info.",
-)
-def weather_ingestion():
-    locations = get_locations()
-    data = scrape_data.expand(query=locations)
-    valid_data = validate_data.expand(payload=data)
-    entries = process_data.expand(data=valid_data)
-    publish_data.expand(entry=entries)
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)          # inside the group: ordinary calls, no expand
+    valid_data = validate_data(data)
+    line = process_data(valid_data)
+    publish_data(line)
 
 
 @dag(...)
 def main():
-    tg_healthcheck() >> weather_ingestion()
+    locations = tg_healthcheck() >> get_locations()
+    tg_weather_ingestion.expand(query=locations)
 ```
 
-The group deliberately **returns nothing** (the slides end it with `return data`): when a group returns a value, `>>` attaches only to the task that produced it, and `get_locations` would start without waiting for the healthchecks — see [Task groups](/devops-notes/en/python-advanced/skupiny-taskov/#a-group-with-a-parameter).
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'openweathermap', 'rustfs'] }, 'get_locations', { group: 'Weather Ingestion [N]', steps: ['scrape → validate → process → publish'] }]} caption="The group is mapped N times — one branch per city." />
 
-<Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'openweathermap', 'rustfs'] }, { group: 'Weather Ingestion', steps: ['get_locations', 'scrape … publish [0..N]'] }]} />
+Verified on Airflow 3.3.2 with the list `kosice, xxx, presov`:
 
-Tested: the tasks get IDs like `weather_ingestion.scrape_data`, and the run succeeds.
+| Variant | Cities processed | DAG run |
+| --- | --- | --- |
+| `scrape.expand` → `validate.expand` → `publish.expand` | **none** | `failed` |
+| `tg.expand(...)`, unknown city → `AirflowFailException` | Košice, Prešov | `failed` |
+| `tg.expand(...)`, unknown city → **`AirflowSkipException`** | Košice, Prešov | `success` |
 
-## The complete project
+### Skipping: AirflowSkipException
 
-```text
-~/airflow/
-├── dags/
-│   ├── constants.py
-│   ├── tasks.py
-│   └── weather_scraper.py
-├── data/
-│   └── openweathermap.schema.json
-└── ruff.toml                  ← src = ["dags"]
+`AirflowFailException` is a universal “it crashed”. Special exceptions have special behaviour: **`AirflowSkipException`** marks the task as **`skipped`** (pink), and the tasks after it in the branch are skipped too. The instructor uses it when grading assignments — a student who made no change to their code is skipped. Out of 800 students, 200 remain with a change, some of those fail to compile, and only the rest are graded.
+
+```python
+from airflow.sdk.exceptions import AirflowSkipException
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    logger.warning("Unknown city %s, skipping", query)
+    raise AirflowSkipException(f"City {query} not found.")
 ```
 
-Packages needed: `pip install apache-airflow httpx jsonschema pendulum boto3`. The `openweathermap` and `rustfs` connections (Admin → Connections), the `weather_city` Variable (one city per line).
+In the course the instructor did not get this working in time (he also tried `trigger_rule="all_done"`); with a mapped group it works as shown in the table above. Whether an unknown city is an error (`failed`) or just “nothing to do” (`skipped`) is a design decision.
 
-```python title="dags/constants.py"
-"""Values shared by all DAGs. Python has no real constants — UPPER_CASE is the convention."""
+:::caution[Several instances write to one file]
+All branches append to the same `dataset.csv` in S3 (“download → append → upload”). If two `publish_data` instances ran at the same time, one would overwrite the other's write. In the course it did not matter (low `parallelism`), but it is safer to limit concurrency: `@task(..., max_active_tis_per_dagrun=1)` — within one run, at most one `publish_data` instance runs at a time. The alternative is a separate file per city (`kosice-sk.csv`).
+:::
 
-from pathlib import Path
+Another consequence: `publish_data` has `outlets=[WEATHER_DATA]` and now runs once per city — **each** successful instance creates an asset event. In the test, `report_builder` ran twice for a run with two cities.
 
-# ~/airflow — derived from this file's location, so it works wherever Airflow lives
-AIRFLOW_HOME = Path(__file__).parent.parent
-DATA_PATH = AIRFLOW_HOME / "data"
-SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+## The whole DAG
 
-# Airflow Connection IDs
-OPENWEATHERMAP_CONN = "openweathermap"
-STORAGE_CONN = "rustfs"
+The resulting `weather_scraper.py` (with the notifications from the next chapter) is in the [Midnight report](/devops-notes/en/python-advanced/polnocny-report/#the-whole-project-after-day-5) chapter. The essential parts:
 
-DATASET_BUCKET = "datasets"
-CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
-```
-
-```python title="dags/tasks.py"
-"""Tasks shared by several DAGs."""
-
-import logging
-from datetime import timedelta
-from http import HTTPStatus
-
-import httpx
-from airflow.sdk import BaseHook, task, task_group
-from airflow.sdk.exceptions import AirflowException
-
-from constants import OPENWEATHERMAP_CONN, STORAGE_CONN
-
-logger = logging.getLogger(__name__)
-
-
-@task.bash(task_display_name="Ping OpenWeatherMap")
-def is_service_alive_in_bash() -> str:
-    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
-    return f"ping -c 1 -w 2 {conn.host}"
-
-
-@task(
-    task_display_name="OpenWeatherMap Healthcheck",
-    retries=3,
-    retry_delay=timedelta(seconds=30),
-)
-def is_service_alive() -> None:
-    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
-    url = f"{conn.schema}://{conn.host}:{conn.port}"
-    response = httpx.head(url, follow_redirects=True, timeout=10)
-    if response.status_code != HTTPStatus.OK:
-        raise AirflowException(f"OpenWeatherMap unavailable: {response.status_code}")
-
-
-@task(task_display_name="RustFS Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
-def is_rustfs_alive() -> None:
-    logger.info("RustFS Healthcheck")
-    conn = BaseHook.get_connection(STORAGE_CONN)
-    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health", timeout=10)
-    if response.status_code != HTTPStatus.OK:
-        raise AirflowException(f"RustFS is unhealthy: {response.status_code}")
+```python
+@task(task_display_name="Get Locations")
+def get_locations() -> list[str]:
+    """Cities for this run — from the Trigger form, or the default from the Variable."""
+    context = get_current_context()
+    return context["params"]["query"]
 
 
 @task_group(
-    group_id="tg_healthcheck",
-    group_display_name="Healthcheck",
-    tooltip="Healthcheck of external services.",
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
 )
-def tg_healthcheck():
-    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
-```
-
-```python title="dags/weather_scraper.py"
-"""Weather scraper: healthchecks -> scrape -> validate -> process -> publish to S3."""
-
-import json
-import logging
-import os
-from http import HTTPStatus
-from pathlib import Path
-from tempfile import mkstemp
-
-import boto3
-import httpx
-import jsonschema
-from airflow.sdk import BaseHook, Param, Variable, dag, get_current_context, task
-from airflow.sdk.exceptions import AirflowFailException
-from botocore.exceptions import ClientError
-from pendulum import datetime, from_timestamp
-
-from constants import (
-    CSV_HEADER,
-    DATASET_BUCKET,
-    OPENWEATHERMAP_CONN,
-    SCHEMA_PATH,
-    STORAGE_CONN,
-)
-from tasks import tg_healthcheck
-
-logger = logging.getLogger(__name__)
-
-
-@task(task_display_name="Get Locations")
-def get_locations() -> list[str]:
-    """Cities from the Trigger form, otherwise from the weather_city Variable."""
-    context = get_current_context()
-    locations = context["params"]["query"]
-    if not locations:
-        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
-    logger.info("Locations: %s", locations)
-    return locations
-
-
-@task(task_display_name="Scrape Data")
-def scrape_data(query: str) -> dict:
-    logger.info("Scraping data for %s", query)
-    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
-    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
-    params = {
-        "q": query,
-        "appid": conn.password,
-        "units": conn.extra_dejson.get("units", "metric"),
-    }
-    response = httpx.get(url, params=params, timeout=10)
-    if response.status_code != HTTPStatus.OK:
-        logger.warning("OpenWeatherMap answered %s for %s", response.status_code, query)
-        raise AirflowFailException(f"Cannot get weather for {query}: {response.status_code}")
-    return response.json()
-
-
-@task(task_display_name="Validate Data")
-def validate_data(payload: dict) -> dict:
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    try:
-        jsonschema.validate(instance=payload, schema=schema)
-    except jsonschema.ValidationError as error:
-        logger.error("Unexpected data from the service: %s", error.message)
-        raise AirflowFailException("The data does not match the schema.") from error
-    return payload
-
-
-@task(task_display_name="Process Data")
-def process_data(data: dict) -> str:
-    values = [
-        from_timestamp(data["dt"]).to_iso8601_string(),
-        data["name"],
-        data["sys"]["country"],
-        data["main"]["temp"],
-        data["main"]["humidity"],
-        data["main"]["pressure"],
-        data["wind"]["speed"],
-        data["wind"]["deg"],
-    ]
-    return ",".join(str(value) for value in values)
-
-
-@task(task_display_name="Publish Data")
-def publish_data(entry: str) -> None:
-    """Append the line to <city>-<country>.csv in the S3 bucket."""
-    conn = BaseHook.get_connection(STORAGE_CONN)
-    storage = boto3.resource(
-        "s3",
-        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
-        aws_access_key_id=conn.login,
-        aws_secret_access_key=conn.password,
-    )
-    bucket = storage.Bucket(DATASET_BUCKET)
-
-    _, name, country, *_ = entry.split(",")
-    key = f"{name}-{country}.csv".lower()
-
-    fd, temp_name = mkstemp(prefix="weather-", suffix=".csv")
-    os.close(fd)  # mkstemp returns an open file descriptor — close it
-    path = Path(temp_name)
-    try:
-        try:
-            bucket.download_file(key, str(path))
-        except ClientError:
-            logger.warning("%s does not exist yet. First upload.", key)
-            path.write_text(CSV_HEADER + "\n", encoding="utf-8")
-        with path.open("a", encoding="utf-8") as file:
-            print(entry, file=file)
-        bucket.upload_file(str(path), key)
-        logger.info("Uploaded %s to bucket %s", key, DATASET_BUCKET)
-    finally:
-        path.unlink(missing_ok=True)
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    notify(valid_data)
+    line = process_data(valid_data)
+    publish_data(line)
 
 
 @dag(
     "weather_scraper",
-    dag_display_name="Weather Scraper",
-    description="Scrapes weather from openweathermap.org",
-    schedule="*/20 * * * *",
-    start_date=datetime(2026, 1, 1),
-    tags=["weather", "devops"],
-    catchup=False,
+    ...,
     params={
         "query": Param(
-            default=[],
+            default=Variable.get("weather_city", default="kosice,sk").split(),
             type="array",
             title="Locations",
             description="List of locations. One location per line.",
@@ -373,70 +240,82 @@ def publish_data(entry: str) -> None:
     },
 )
 def main():
-    locations = get_locations()
-    data = tg_healthcheck() >> scrape_data.expand(query=locations)
-    valid_data = validate_data.expand(payload=data)
-    entries = process_data.expand(data=valid_data)
-    publish_data.expand(entry=entries)
-
-
-if __name__ == "__main__":
-    main().test()
-else:
-    main()
+    locations = tg_healthcheck() >> get_locations()
+    tg_weather_ingestion.expand(query=locations)
 ```
-
-Differences from the slides: the healthchecks raise `AirflowException` (not `AirflowFailException`) so that `retries` apply; the temporary file is closed and deleted in `finally`; validation has been added.
-
-**How it was tested** (Airflow 3.3.2, `dag.test()`): a local stand-in for OpenWeatherMap, S3 through [moto](https://github.com/getmoto/moto) (a local AWS stand-in). Three runs:
-
-1. no input → cities from the Variable (`kosice,sk`, `bratislava,sk`) → `kosice-sk.csv` and `bratislava-sk.csv` were created with a header,
-2. input `["presov,sk", "kosice,sk"]` → a new `presov-sk.csv`, and a line added to `kosice-sk.csv`,
-3. input `["poprad,sk", "nowhere"]` → the instance for `nowhere` failed on 404 (`AirflowFailException`), and the run is `failed`.
 
 ## Test yourself
 
-<Question q="What is Dynamic Task Mapping?">
-A mechanism that creates N instances of the same task at run time — one for each item of the input list. You do not need to know the number of tasks when writing the DAG.
+<Question q="What is Dynamic Task Mapping, and what problem does it solve?">
+At run time it creates one instance of a task (or group) for each item of a list. You do not need a separate DAG per city or student — there is one DAG and only the input changes.
 </Question>
 
-<Question q="What is the difference between `.partial()` and `.expand()`?">
-`.expand()` sets the arguments the task is multiplied by (one instance per item). `.partial()` sets arguments that are the same for every instance.
+<Question q='Why does a `Param` of type `"array"` with the default `Variable.get("weather_city")` fail, and how do you fix it?'>
+The Variable is a string with cities on lines, not a list: *is not of type 'array'*. You need `Variable.get(...).split()`.
 </Question>
 
-<Question q="Why can you not reach a run's parameters directly in `main()`?">
-`main()` runs when the DAG is parsed, when no run exists yet. A run's parameters are in the context, which is available only inside a task through `get_current_context()`.
+<Question q="Why do DAG parameters belong in `params=` of `@dag` and not in the header of `main()`?">
+Calling a function in a parameter's default value is a bad habit (Ruff B008), and with several parameters the header would be huge. `params` is a dictionary — readable and standard in Airflow.
 </Question>
 
-<Question q='What does `Param(default=[], type="array", title="Locations")` mean?'>
-A DAG parameter of type list, with an empty default and the title “Locations” in the Trigger form. The types and validation are as in JSON Schema.
+<Question q="How does a task get the `query` parameter from the Trigger form?">
+`get_current_context()["params"]["query"]` — the context is available only while a task runs.
 </Question>
 
-<Question q="What does a non-mapped task get when you pass it a mapped task's result?">
-A list of the results of all the instances.
+<Question q="Why does a task annotated `-> dict` that returns a list fail?">
+With a `dict` return type Airflow sets `multiple_outputs=True` and expects a dictionary.
 </Question>
 
-<Question q="Why does each city have its own file in S3?">
-The `publish_data` instances run in parallel, and “download → append → upload” is not atomic — with one shared file they would overwrite each other's writes.
+<Question q="What is the difference between `.expand()` and `.partial()`?">
+`.expand()` puts each item of a list into an argument in turn (one instance per item). `.partial()` sets an argument that is the same for every instance.
+</Question>
+
+<Question q="Why, when chaining `scrape.expand()` → `validate.expand()`, does one bad city stop them all?">
+The mapped `validate` depends on the whole mapped `scrape`; when one instance fails, all `validate` instances are `upstream_failed`. The fix is to map the whole group (`tg.expand(...)`) — each city gets its own branch.
+</Question>
+
+<Question q="What is the difference between `AirflowFailException` and `AirflowSkipException` in a mapped group?">
+With `AirflowFailException` the other cities are processed, but the run ends `failed`. With `AirflowSkipException` the branch is marked `skipped`, the other cities are processed, and the run ends `success`.
 </Question>
 
 ## Exercises
 
 ### 19.1 · Cities without duplicates
 
-Change `get_locations()` to drop empty lines and spaces around names, lower-case the names, and remove duplicates (keeping the order).
+Change `get_locations()` to strip spaces around names, lower-case them, and drop empty items and duplicates (keeping the order).
 
 <Solution>
 ```python
 @task(task_display_name="Get Locations")
 def get_locations() -> list[str]:
-    context = get_current_context()
-    locations = context["params"]["query"]
-    if not locations:
-        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
+    locations = get_current_context()["params"]["query"]
     cleaned = (location.strip().lower() for location in locations)
     return list(dict.fromkeys(location for location in cleaned if location))
 ```
 
 `dict.fromkeys()` keeps the order of first occurrence and drops duplicates (dictionary keys are unique).
+</Solution>
+
+### 19.2 · Skip an unknown city
+
+Change `scrape_data` so that on 404 it logs a WARNING and **skips** that city's branch (the run should end successfully); on other errors it should fail.
+
+<Solution>
+```python
+from airflow.sdk.exceptions import AirflowFailException, AirflowSkipException
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    ...
+    response = httpx.get(url, params=params, timeout=10)
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        logger.warning("Unknown city %s, skipping", query)
+        raise AirflowSkipException(f"City {query} not found.")
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException(f"Cannot get weather for {query}: {response.text}")
+    return response.json()
+```
+
+It works thanks to the mapped group: only the unknown city's branch is skipped.
 </Solution>

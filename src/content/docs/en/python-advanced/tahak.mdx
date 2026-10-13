@@ -478,6 +478,99 @@ def main(): ...
 | 204 No Content | success (2xx), no response body |
 | `NamedTemporaryFile` + boto3 | `mode="w+b"`, `download_fileobj` / `upload_fileobj`, `file.seek(0)` before uploading |
 
+## Mapping, notifications, and templates
+
+<div class="sheet-grid">
+
+```python title="Param + kontext + expand" wrap
+from airflow.sdk import Param, get_current_context
+
+@dag(..., params={"query": Param(
+    default=Variable.get("weather_city").split(),
+    type="array", title="Locations",
+    description="One location per line.")})
+def main():
+    locations = tg_healthcheck() >> get_locations()
+    tg_weather_ingestion.expand(query=locations)
+
+@task
+def get_locations() -> list[str]:   # not -> dict!
+    return get_current_context()["params"]["query"]
+
+# individual tasks:
+scrape.partial(units="metric").expand(query=cities)
+```
+
+```python title="Skip a branch (mapped group)" wrap
+from airflow.sdk.exceptions import AirflowSkipException
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    raise AirflowSkipException(f"{query} not found")
+```
+
+```bash title="Apprise from the command line" wrap
+pip install apprise
+echo "hello world" | apprise "pbul://${token}"
+apprise -t "Warning" -b "Off to lunch" \
+    "pbul://${token}"
+```
+
+```python title="Apprise in Python" wrap
+from apprise import Apprise
+
+apprise = Apprise()
+for receiver in Variable.get(
+        "weather_notification_receivers").split():
+    apprise.add(receiver)          # pbul://<token>, …
+apprise.notify(title="Current weather",
+               body="Temperature 15.8 °C")
+```
+
+```python title="Jinja" wrap
+import jinja2
+
+env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
+    autoescape=False)
+template = env.get_template("midnight-report.tpl.j2")
+report = template.render({"dt": now, "data": rows})
+
+# from a string:
+jinja2.Environment().from_string(
+    "{{ name }} is {{ age }}").render(name="J", age=24)
+```
+
+```jinja title="Template: loop" wrap
+| City | Temperature (°C) |
+| --- | --- |
+{% for entry in data -%}
+| {{ entry.name }} | {{ entry.temp }} |
+{% endfor %}
+Total: {{ data | length }}
+```
+
+```python title="CSV → dictionaries, report → S3" wrap
+import csv
+
+with open(path, encoding="utf-8") as file:
+    rows = list(csv.DictReader(file, delimiter=","))
+
+bucket.put_object(Key="midnight-report.md",
+                  Body=report,
+                  ContentType="text/markdown")
+```
+
+</div>
+
+| What | How |
+| --- | --- |
+| string to list | `"a\nb c".split()` → `['a', 'b', 'c']` (whitespace) · `"a,b".split(",")` |
+| pretty-print a dictionary | `from pprint import pprint` · `pprint(context)` |
+| `-> dict` on a task | Airflow sets `multiple_outputs=True` and expects a dictionary |
+| `.expand` vs. a mapped group | `a.expand → b.expand`: one error stops all · `tg.expand(...)`: each city its own branch |
+| concurrent writes | `@task(max_active_tis_per_dagrun=1)` |
+| Markdown preview in VS Code | *Open Preview to the Side* · `Ctrl+K V` |
+
 ## Handy bits
 
 | What | How |
