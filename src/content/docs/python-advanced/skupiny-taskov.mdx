@@ -1,0 +1,144 @@
+---
+title: Skupiny taskov a hľadanie chýb v DAG-u
+description: Task groups — zoskupenie healthcheckov a spracovania počasia do dvoch „krabičiek“, skupina s parametrom query; ako nájsť chybu, keď sa DAG v UI nezobrazí (import errors, hľadanie polením).
+kind: chapter
+day: 4
+sidebar:
+  order: 16
+  label: 16 · Skupiny taskov
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Task group** zoskupí tasky do jednej „krabičky“ v grafe, ktorá sa dá rozbaliť a zbaliť. **Funkčne nič nemení** — je to čisto organizačná a vizuálna vec.
+- Dekorátor `@task_group` z `airflow.sdk`; parametre `group_id` (predvolene názov funkcie), `group_display_name`, `tooltip`.
+- Skupina vráti tasky (alebo zoznam paralelných taskov) a v DAG-u sa s ňou pracuje ako s taskom: `tg_healthcheck() >> tg_weather_ingestion(query)`.
+- Skupina môže mať **parametre** ako obyčajná funkcia — `tg_weather_ingestion(query: str)`.
+- DAG chýba v UI? Klikni na **červený odznak import errors** — ukáže traceback. Ak nepomôže, hľadaj chybu **polením**: zakomentuj polovicu `main()` a sleduj, kedy chyba zmizne.
+</KeyPoints>
+
+## Prečo skupiny
+
+Začali sme s tromi taskami ETL a máme ich už sedem. Keby tri paralelné healthchecky boli ešte za sebou, graf by sa ťažko čítal a nevideli by sme všetko naraz. **Task group** z nich spraví jednu krabičku, z ktorej vedie šípka ďalej. Po kliknutí sa rozbalí a ukáže tasky vo vnútri.
+
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, { group: 'Weather Ingestion', steps: ['scrape → validate → process → publish'] }]} caption="Po zbalení sú v grafe iba dve krabičky; taskov je stále sedem." />
+
+Funkčne sa nemení nič: tasky sa vykonajú rovnako, ďalší krok počká, kým skončia všetky tasky skupiny. Ak sa niečo zrúti, uvidíš to vo vnútri skupiny.
+
+## Skupina healthcheckov
+
+Zoznam paralelných healthcheckov, ktorý sme mali priamo v `main()`, vystrihneme a vrátime z funkcie s dekorátorom `@task_group`:
+
+```python
+from airflow.sdk import dag, task, task_group
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
+```
+
+| Parameter | Význam |
+| --- | --- |
+| `group_id` | vnútorný identifikátor; bez neho sa použije názov funkcie (`tg_healthcheck`) |
+| `group_display_name` | ľudský názov v UI — inak by sa zobrazilo `tg_healthcheck` |
+| `tooltip` | text, ktorý sa ukáže po prejdení myšou nad skupinou |
+
+Tasky v skupine dostanú predponu: `tg_healthcheck.is_rustfs_alive` (vypneš ju cez `prefix_group_id=False`).
+
+:::note[Tasky dvakrát v mriežke]
+Po zavedení skupiny uvidíš v mriežke behov (Grid) tasky dvakrát — staré behy ich ešte majú samostatne, nové už v skupine. Nič sa nepokazilo.
+:::
+
+## Skupina s parametrom
+
+Zvyšok DAG-u — sťahovanie, validácia, spracovanie a publikovanie — dáme do druhej skupiny. Potrebuje mesto, takže dostane parameter `query`, presne ako obyčajná funkcia:
+
+```python
+@task_group(
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
+)
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    line = process_data(valid_data)
+    publish_data(line)
+
+
+@dag("weather_scraper", ...)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    tg_healthcheck() >> tg_weather_ingestion(query)
+```
+
+`main()` teraz obsahuje iba dve skupiny. `query` je parameter DAG-u (formulár Trigger, Variable) a skupina ho len posunie do `scrape_data`. Odskúšané na Airflow 3.3.2 so skutočným plánovačom.
+
+:::caution[Skupina, ktorú reťazíš cez `>>`, nech nič nevracia]
+Čo vráti volanie skupiny, závisí od toho, čo vráti jej funkcia:
+
+- **nič** → dostaneš samotnú skupinu a `>>` ju pripojí celú — všetky jej prvé tasky počkajú na healthchecky,
+- **hodnotu** (napr. `return data`) → dostaneš túto hodnotu a `>>` sa pripojí **iba k tasku, ktorý ju vytvoril**.
+
+Overené: keď skupina sťahovania vracala výsledok `validate_data`, `tg_healthcheck() >> tg_download(query)` spravilo závislosť len pre `validate_data` — `scrape_data` sa spustil hneď, **bez čakania na healthchecky**. `tg_healthcheck()` vracia zoznam taskov, takže tam to nevadí.
+:::
+
+## Keď sa DAG v UI nezobrazí
+
+Ak Airflow DAG súbor nevie načítať, DAG v zozname **chýba** a hore svieti **červený odznak** s počtom chýb (*DAG Import Errors*). Klikni naň — ukáže súbor a traceback.
+
+Dva prípady z kurzu:
+
+| Chyba | Príčina |
+| --- | --- |
+| `ImportError: cannot import name 'WEATHER_CONN' from 'constants'` | DAG importuje konštantu, ktorú `constants.py` ešte nemá — zabudnutá úprava alebo nestiahnuté zmeny (`git pull`) |
+| `TypeError: too many positional arguments` | volanie `scrape_data(query)` v skupine, ale funkcia `scrape_data()` parameter `query` nemá (mesto si ešte brala sama z Variable) |
+
+To isté uvidíš aj v termináli: `airflow dags list-import-errors`.
+
+### Hľadanie chyby polením
+
+Keď z tracebacku nie je jasné, ktorý riadok `main()` za chybu môže, lektor postupoval takto:
+
+1. zakomentuj časť tela `main()` (ak by ostalo prázdne, daj tam `pass`), ulož a obnov UI,
+2. chyba zmizla → je v zakomentovanej časti; nezmizla → je v tej, čo ostala,
+3. opakuj s menšou časťou — napr. zavolaj najprv iba `tg_healthcheck()`, potom iba `tg_weather_ingestion(query)`.
+
+Pri skupine `tg_weather_ingestion` sa takto ukázalo, že problém je vo volaní `scrape_data(query)`.
+
+## Otestuj sa
+
+<Question q="Mení task group spôsob, akým sa tasky vykonávajú?">
+Nie. Je to čisto organizačná a vizuálna vec — tasky sa vykonajú rovnako, skupina sa v grafe dá zbaliť a rozbaliť.
+</Question>
+
+<Question q="Ako sa bude volať skupina bez `group_id` a aké ID dostanú jej tasky?">
+`group_id` bude názov funkcie (napr. `tg_weather_ingestion`) a tasky dostanú predponu skupiny: `tg_weather_ingestion.scrape_data`.
+</Question>
+
+<Question q="Ako odovzdáš skupine mesto, s ktorým má pracovať?">
+Ako parameter funkcie: `def tg_weather_ingestion(query: str)` a v DAG-u `tg_weather_ingestion(query)`.
+</Question>
+
+<Question q="DAG zmizol zo zoznamu v UI. Kde zistíš prečo?">
+V červenom odznaku *DAG Import Errors* hore v UI (alebo `airflow dags list-import-errors`) — ukáže súbor a traceback.
+</Question>
+
+## Cvičenia
+
+### 16.1 · Čo keď skupina vráti hodnotu?
+
+Na koniec `tg_weather_ingestion` niekto pridá `return data` (výsledok `scrape_data`). `main()` ostane `tg_healthcheck() >> tg_weather_ingestion(query)`. Čo sa zmení v grafe? A čo keby vracala výsledok `validate_data`?
+
+<Solution>
+Pri `return data` sa `>>` pripojí k tasku `scrape_data` — ten je v skupine prvý, takže sa v praxi nič nezmení: `scrape_data` stále čaká na healthchecky a ostatné tasky naň nadväzujú.
+
+Pri `return valid_data` (výsledok `validate_data`) sa `>>` pripojí k `validate_data`. `scrape_data` už nemá žiadneho predchodcu a **spustí sa hneď**, súbežne s healthcheckmi — presne tomu mali healthchecky zabrániť. Preto: skupina, ktorú reťazíš operátorom `>>`, nech nič nevracia.
+</Solution>

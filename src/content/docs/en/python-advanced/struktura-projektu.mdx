@@ -1,6 +1,6 @@
 ---
 title: Project Structure — Paths, Constants, and Modules
-description: Where to keep the path to the data (not absolute, not a Variable), the special variables __file__ and __name__, the pathlib module, constants.py and tasks.py in the dags folder, import order, and why relative imports do not work in dags.
+description: Where to keep the path to the data (not absolute, not a Variable), the special variables __file__ and __name__, the pathlib module, constants.py, tasks.py, and helpers.py in the dags folder, connection names as constants, import order, and why relative imports do not work in dags.
 kind: chapter
 day: 3
 sidebar:
@@ -18,7 +18,7 @@ import Solution from '../../../../components/Solution.astro';
 - Work with paths through **`pathlib.Path`**, not as strings: `/` joins paths, `.parent`, `.name`, `.suffix`, `.exists()`, `.mkdir(parents=True)`.
 - Import order: **standard library → third-party libraries → your own modules**, groups separated by a blank line.
 - Airflow adds the `dags/` folder to `sys.path`, so **`from constants import DATA_PATH`** works. A relative `from .constants import …` in a DAG file **does not**.
-- Pull repeated code (DRY) into your own modules: `constants.py` for constants, `tasks.py` for shared tasks.
+- Pull repeated code (DRY) into your own modules: `constants.py` for constants (including **connection names**), `tasks.py` for shared tasks, `helpers.py` for helper functions (`get_storage()`).
 </KeyPoints>
 
 ## The problem: where are the files
@@ -198,7 +198,7 @@ A participant accidentally saved `constants.py` into `dags/__pycache__/`, and Ai
 
 ## DRY: the tasks.py module
 
-When more DAGs appear later, we would copy tasks like the RustFS healthcheck into each one. The fix is the same as with the constants — **a module of your own**:
+When more DAGs appear, we would copy tasks like the RustFS healthcheck into each one. That is exactly what happened on day 4: the new `report_builder` DAG needed the same healthcheck, and the quickest thing was to copy the whole task — breaking DRY (again). The fix is the same as with the constants — **a module of your own**:
 
 ```python title="dags/tasks.py"
 """Tasks shared by several DAGs."""
@@ -210,7 +210,7 @@ import httpx
 from airflow.sdk import BaseHook, task
 from airflow.sdk.exceptions import AirflowFailException
 
-from constants import STORAGE_CONN
+from constants import S3_CONN
 
 logger = logging.getLogger(__name__)
 
@@ -218,13 +218,13 @@ logger = logging.getLogger(__name__)
 @task(task_display_name="RustFS Healthcheck")
 def is_rustfs_alive() -> None:
     logger.info("RustFS Healthcheck")
-    conn = BaseHook.get_connection(STORAGE_CONN)
+    conn = BaseHook.get_connection(S3_CONN)
     response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
     if response.status_code != HTTPStatus.OK:
         raise AirflowFailException("RustFS is unhealthy.")
 ```
 
-In the DAG: `from tasks import is_rustfs_alive`. Connection names (`"openweathermap"`, `"rustfs"`) repeat too — they belong in `constants.py`.
+Then in both DAGs: `from tasks import is_rustfs_alive`. Whatever you fix in the task (e.g. the vague message *“Something wrong happened”*) takes effect everywhere it is used. A shared task belongs in a separate module, not in one of the DAGs for the others to import from.
 
 **Refactoring** = changing the structure of code **without changing its behaviour** (*Refactoring is the process of restructuring existing source code without changing its external behavior.*). The steps:
 
@@ -232,6 +232,65 @@ In the DAG: `from tasks import is_rustfs_alive`. Connection names (`"openweather
 2. delete it from the original module,
 3. import it from the new module,
 4. check that the DAG does exactly what it did before.
+
+## Connection names as constants
+
+*Day 4.* The string `"openweathermap"` appeared three times in the code. Strings have a nasty problem: the typo `"openweathermpa"` is still a valid string, so neither the linter nor VS Code complains. It crashes only **at run time**, when `BaseHook.get_connection()` does not find a connection with that name.
+
+So we turn the connection name into a constant:
+
+```python title="dags/constants.py"
+# Airflow Connection IDs
+WEATHER_CONN = "openweathermap"
+S3_CONN = "rustfs"
+
+# S3 (RustFS)
+BUCKET_NAME = "datasets"        # in the course, each participant's own bucket
+DATASET_FILE = "dataset.csv"
+```
+
+```python
+conn = BaseHook.get_connection(WEATHER_CONN)
+```
+
+The benefits:
+
+- the value is defined in **one place** (DRY) — when the naming convention for connections changes, you change one line instead of hunting for every occurrence,
+- `WEATHER_CONN` is a **variable name** — VS Code underlines a typo right away and offers the name in autocompletion.
+
+It is the same rule as with magic numbers (`HTTPStatus.OK` instead of `200`) — this time for strings. `BUCKET_NAME` and `DATASET_FILE`, used by both DAGs, went the same way.
+
+## helpers.py: the S3 connection in one place
+
+*Day 4.* Building `boto3.resource(...)` from the connection was repeated in `weather_scraper.py` and in the new `report_builder.py`. We wrap it in a function that returns the ready store object and put it in a **`helpers.py`** module — a common name for a module of helper functions:
+
+```python title="dags/helpers.py"
+"""Helper functions shared by several DAGs."""
+
+import boto3
+from airflow.sdk import BaseHook
+
+from constants import S3_CONN
+
+
+def get_storage():
+    """Return a boto3 S3 resource for the RustFS connection."""
+    conn = BaseHook.get_connection(S3_CONN)
+    return boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+```
+
+In tasks, `bucket = get_storage().Bucket(BUCKET_NAME)` is then enough. If another connection parameter is ever needed, you change it in one place.
+
+After every such move, the original file is left with **unused imports** — VS Code shows them in grey. Remove them with *Quick Fix → Remove unused imports* (in the course VS Code could not remove them all at once; PyCharm does this better), or:
+
+```bash
+ruff check --select F401 --fix dags/     # F401 = imported but unused
+```
 
 ## Test yourself
 
@@ -253,6 +312,10 @@ A Variable can change during a DAG run (some tasks would use the old path and so
 
 <Question q="What is the pathlib equivalent of `mkdir -p`?">
 `path.mkdir(parents=True)` — it also creates missing parent folders. With `exist_ok=True` it does not fail if the folder already exists.
+</Question>
+
+<Question q='Why is `get_connection(WEATHER_CONN)` better than `get_connection("openweathermap")`?'>
+A typo in a string shows up only at run time (the connection is not found). A typo in a variable name is underlined by the editor right away, and the value is defined in one place.
 </Question>
 
 <Question q="In what order do imports go?">

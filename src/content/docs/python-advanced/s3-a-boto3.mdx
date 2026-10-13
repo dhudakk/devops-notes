@@ -1,49 +1,70 @@
 ---
 title: Úložisko objektov S3 a boto3
-description: Prečo dataset nepatrí na disk uzla, RustFS ako S3 úložisko v Docker kompozícii, knižnica boto3 (bucket, upload, download, výpis objektov) a task publish_data, ktorý pripája merania do datasetu v S3.
+description: Prečo dataset nepatrí na disk servera, S3 a S3-kompatibilné úložiská (RustFS), knižnica boto3 (bucket, upload, download, výpis objektov), dočasné súbory (mkstemp, NamedTemporaryFile) a task publish_data, ktorý pripája merania do datasetu v S3.
 kind: chapter
-day: 3
+day: 4
 sidebar:
-  order: 16
-  label: 16 · S3 a boto3
+  order: 17
+  label: 17 · S3 a boto3
 ---
 
 import KeyPoints from '../../../components/KeyPoints.astro';
 import Question from '../../../components/Question.astro';
 import Solution from '../../../components/Solution.astro';
 
-:::note[Zo slajdov 3. dňa]
-Táto kapitola je zo slajdov 3. dňa; na prednáške sa jej venujeme na 4. deň. Kód je odskúšaný na Airflow 3.3.2 a boto3 proti lokálnemu S3.
-:::
-
 <KeyPoints>
-- Airflow môže bežať v Kubernetes klastri — task beží na **ľubovoľnom uzle**, takže lokálny súbor by sa rozsypal po viacerých strojoch. Dataset preto patrí do **jedného zdieľaného úložiska**: S3.
-- **RustFS** je open-source úložisko kompatibilné s S3 (náhrada MinIO): API na porte **9000**, webová konzola na **9001**.
-- **boto3** (od AWS) funguje s **každým** S3-kompatibilným úložiskom: `boto3.resource("s3", endpoint_url=..., aws_access_key_id=..., aws_secret_access_key=...)`.
-- `bucket = storage.Bucket("datasets")` → `.upload_file(Filename, Key)`, `.download_file(Key, Filename)`, `.objects.all()`.
+- Dataset na lokálnom disku servera (alebo v kontajneri) je nepraktický. Patrí do **úložiska objektov S3** — jedno miesto pre všetky tasky, prístupné cez HTTP.
+- S3 (AWS) má jednoduché REST API, ktoré sa stalo **štandardom**: S3-kompatibilné úložiská (MinIO, **RustFS**) s ním komunikujú identicky. RustFS: API na porte **9000**, webová konzola na **9001**.
+- **boto3** (AWS knižnica pre všetky ich služby) funguje s každým S3-kompatibilným úložiskom: `boto3.resource("s3", endpoint_url=..., aws_access_key_id=..., aws_secret_access_key=...)`.
+- `bucket = storage.Bucket("meno")` ešte nič neposiela po sieti. Potom `.create()`, `.delete()`, `.upload_file(Filename, Key)`, `.download_file(Key, Filename)`, `.objects.all()`.
 - Chýbajúci objekt pri `download_file` → `botocore.exceptions.ClientError` (404).
+- Dočasný súbor vytvor cez **`tempfile.mkstemp()`** (jedinečné meno) a zmaž ho vo **`finally`** — aj keď sa niečo zrúti.
 </KeyPoints>
 
 ## Prečo S3
 
-Doteraz `publish_data` pripisuje merania do `~/airflow/data/dataset.csv`. Na jednom stroji to stačí. Airflow však vie bežať aj v **Kubernetes klastri** — vtedy nevieš, na ktorom uzle sa daný task vykoná, a súbor by mal na každom uzle inú (neúplnú) podobu.
+`publish_data` doteraz pripisuje merania do súboru na disku servera. Je to nepraktické:
 
-Riešenie: **jedno úložisko**, do ktorého zapisujú všetky tasky bez ohľadu na to, kde bežia. Použijeme úložisko objektov kompatibilné s **Amazon S3** (*Simple Storage Service*). Základné pojmy:
+- keď to nasadíš ako **Docker kontajner** alebo **Kubernetes pod**, musíš riešiť perzistenciu (zväzok), inak dáta zaniknú s kontajnerom,
+- keď Airflow beží v klastri, nevieš, na ktorom uzle sa task vykoná — súbor by sa rozsypal po viacerých strojoch,
+- a keď sa k dátam chceš dostať zvonka, musel by si ešte spustiť webový server.
+
+Na toto sú hotové služby: **S3** (*Simple Storage Service*) od Amazonu (AWS). Má jednoduché REST API, ktoré sa stalo štandardom — vzniklo veľa alternatívnych a open-source projektov, ktoré ho kopírujú a sú **S3-kompatibilné**: komunikuješ s nimi úplne rovnako, ako keby na druhej strane bol Amazon. Niektoré majú aj vlastné knižnice na funkcie navyše.
+
+### RustFS
+
+Najznámejšou open-source náhradou S3 bolo **MinIO**. Podľa lektora však minulé leto pribudla platená a „okresaná“ bezplatná verzia, takže komunita vytvorila **RustFS**: open source, S3-kompatibilný, napísaný v **Ruste** (bezpečnejšie a používateľsky prívetivejšie „céčko“) a podľa testov násobne rýchlejší ako MinIO. Je na trhu zhruba rok, takže možno ešte nemá všetko, čo MinIO, ale základ áno.
+
+Bonus oproti obyčajnému súborovému systému: **verzovanie** — RustFS (aj MinIO, S3) si pri zapnutom verzovaní pamätá každú nahratú verziu objektu.
 
 | Pojem | Význam |
 | --- | --- |
-| **bucket** | „kontajner“ na objekty, napr. `datasets` |
-| **objekt** | súbor v buckete |
-| **key** | názov (cesta) objektu v buckete, napr. `kosice-sk.csv` |
+| **bucket** („kýblik“) | z pohľadu používateľa priečinok, v ktorom sú objekty — vnútorná organizácia je však iná, S3 nie je súborový systém |
+| **objekt** | v praxi súbor v buckete |
+| **key** | názov objektu; bucket je ako **slovník** — kľúč je jedinečný, hodnota je obsah súboru |
 
-## Lab: RustFS v Docker kompozícii
+### Úložisko na kurze
 
-Vytvor `docker-compose.yaml`, ktorý spustí RustFS:
+Na 4. deň lektor spustil jeden RustFS pre všetkých na samostatnom EC2 stroji (prihlasovacie údaje máš od lektora — nemeň ich, aby sa dostal každý). V konzole na porte 9001 si **každý vytvoril vlastný bucket** pomenovaný podľa seba, aby si navzájom nepísali do dát. Pri vytváraní:
 
-- obraz `rustfs/rustfs`,
-- porty 9000 (S3 API) a 9001 (webová konzola),
-- prihlasovacie údaje cez premenné prostredia (používateľ `apache`, heslo `airflow` — iba pre lokálny lab),
-- priečinok kontajnera `/data` namapovaný na pomenovaný zväzok `storage`.
+- **Versioning** — pamätá si každú verziu objektu (rovnaký názov, nový upload = nová verzia),
+- **Object Lock** — ochrana pred zmazaním či prepísaním,
+- **Bucket Quota** — limit veľkosti; nepotrebujeme.
+
+Spojenie `rustfs` v **Admin → Connections**:
+
+| Pole | Hodnota |
+| --- | --- |
+| Connection Id | `rustfs` |
+| Connection Type | `Generic` |
+| Host | adresa servera s RustFS |
+| Schema | `http` |
+| Port | `9000` (REST API) |
+| Login / Password | access key / secret key |
+
+### Vlastný RustFS v Docker kompozícii
+
+*Zo slajdov 3. dňa — keď si chceš RustFS spustiť sám:*
 
 ```yaml title="docker-compose.yaml"
 services:
@@ -64,188 +85,233 @@ volumes:
   storage:
 ```
 
-```bash
-docker compose up -d
-http :9000/health          # healthcheck — HTTP 200
-```
+`docker compose up -d`, potom `http :9000/health` (200 = beží). Údaje `apache`/`airflow` sú len pre lokálny lab.
 
-Potom v konzole (`http://localhost:9001`) vytvor bucket **`datasets`**. A v Airflow spojenie **`rustfs`** (Admin → Connections):
-
-| Pole | Hodnota |
-| --- | --- |
-| Connection Id | `rustfs` |
-| Connection Type | `Generic` |
-| Host | adresa servera s RustFS |
-| Schema | `http` |
-| Port | `9000` |
-| Login / Password | access key / secret key |
-
-## boto3
-
-Niektoré služby majú vlastné knižnice (napr. MinIO), ale **boto3** od AWS funguje s každým S3-kompatibilným úložiskom.
+## boto3 krok za krokom
 
 ```bash
 (venv) $ pip install boto3
 ```
 
+**boto3** je knižnica AWS na prácu so všetkými ich službami — vie vytvárať aj EC2 stroje (lektor tak spúšťa virtuálky pre kurz). My ju použijeme iba na S3. Vyskúšaj si ju **interaktívne v ipythone** — nemusíš meniť DAG a klikať na Trigger, aby si zistil, ako sa knižnica správa.
+
 ### Pripojenie
 
 ```python
->>> import boto3
+>>> import boto3                     # ak prejde, balík je nainštalovaný
 >>> storage = boto3.resource(
-...     "s3",
-...     endpoint_url="http://localhost:9000",
-...     aws_access_key_id="apache",
-...     aws_secret_access_key="airflow",
+...     "s3",                                      # typ služby
+...     endpoint_url="http://<rustfs-host>:9000",  # kde je úložisko
+...     aws_access_key_id="<ACCESS_KEY>",          # login
+...     aws_secret_access_key="<SECRET_KEY>",      # heslo
 ... )
->>> for bucket in storage.buckets.all():
-...     print(bucket.name)
-datasets
 ```
 
-`endpoint_url` presmeruje boto3 z AWS na tvoje úložisko. Bez neho by sa pripájal priamo na Amazon.
+`storage` je objekt so všetkým potrebným na komunikáciu (cez HTTP na porte 9000) — **ešte sa nikam nepripojil**. Pripojí sa až pri prvej operácii. Pozor na presné názvy argumentov: pri preklepe (`aws_access_key`) dostaneš `TypeError: … got an unexpected keyword argument 'aws_access_key'`.
 
-### Práca s bucketom
+### Bucket: vytvorenie a zmazanie
 
 ```python
->>> bucket = storage.Bucket("datasets")     # zatiaľ žiadna sieťová operácia
+>>> bucket = storage.Bucket("mirek")   # zatiaľ žiadna sieťová operácia
+>>> bucket.create()                    # teraz vznikne (HTTP 200)
+>>> bucket.delete()                    # HTTP 204 No Content
 ```
 
-Vytvorenie objektu `Bucket` ešte nič neposiela po sieti — nevieš ani, či bucket existuje. Ak neexistuje, prvá operácia s ním skončí výnimkou. Vytvoriť ho vieš aj z Pythonu:
+- `storage.Bucket("xxx")` iba vytvorí objekt — v konzole žiadny bucket `xxx` nevznikne.
+- `create()` na už existujúcom vlastnom buckete vrátil 200 bez chyby.
+- `delete()` je bez názvu — názov je uložený v objekte. Odpoveď **204 No Content** je úspech (2xx); znamená „hotovo, nemám čo poslať späť“. Zmazať sa dá iba **prázdny** bucket (inak `BucketNotEmpty`).
+
+### Nahratie súboru
 
 ```python
->>> bucket.create()
+>>> bucket.upload_file("/home/ubuntu/airflow/data/dataset.csv", "dataset.csv")
 ```
 
-| Operácia | Kód |
+Prvý parameter `Filename` je cesta k lokálnemu súboru, druhý `Key` je názov objektu v buckete. Opakovaný upload s rovnakým kľúčom objekt **prepíše** — s verzovaním vznikne nová verzia. V konzole si súbor vieš pozrieť (*Preview*), stiahnuť či premenovať.
+
+### Výpis objektov
+
+```python
+>>> bucket.objects.all()          # kolekcia — objects nie je metóda, all() áno
+>>> for obj in bucket.objects.all():
+...     print(obj.key)
+dataset.csv
+```
+
+**Kolekcia** je objekt s viacerými položkami (zoznam, slovník…). Kolekcie sú **iterovateľné** — prejdeš ich položku po položke cyklom `for`, ako salónky z vianočnej kolekcie:
+
+```python
+>>> for name in ["Jano", "Fero", "Jožo"]:
+...     print(name.upper())
+```
+
+V cykle už VS Code ani ipython nevedia, akého typu je `obj`, takže nedoplnia jeho vlastnosti. Názov objektu je v `obj.key`.
+
+### Stiahnutie súboru
+
+```python
+>>> bucket.download_file("dataset.csv", "/tmp/xxx.csv")      # Key, Filename
+>>> bucket.download_file("Jano", "/tmp/xxx")                 # neexistuje
+botocore.exceptions.ClientError: An error occurred (404) when calling the HeadObject operation: Not Found
+```
+
+| Metóda | Čo dostane |
 | --- | --- |
-| nahratie súboru | `bucket.upload_file(Filename="local.py", Key="remote.py")` |
-| stiahnutie súboru | `bucket.download_file(Key="remote.py", Filename="copy.py")` |
-| zoznam objektov | `for obj in bucket.objects.all(): print(obj.key)` |
-| zmazanie objektu | `bucket.Object("remote.py").delete()` |
+| `download_file(Key, Filename)` / `upload_file(Filename, Key)` | **cestu** — súbor otvorí a zavrie sama (pohodlnejšie) |
+| `download_fileobj(Key, Fileobj)` / `upload_fileobj(Fileobj, Key)` | **otvorený súbor** v binárnom režime — otvoriť, zavrieť a pretočiť ho musíš sám |
 
-Pozor na poradie: pri **upload** je prvý lokálny súbor a druhý kľúč, pri **download** je prvý kľúč a druhý lokálny súbor. S pomenovanými argumentmi (`Filename=`, `Key=`) sa nepomýliš.
+Pozor na poradie: pri **upload** je najprv lokálny súbor, pri **download** najprv kľúč. S pomenovanými argumentmi (`Filename=`, `Key=`) sa nepomýliš.
 
-### Chyby
+## Dočasné súbory
 
-| Situácia | Výnimka |
-| --- | --- |
-| `download_file` neexistujúceho objektu | `botocore.exceptions.ClientError` (kód `404`) |
-| `upload_file` do neexistujúceho bucketu | `boto3.exceptions.S3UploadFailedError` |
+`publish_data` si musí dataset odniekiaľ stiahnuť, pripísať riadok a poslať späť. Kam ho stiahnuť? Pevné meno (`/tmp/dataset.csv`) je problém: keď sa ten istý task spustí **dvakrát naraz**, jeden beh prepíše súbor druhého. Treba súbor s **jedinečným** menom.
+
+### V Bashi: mktemp
+
+```bash
+$ mktemp                # vytvorí prázdny súbor s jedinečným menom
+/tmp/tmp.k2J4h1x0aB
+$ mktemp -d             # vytvorí priečinok
+$ mktemp -u             # iba vypíše meno, nič nevytvorí (dry run)
+```
+
+### V Pythone: tempfile.mkstemp
+
+Modul `tempfile` má aj funkciu `mktemp()`, ale tá je **zastaraná od Pythonu 2.3** — iba vymyslí meno, nič nevytvorí, a medzičasom ho môže obsadiť niekto iný. Použi **`mkstemp()`**: overí, že súbor neexistuje, a vytvorí ho.
+
+```python
+>>> import tempfile
+>>> tempfile.mkstemp(prefix="weather-")
+(3, '/tmp/weather-uv8x2k1q')
+```
+
+Vráti dvojicu: **file descriptor** (číslo už otvoreného súboru) a **cestu**. Descriptor nepotrebujeme — v Pythone sa nepotrebná hodnota označuje podčiarkovníkom `_` (je to platný názov premennej):
+
+```python
+_, temp_name = mkstemp(prefix="weather-", suffix=".csv")
+path = Path(temp_name)
+```
 
 ## Lab: publish_data do S3
 
-Uprav `publish_data`, aby namiesto lokálneho súboru:
+**Zadanie:** uprav `publish_data`, aby:
 
-1. stiahol existujúci dataset z bucketu (ak existuje) do **dočasného súboru**,
+1. stiahol existujúci dataset z bucketu do dočasného súboru — **pri prvom spustení ešte neexistuje**, s tým treba rátať,
 2. k dočasnému súboru pripojil posledné meranie,
-3. aktualizovaný dataset nahral späť do RustFS,
+3. aktualizovaný dataset nahral späť do RustFS (vznikne nová verzia),
 4. dočasný súbor zmazal.
 
-Do `constants.py` pribudnú:
-
-```python
-STORAGE_CONN = "rustfs"
-DATASET_BUCKET = "datasets"
-CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
-```
-
-### Dočasný súbor: mkstemp
-
-```python
-from tempfile import mkstemp
-
-fd, name = mkstemp(prefix="weather-")    # (3, '/tmp/weather-k2j4h1x0')
-```
-
-`mkstemp()` vytvorí v `/tmp` súbor s jedinečným náhodným názvom a vráti **dvojicu**: *file descriptor* (číslo už otvoreného súboru) a cestu. Na slajdoch sa používa iba cesta (`mkstemp(...)[1]`) — descriptor však ostane otvorený. Korektne ho zavri cez `os.close(fd)`.
-
-### Riešenie
+Údaje o spojení ber z Connection `rustfs`. Do `constants.py` pribudnú `S3_CONN = "rustfs"`, `BUCKET_NAME` (tvoj bucket) a `DATASET_FILE = "dataset.csv"`.
 
 <Solution>
 ```python
-import logging
-import os
 from pathlib import Path
 from tempfile import mkstemp
 
-import boto3
-from airflow.sdk import BaseHook, task
 from botocore.exceptions import ClientError
 
-from constants import CSV_HEADER, DATASET_BUCKET, STORAGE_CONN
-
-logger = logging.getLogger(__name__)
+from constants import BUCKET_NAME, CSV_HEADER, DATASET_FILE
+from helpers import get_storage
 
 
 @task(task_display_name="Publish Data")
-def publish_data(entry: str) -> None:
-    logger.info("Publishing Data")
-    conn = BaseHook.get_connection(STORAGE_CONN)
-    storage = boto3.resource(
-        "s3",
-        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
-        aws_access_key_id=conn.login,
-        aws_secret_access_key=conn.password,
-    )
-    bucket = storage.Bucket(DATASET_BUCKET)
-
-    fd, temp_name = mkstemp(prefix="weather-", suffix=".csv")
-    os.close(fd)
+def publish_data(line: str) -> None:
+    """Download the dataset from S3, append the line, upload it back."""
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    _, temp_name = mkstemp(prefix="weather-", suffix=".csv")
     path = Path(temp_name)
     try:
-        # download the dataset; on the first run it does not exist yet
         try:
-            bucket.download_file("dataset.csv", str(path))
+            bucket.download_file(DATASET_FILE, str(path))
         except ClientError:
-            logger.warning("Dataset doesn't exist in bucket. Possible first time upload.")
-            path.write_text(CSV_HEADER + "\n", encoding="utf-8")
+            logger.warning("Dataset file not found, probably first dataset upload.")
+            with open(path, "w", encoding="utf-8") as file:
+                print(CSV_HEADER, file=file)
 
-        # append the new measurement
-        with path.open("a", encoding="utf-8") as file:
-            print(entry, file=file)
+        with open(path, "a", encoding="utf-8") as file:
+            print(line, file=file)
 
-        bucket.upload_file(str(path), "dataset.csv")
+        bucket.upload_file(str(path), DATASET_FILE)
     finally:
-        path.unlink(missing_ok=True)       # cleanup even when something fails
+        path.unlink(missing_ok=True)  # runs even when something above fails
 ```
 
-`try`/`finally` zaručí, že dočasný súbor sa zmaže aj vtedy, keď upload zlyhá. Prihlasovacie údaje sú v Connection, nie v kóde.
+`get_storage()` je pomocná funkcia, ktorá z Connection vytvorí `boto3.resource(...)` — pozri [Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/#helperspy-pripojenie-k-s3-na-jednom-mieste). Odskúšané so skutočným plánovačom Airflow 3.3.2: prvý beh zalogoval warning a vytvoril súbor s hlavičkou, ďalší iba pripísal riadok.
 </Solution>
 
-:::caution[Súbeh pri viacerých zápisoch naraz]
-„Stiahni → pripíš → nahraj“ nie je atomické. Keby dva tasky naraz pripisovali do **toho istého** súboru, jeden by prepísal zápis druhého. Preto v ďalšej kapitole má každé mesto vlastný súbor.
+Podrobnosti riešenia:
+
+- **Prvé spustenie.** `download_file` neexistujúceho súboru vyvolá `ClientError` (404). Je to očakávaný stav, takže ho zachytíme. Úroveň? Môže to byť INFO („nenašiel som“), ale došlo k výnimke, s ktorou vieme žiť — chyba procesu, nie aplikácie → **WARNING**. A rovno zapíšeme hlavičku CSV — iba raz, pri vzniku súboru.
+- **Režim `"a"`.** Riadok pripisujeme na koniec stiahnutého súboru.
+- **`finally`.** Keby sa niečo zrútilo uprostred (napr. upload), bez `finally` by dočasný súbor ostal v `/tmp`. Pri behu každých 20 minút (alebo každú sekundu) by tam súbory pribúdali, až by došlo miesto na disku. Blok `finally` sa vykoná **vždy** — či k výnimke došlo, alebo nie.
+- `path.unlink(missing_ok=True)` — zmaže súbor; ak tam už nie je, nezlyhá. (Alternatíva: `os.remove`.)
+- **Rozsah platnosti premenných.** `path` vznikne pred `try`, ale aj keby vznikla vo vnútri `try`, vo `finally` by bola dostupná. V Pythone platí premenná v celej funkcii, nie iba v bloku. V C či Jave by si ju musel deklarovať pred blokom.
+
+### Pokus s NamedTemporaryFile
+
+Účastníci (s pomocou AI) skúsili elegantnejšiu cestu: `tempfile.NamedTemporaryFile` s `with` — vytvorí dočasný súbor a po zatvorení ho **sám zmaže** (`delete=True`, aj keď vo vnútri vznikne výnimka). Na kurze sa však zasekli:
+
+1. `bucket.download_file(DATASET_FILE, file)` → `ValueError: Filename must be a string or a path-like object` — `download_file` chce cestu, nie otvorený súbor. Na otvorený súbor je `download_fileobj`.
+2. Súbor otvorený v textovom režime (`"w"`, `"w+"`) → `TypeError` — boto3 zapisuje a číta **bajty**, súbor musí byť binárny (`"w+b"`).
+3. Po zápise je kurzor na **konci** súboru; `upload_fileobj` by čítal od konca. Treba ho pretočiť na začiatok: `file.seek(0)`.
+
+Lektor napokon zvolil `mkstemp` + `finally`. Funkčná verzia s `NamedTemporaryFile` (overená):
+
+```python
+from tempfile import NamedTemporaryFile
+
+
+@task(task_display_name="Publish Data")
+def publish_data(line: str) -> None:
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    with NamedTemporaryFile(mode="w+b", suffix=".csv") as file:  # deleted on exit
+        try:
+            bucket.download_fileobj(DATASET_FILE, file)
+        except ClientError:
+            logger.warning("Dataset file not found, probably first dataset upload.")
+            file.write(f"{CSV_HEADER}\n".encode())
+        file.write(f"{line}\n".encode())   # binary mode → bytes
+        file.seek(0)                       # rewind before reading it for upload
+        bucket.upload_fileobj(file, DATASET_FILE)
+```
+
+:::note[Airflow provider pre S3]
+Airflow má **providery** — rozšírenia pre ďalšie služby (SMTP, SQL…). Provider `apache-airflow-providers-amazon` pridá typ spojenia pre AWS aj hotové operátory, napr. `S3CreateBucketOperator` — vtedy boto3 priamo nevidíš. Fungujú však iba v Airflow; boto3 vieš použiť aj vo vlastných skriptoch, preto sme ostali pri ňom.
 :::
 
 ## Otestuj sa
 
-<Question q="Prečo dataset neukladať na disk uzla, keď Airflow beží v Kubernetes?">
-Task môže bežať na ľubovoľnom uzle — súbor by vznikal na viacerých strojoch a každý by mal len časť meraní. Treba jedno zdieľané úložisko (S3).
-</Question>
-
-<Question q="Prečo boto3, keď MinIO má vlastnú knižnicu?">
-boto3 funguje s každým S3-kompatibilným úložiskom (AWS S3, MinIO, RustFS…), takže kód netreba meniť pri zmene úložiska.
-</Question>
-
-<Question q="Na čo je parameter `endpoint_url`?">
-Určuje adresu S3 API. Bez neho sa boto3 pripája na Amazon S3; s ním na tvoje úložisko (napr. `http://localhost:9000`).
+<Question q="Čo znamená, že úložisko je S3-kompatibilné?">
+Implementuje rovnaké REST API ako Amazon S3, takže s ním komunikuješ rovnako (napr. cez boto3) — stačí zmeniť `endpoint_url`.
 </Question>
 
 <Question q='Čo urobí `storage.Bucket("datasets")` po sieti?'>
-Nič — iba vytvorí objekt. Či bucket existuje, sa ukáže až pri prvej operácii (inak výnimka).
+Nič — iba vytvorí objekt. Či bucket existuje, sa ukáže až pri prvej operácii.
 </Question>
 
-<Question q="Aký je rozdiel v poradí argumentov `upload_file` a `download_file`?">
-`upload_file(Filename, Key)` — najprv lokálny súbor, potom kľúč. `download_file(Key, Filename)` — najprv kľúč, potom lokálny súbor.
+<Question q="Čo znamená odpoveď 204 pri `bucket.delete()`?">
+*No Content* — úspech (2xx), server len nemá čo poslať späť.
 </Question>
 
-<Question q="Čo vráti `mkstemp()`?">
-Dvojicu `(fd, cesta)` — číslo otvoreného súboru a cestu k novému dočasnému súboru s jedinečným názvom. `fd` treba zavrieť (`os.close`).
+<Question q="Prečo nesťahovať dataset do súboru s pevným menom, napr. `/tmp/dataset.csv`?">
+Ak sa task spustí dvakrát naraz, jeden beh prepíše súbor druhého. `mkstemp()` vytvorí súbor s jedinečným menom.
+</Question>
+
+<Question q="Čo vráti `tempfile.mkstemp()` a čo znamená `_` v `_, name = mkstemp()`?">
+Dvojicu (file descriptor, cesta). `_` je konvenčný názov pre hodnotu, ktorú nepotrebujeme.
+</Question>
+
+<Question q="Prečo mazať dočasný súbor vo `finally` a nie na konci `try`?">
+`finally` sa vykoná vždy, aj keď niečo v `try` vyvolá výnimku. Inak by pri chybe súbory v `/tmp` pribúdali, až by došlo miesto.
+</Question>
+
+<Question q="Aký je rozdiel medzi `download_file` a `download_fileobj`?">
+`download_file` dostane cestu a súbor si otvorí sám. `download_fileobj` dostane už otvorený súbor v binárnom režime.
 </Question>
 
 ## Cvičenia
 
-### 16.1 · Zoznam datasetov v buckete
+### 17.1 · Zoznam datasetov v buckete
 
 Napíš funkciu `list_datasets(bucket) -> list[str]`, ktorá vráti zoradené kľúče všetkých `.csv` objektov v buckete.
 

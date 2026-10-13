@@ -1,0 +1,144 @@
+---
+title: Task Groups and Finding Errors in a DAG
+description: Task groups — grouping the healthchecks and the weather processing into two “boxes”, a group with a query parameter; how to find the error when a DAG does not appear in the UI (import errors, bisecting).
+kind: chapter
+day: 4
+sidebar:
+  order: 16
+  label: 16 · Task groups
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- A **task group** puts tasks into one “box” in the graph that can be expanded and collapsed. **It changes nothing functionally** — it is purely an organisational and visual thing.
+- The `@task_group` decorator from `airflow.sdk`; parameters `group_id` (defaults to the function name), `group_display_name`, `tooltip`.
+- The group returns tasks (or a list of parallel tasks), and in the DAG you work with it like a task: `tg_healthcheck() >> tg_weather_ingestion(query)`.
+- A group can take **parameters** like an ordinary function — `tg_weather_ingestion(query: str)`.
+- DAG missing from the UI? Click the **red import errors badge** — it shows the traceback. If that does not help, find the error by **bisecting**: comment out half of `main()` and watch when the error disappears.
+</KeyPoints>
+
+## Why groups
+
+We started with three ETL tasks and are at seven now. If the three parallel healthchecks were also in a row, the graph would be hard to read and we could not see everything at once. A **task group** turns them into one box with an arrow leading on. A click expands it and shows the tasks inside.
+
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, { group: 'Weather Ingestion', steps: ['scrape → validate → process → publish'] }]} caption="Collapsed, the graph shows only two boxes; there are still seven tasks." />
+
+Functionally nothing changes: the tasks run the same way, and the next step waits until all tasks of the group finish. If something crashes, you see it inside the group.
+
+## The healthcheck group
+
+We cut the list of parallel healthchecks we had directly in `main()` and return it from a function decorated with `@task_group`:
+
+```python
+from airflow.sdk import dag, task, task_group
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `group_id` | the internal identifier; without it the function name is used (`tg_healthcheck`) |
+| `group_display_name` | a human name in the UI — otherwise `tg_healthcheck` would be shown |
+| `tooltip` | text shown when you hover over the group |
+
+Tasks in the group get a prefix: `tg_healthcheck.is_rustfs_alive` (turn it off with `prefix_group_id=False`).
+
+:::note[Tasks twice in the grid]
+After introducing the group you will see the tasks twice in the run grid — old runs still have them on their own, new ones inside the group. Nothing is broken.
+:::
+
+## A group with a parameter
+
+The rest of the DAG — downloading, validation, processing, and publishing — goes into a second group. It needs the city, so it gets a `query` parameter, exactly like an ordinary function:
+
+```python
+@task_group(
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
+)
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    line = process_data(valid_data)
+    publish_data(line)
+
+
+@dag("weather_scraper", ...)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    tg_healthcheck() >> tg_weather_ingestion(query)
+```
+
+`main()` now contains just two groups. `query` is a DAG parameter (Trigger form, Variable), and the group only passes it on to `scrape_data`. Tested on Airflow 3.3.2 with the real scheduler.
+
+:::caution[A group you chain with `>>` should return nothing]
+What calling a group gives you depends on what its function returns:
+
+- **nothing** → you get the group itself, and `>>` attaches the whole group — all its first tasks wait for the healthchecks,
+- **a value** (e.g. `return data`) → you get that value, and `>>` attaches **only to the task that produced it**.
+
+Verified: when a download group returned the result of `validate_data`, `tg_healthcheck() >> tg_download(query)` created a dependency only for `validate_data` — `scrape_data` started right away, **without waiting for the healthchecks**. `tg_healthcheck()` returns a list of tasks, so it does not matter there.
+:::
+
+## When a DAG does not appear in the UI
+
+If Airflow cannot load a DAG file, the DAG is **missing** from the list and a **red badge** with the number of errors lights up at the top (*DAG Import Errors*). Click it — it shows the file and the traceback.
+
+Two cases from the course:
+
+| Error | Cause |
+| --- | --- |
+| `ImportError: cannot import name 'WEATHER_CONN' from 'constants'` | the DAG imports a constant that `constants.py` does not have yet — a forgotten edit or changes not pulled (`git pull`) |
+| `TypeError: too many positional arguments` | the group calls `scrape_data(query)`, but `scrape_data()` has no `query` parameter (it still took the city from the Variable itself) |
+
+The terminal shows the same: `airflow dags list-import-errors`.
+
+### Finding the error by bisecting
+
+When the traceback does not make clear which line of `main()` is to blame, the instructor did this:
+
+1. comment out part of the body of `main()` (if it would be empty, put `pass` there), save, and refresh the UI,
+2. the error disappeared → it is in the commented part; it did not → it is in the part that remained,
+3. repeat with a smaller part — e.g. call only `tg_healthcheck()` first, then only `tg_weather_ingestion(query)`.
+
+For the `tg_weather_ingestion` group this showed that the problem was the `scrape_data(query)` call.
+
+## Test yourself
+
+<Question q="Does a task group change how tasks run?">
+No. It is purely organisational and visual — the tasks run the same way; the group can be collapsed and expanded in the graph.
+</Question>
+
+<Question q="What is a group without `group_id` called, and what IDs do its tasks get?">
+The `group_id` is the function name (e.g. `tg_weather_ingestion`), and the tasks get the group prefix: `tg_weather_ingestion.scrape_data`.
+</Question>
+
+<Question q="How do you pass the city a group should work with?">
+As a function parameter: `def tg_weather_ingestion(query: str)`, and in the DAG `tg_weather_ingestion(query)`.
+</Question>
+
+<Question q="A DAG disappeared from the list in the UI. Where do you find out why?">
+In the red *DAG Import Errors* badge at the top of the UI (or `airflow dags list-import-errors`) — it shows the file and the traceback.
+</Question>
+
+## Exercises
+
+### 16.1 · What if a group returns a value?
+
+Someone adds `return data` (the result of `scrape_data`) at the end of `tg_weather_ingestion`. `main()` stays `tg_healthcheck() >> tg_weather_ingestion(query)`. What changes in the graph? And what if it returned the result of `validate_data`?
+
+<Solution>
+With `return data`, `>>` attaches to the `scrape_data` task — it is the first one in the group, so in practice nothing changes: `scrape_data` still waits for the healthchecks, and the other tasks follow it.
+
+With `return valid_data` (the result of `validate_data`), `>>` attaches to `validate_data`. `scrape_data` no longer has any predecessor and **starts right away**, in parallel with the healthchecks — exactly what the healthchecks were supposed to prevent. Hence: a group you chain with `>>` should return nothing.
+</Solution>

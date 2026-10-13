@@ -19,8 +19,13 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 | 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
+| 4 | [Day 4: Processing Data (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.4.pdf) |
 
 ## Z čoho je ktorá kapitola
+
+:::note[Slajdy 4. dňa]
+Väčšina slajdov 4. dňa je o knižnici **pandas** (DataFrame, filtrovanie, agregácie, serializácia cez pyarrow) a polnočnom reporte. Na prednáške sa to pre nedostatok času nebralo — poznámky 4. dňa preto vychádzajú z prepisu (skupiny taskov, S3, assety). Zo slajdov je iba kostra `daily_report` a `helpers.py`.
+:::
 
 | Kapitola | Zdroj |
 | --- | --- |
@@ -36,13 +41,15 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | [10 · Tasky a XCom](/devops-notes/python-advanced/tasky-a-xcom/) | deň 2 — slajdy s. 9–13; prepis (stavy, logy, XCom, `dag.test()`, parametre) |
 | [11 · Connections a Variables](/devops-notes/python-advanced/connections-a-variables/) | deň 2 — slajdy s. 13–14, 21–23; prepis (Connections, hooky) |
 | [12 · Validácia dát](/devops-notes/python-advanced/validacia-dat/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 1. časti (schéma krok za krokom, jsonschemavalidator.net, CLI, Python) |
-| [13 · Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/) | deň 3 — prepis 1. časti (kam s cestou, `__file__`, pathlib, `constants.py`, importy); slajdy s. 7–8 (DRY, `tasks.py`, refaktoring) |
+| [13 · Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/) | deň 3 — prepis 1. časti (kam s cestou, `__file__`, pathlib, `constants.py`, importy); slajdy s. 7–8 (DRY, `tasks.py`, refaktoring); deň 4 — prepis (názvy spojení ako konštanty, `helpers.py`), slajdy s. 10–11 |
 | [14 · Logovanie a chyby](/devops-notes/python-advanced/logovanie-a-chyby/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 2. časti (úrovne, logger, `airflow.cfg`, stavový kód, `sys.exit` vs. výnimka, HTTPStatus) |
-| [15 · Healthcheck a retries](/devops-notes/python-advanced/healthcheck/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 2. časti (ping, `@task.bash`, sh, paralelné tasky, retries, RustFS lab); slajdy s. 2–3 (RustFS, task groups) |
-| [16 · S3 a boto3](/devops-notes/python-advanced/s3-a-boto3/) | deň 3 — slajdy s. 1, 4–7 (RustFS kompozícia, boto3, `publish_data`) |
-| [17 · Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/) | deň 3 — slajdy s. 3–4, 8–11 (Param, kontext, `.partial()`/`.expand()`, súbor pre mesto) |
+| [15 · Healthcheck a retries](/devops-notes/python-advanced/healthcheck/) | deň 2 — slajdy s. 14–21; deň 3 — prepis 2. časti (ping, `@task.bash`, sh, paralelné tasky, retries, RustFS lab); deň 4 — prepis (4 pokusy v UI) |
+| [16 · Skupiny taskov](/devops-notes/python-advanced/skupiny-taskov/) | deň 3 — slajdy s. 2–3; deň 4 — prepis 1. časti (task groups, skupina s parametrom, hľadanie chýb) |
+| [17 · S3 a boto3](/devops-notes/python-advanced/s3-a-boto3/) | deň 3 — slajdy s. 1, 4–7; deň 4 — prepis 1. a 2. časti (RustFS, boto3 v ipythone, lab `publish_data`, `mkstemp`, `NamedTemporaryFile`) |
+| [18 · Assety](/devops-notes/python-advanced/assety/) | deň 4 — prepis 2. časti (polling vs. notifikácia, Assets, `report_builder`, `helpers.py`); slajdy s. 1–2 (kostra `daily_report`) |
+| [19 · Dynamické mapovanie](/devops-notes/python-advanced/dynamicke-mapovanie/) | deň 3 — slajdy s. 3–4, 8–11 (na prednáške 5. deň) |
 | [08 · Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/) | doplnené z prepisu 3. dňa (systemd, paralelizmus) |
-| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26, deň 3 s. 12 |
+| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26, deň 3 s. 12; deň 4 z prepisu |
 
 ## Opravy oproti slajdom
 
@@ -72,3 +79,11 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 - Prednáška: task s `retries=3` sa spustil 4-krát — je to správne (prvý beh + 3 opakovania).
 - Prednáška: `from airflow.exceptions import AirflowFailException` v Airflow 3 hlási *deprecated*; správne `from airflow.sdk.exceptions import …`.
 - Prednáška: relatívny import `from .constants import …` v DAG súbore nefunguje ani s `dags/__init__.py` (*attempted relative import with no known parent package*); funguje `from constants import …`.
+
+### Deň 4 (overené na Airflow 3.3.2)
+
+- Prednáška: MinIO je napísané v **Go**, nie v Jave.
+- Slajdy importujú `from airflow.hooks.base import BaseHook` — v Airflow 3 hlási *deprecated*; správne `from airflow.sdk import BaseHook`. `logging.getLogger(__file__)` → bežne `__name__`.
+- `Asset(...)`: prvý pozičný parameter je `name`, nie `uri` — píš pomenované argumenty.
+- Skupina taskov, ktorá niečo vracia (`return data`), sa pri `>>` pripojí iba k tasku, ktorý tú hodnotu vytvoril — ostatné tasky skupiny nečakajú na predchodcov. Skupina reťazená cez `>>` nech nič nevracia.
+- Pokus s `NamedTemporaryFile` na kurze zlyhal na troch veciach (`download_file` chce cestu, textový režim namiesto binárneho, kurzor na konci súboru); funkčná verzia je v kapitole 17.

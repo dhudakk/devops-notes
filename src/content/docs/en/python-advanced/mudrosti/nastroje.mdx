@@ -109,3 +109,15 @@ You do not need to write a schema from scratch:
 - Claude or ChatGPT also add ranges and descriptions — just say it is a response from openweathermap.org.
 
 <p class="wisdom-day">Day 3</p>
+
+## mktemp for temporary files
+
+Bash scripts sometimes need a temporary file too. Do not make up a name — `mktemp` creates a file with a unique name in `/tmp` (`-d` a directory, `-u` only prints a name). The Python equivalent is `tempfile.mkstemp()`.
+
+<p class="wisdom-day">Day 4</p>
+
+## cloc — how much code we have
+
+`cloc` (*count lines of code*) counts lines of code per language. After day 4 the whole course project had about 200 lines of Python — and every module starts with several lines of imports.
+
+<p class="wisdom-day">Day 4</p>

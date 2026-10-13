@@ -1,6 +1,6 @@
 ---
 title: Healthchecks, Parallel Tasks, and Retries
-description: Checking that a service is up before downloading — ping via @task.bash and the sh module, HTTP /health; chaining with >>, parallel tasks in a list, retries (retries, retry_delay), task_display_name, and task groups.
+description: Checking that a service is up before downloading — ping via @task.bash and the sh module, HTTP /health; chaining with >>, parallel tasks in a list, retries (retries, retry_delay), and task_display_name.
 kind: chapter
 day: 3
 sidebar:
@@ -164,7 +164,7 @@ def is_service_alive() -> None:
     ...
 ```
 
-- **`retries=3`** = 3 **retries** after the first failed attempt, so **up to 4 runs**. (In the course the instructor wondered why the task ran 4 times — that is why.)
+- **`retries=3`** = 3 **retries** after the first failed attempt, so **up to 4 runs**. (On day 3 the instructor wondered why the task ran 4 times — that is why; on day 4 he showed it in the UI: each attempt has *Try Number* 1, 2, 3, 4.)
 - **`retry_delay`** is the pause between attempts, as a `timedelta` from the `datetime` module (not from `time`). Without it, `default_task_retry_delay` from the configuration applies — **300 s**.
 - While waiting for the next attempt, the task is in the **`up_for_retry`** state (yellow), and the tasks after it wait.
 - A retry follows an ordinary exception. **`AirflowFailException` skips retrying** — see [Logging and errors](/devops-notes/en/python-advanced/logovanie-a-chyby/#how-to-stop-a-task).
@@ -221,43 +221,7 @@ def main(query: str = "kosice,sk"):
 The slides use `httpx.head` — the server sends only headers without a body, which is enough for a healthcheck. It works only if the endpoint supports HEAD, though. If you want retries during an outage, use `AirflowException` and `retries`.
 </Solution>
 
-## Task groups
-
-*From the day 3 slides.* As healthchecks pile up, the graph gets cluttered. A **task group** groups tasks logically within a DAG — it does not affect execution and serves for:
-
-- better code organisation,
-- a clearer UI (the group can be collapsed and expanded in the graph),
-- grouping related steps.
-
-```python
-from airflow.sdk import task_group
-
-
-@task_group(
-    group_id="tg_healthcheck",
-    group_display_name="Healthcheck",
-    tooltip="Healthcheck of external services.",
-)
-def tg_healthcheck():
-    return [
-        is_service_alive_in_bash(),
-        is_service_alive(),
-        is_rustfs_alive(),
-    ]
-```
-
-You work with the group like with any task:
-
-```python
-@dag(...)
-def main(query: str = "kosice,sk"):
-    data = tg_healthcheck() >> scrape_data(query)
-    ...
-```
-
-<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, 'scrape_data', '…']} />
-
-Task IDs inside the group get the group's prefix: `tg_healthcheck.is_rustfs_alive` (turn it off with `prefix_group_id=False`). You can group downloading, processing, and publishing the same way — the example is in [Dynamic task mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/#the-weather-ingestion-group).
+As healthchecks pile up, you can group them into one “box” in the graph — see [Task groups](/devops-notes/en/python-advanced/skupiny-taskov/).
 
 ## Test yourself
 
@@ -287,10 +251,6 @@ The sh module creates a Python function from the `ping` command. The call runs `
 
 <Question q="Why is ping not a good healthcheck for a web service?">
 It only checks that the machine is reachable, not that the service runs on it. Also, some servers do not answer ping (ICMP) at all.
-</Question>
-
-<Question q="What is a task group for, and does it affect DAG execution?">
-It groups tasks logically (code, a clearer UI). It does not affect execution — you work with the group as with one task (`tg() >> next_task()`).
 </Question>
 
 ## Exercises

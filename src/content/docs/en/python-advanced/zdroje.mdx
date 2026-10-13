@@ -19,8 +19,13 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
 | 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 | 3 | [Day 3: Object Store (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.3.pdf) |
+| 4 | [Day 4: Processing Data (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.4.pdf) |
 
 ## Which chapter comes from where
+
+:::note[The day 4 slides]
+Most of the day 4 slides cover the **pandas** library (DataFrame, filtering, aggregations, serialisation through pyarrow) and a midnight report. The lecture skipped them for lack of time — so the day 4 notes follow the transcript (task groups, S3, assets). Only the `daily_report` skeleton and `helpers.py` come from the slides.
+:::
 
 | Chapter | Source |
 | --- | --- |
@@ -36,13 +41,15 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | [10 · Tasks and XCom](/devops-notes/en/python-advanced/tasky-a-xcom/) | day 2 — slides pp. 9–13; transcript (states, logs, XCom, `dag.test()`, parameters) |
 | [11 · Connections and Variables](/devops-notes/en/python-advanced/connections-a-variables/) | day 2 — slides pp. 13–14, 21–23; transcript (Connections, hooks) |
 | [12 · Data validation](/devops-notes/en/python-advanced/validacia-dat/) | day 2 — slides pp. 14–21; day 3 — transcript part 1 (the schema step by step, jsonschemavalidator.net, CLI, Python) |
-| [13 · Project structure](/devops-notes/en/python-advanced/struktura-projektu/) | day 3 — transcript part 1 (where to keep the path, `__file__`, pathlib, `constants.py`, imports); slides pp. 7–8 (DRY, `tasks.py`, refactoring) |
+| [13 · Project structure](/devops-notes/en/python-advanced/struktura-projektu/) | day 3 — transcript part 1 (where to keep the path, `__file__`, pathlib, `constants.py`, imports); slides pp. 7–8 (DRY, `tasks.py`, refactoring); day 4 — transcript (connection names as constants, `helpers.py`), slides pp. 10–11 |
 | [14 · Logging and errors](/devops-notes/en/python-advanced/logovanie-a-chyby/) | day 2 — slides pp. 14–21; day 3 — transcript part 2 (levels, logger, `airflow.cfg`, status code, `sys.exit` vs. an exception, HTTPStatus) |
-| [15 · Healthcheck and retries](/devops-notes/en/python-advanced/healthcheck/) | day 2 — slides pp. 14–21; day 3 — transcript part 2 (ping, `@task.bash`, sh, parallel tasks, retries, the RustFS lab); slides pp. 2–3 (RustFS, task groups) |
-| [16 · S3 and boto3](/devops-notes/en/python-advanced/s3-a-boto3/) | day 3 — slides pp. 1, 4–7 (RustFS compose, boto3, `publish_data`) |
-| [17 · Dynamic mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/) | day 3 — slides pp. 3–4, 8–11 (Param, context, `.partial()`/`.expand()`, a file per city) |
+| [15 · Healthcheck and retries](/devops-notes/en/python-advanced/healthcheck/) | day 2 — slides pp. 14–21; day 3 — transcript part 2 (ping, `@task.bash`, sh, parallel tasks, retries, the RustFS lab); day 4 — transcript (4 attempts in the UI) |
+| [16 · Task groups](/devops-notes/en/python-advanced/skupiny-taskov/) | day 3 — slides pp. 2–3; day 4 — transcript part 1 (task groups, a group with a parameter, finding errors) |
+| [17 · S3 and boto3](/devops-notes/en/python-advanced/s3-a-boto3/) | day 3 — slides pp. 1, 4–7; day 4 — transcript parts 1 and 2 (RustFS, boto3 in ipython, the `publish_data` lab, `mkstemp`, `NamedTemporaryFile`) |
+| [18 · Assets](/devops-notes/en/python-advanced/assety/) | day 4 — transcript part 2 (polling vs. notification, Assets, `report_builder`, `helpers.py`); slides pp. 1–2 (the `daily_report` skeleton) |
+| [19 · Dynamic mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/) | day 3 — slides pp. 3–4, 8–11 (lectured on day 5) |
 | [08 · Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/) | extended from the day 3 transcript (systemd, parallelism) |
-| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26, day 3 p. 12 |
+| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26, day 3 p. 12; day 4 from the transcript |
 
 ## Corrections to the slides
 
@@ -72,3 +79,11 @@ The API key from the slides and the lab machines' password and IP addresses are 
 - Lecture: a task with `retries=3` ran 4 times — that is correct (the first run + 3 retries).
 - Lecture: `from airflow.exceptions import AirflowFailException` reports *deprecated* in Airflow 3; use `from airflow.sdk.exceptions import …`.
 - Lecture: the relative import `from .constants import …` in a DAG file does not work even with `dags/__init__.py` (*attempted relative import with no known parent package*); `from constants import …` works.
+
+### Day 4 (verified on Airflow 3.3.2)
+
+- Lecture: MinIO is written in **Go**, not Java.
+- The slides import `from airflow.hooks.base import BaseHook` — deprecated in Airflow 3; use `from airflow.sdk import BaseHook`. `logging.getLogger(__file__)` → usually `__name__`.
+- `Asset(...)`: the first positional parameter is `name`, not `uri` — use keyword arguments.
+- A task group that returns something (`return data`) is attached by `>>` only to the task that produced that value — the group's other tasks do not wait for the predecessors. A group chained with `>>` should return nothing.
+- The `NamedTemporaryFile` attempt in the course failed on three things (`download_file` wants a path, text mode instead of binary, the cursor at the end of the file); a working version is in chapter 17.

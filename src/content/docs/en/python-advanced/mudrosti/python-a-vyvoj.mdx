@@ -189,3 +189,39 @@ For scripts and CLI tools he recommends the **loguru** library: `from loguru imp
 PyCharm is still the best environment for Python, but remote development (as in the course) needs a much better machine: it once took 2 GB of disk straight away and kept complaining about low resources. The VS Code server is more modest, although it grows too (1.1 GB on Mirek's machine). Remote development in PyCharm may need a paid licence.
 
 <p class="wisdom-day">Day 3</p>
+
+## Strings can be magic numbers too
+
+A typo in a string (`"openweathermpa"`) is not caught by the linter — it is a valid string. It crashes only at run time. Turn it into a constant (`WEATHER_CONN`) and the editor underlines a typo right away and offers the name in autocompletion.
+
+<p class="wisdom-day">Day 4</p>
+
+## Try it in ipython first
+
+Try a new library (e.g. boto3) interactively — no need to change the DAG and click Trigger. “Java people can only envy us, they are always just compiling and building.” Since Python 3.13 the plain `python` interpreter is also coloured and more comfortable, but perks like `object?` are ipython-only.
+
+<p class="wisdom-day">Day 4</p>
+
+## Find the error by bisecting
+
+When you do not know which line is to blame, comment out half (fill an empty block with `pass`) and watch whether the error disappears. Then half of the half — until you find it.
+
+<p class="wisdom-day">Day 4</p>
+
+## An underscore for a value you do not need
+
+`_, path = mkstemp()` — when a function returns several values and you do not need one, name it `_`. It is a valid variable name, and everyone understands you are ignoring it on purpose.
+
+<p class="wisdom-day">Day 4</p>
+
+## A variable lives in the whole function
+
+In C or Java a variable lives from the nearest block to its end, so a variable from `try` would not be visible in `finally`. In Python it lives in the whole function — something to get used to.
+
+<p class="wisdom-day">Day 4</p>
+
+## Vibe coding is powerful but dangerous
+
+Before you see the right result, you will see a million wrong ones — and you need to understand what is going on inside. AI can suggest an elegant solution (e.g. `NamedTemporaryFile`), but if you do not know how it works, you get stuck on the details.
+
+<p class="wisdom-day">Day 4</p>
