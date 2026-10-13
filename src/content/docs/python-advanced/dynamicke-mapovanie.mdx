@@ -4,8 +4,8 @@ description: Počasie pre viac miest naraz — vstupné parametre DAG-u (Param),
 kind: chapter
 day: 3
 sidebar:
-  order: 17
-  label: 17 · Dynamické mapovanie
+  order: 19
+  label: 19 · Dynamické mapovanie
 ---
 
 import KeyPoints from '../../../components/KeyPoints.astro';
@@ -14,7 +14,7 @@ import Solution from '../../../components/Solution.astro';
 import Pipeline from '../../../components/Pipeline.astro';
 
 :::note[Zo slajdov 3. dňa]
-Táto kapitola je zo slajdov 3. dňa; na prednáške sa jej venujeme na 4. deň. Celý projekt na konci je odskúšaný na Airflow 3.3.2.
+Táto kapitola je zo slajdov 3. dňa; na prednáške sa jej venujeme na 5. deň. Projekt na konci zodpovedá slajdom 3. dňa a je odskúšaný na Airflow 3.3.2 — úpravy zo 4. dňa (`helpers.py`, assety, názvy spojení v konštantách) sú v kapitole [Assety](/devops-notes/python-advanced/assety/).
 :::
 
 <KeyPoints>
@@ -126,7 +126,7 @@ Celý task je v projekte nižšie.
 
 ## Skupina Weather Ingestion
 
-Aj sťahovanie, validáciu, spracovanie a publikovanie môžeš zoskupiť do [task group](/devops-notes/python-advanced/healthcheck/#skupiny-taskov-task-groups):
+Aj sťahovanie, validáciu, spracovanie a publikovanie môžeš zoskupiť do [task group](/devops-notes/python-advanced/skupiny-taskov/):
 
 ```python
 @task_group(
@@ -140,13 +140,14 @@ def weather_ingestion():
     valid_data = validate_data.expand(payload=data)
     entries = process_data.expand(data=valid_data)
     publish_data.expand(entry=entries)
-    return data
 
 
 @dag(...)
 def main():
     tg_healthcheck() >> weather_ingestion()
 ```
+
+Skupina zámerne **nič nevracia** (na slajdoch je na konci `return data`): keď skupina vráti hodnotu, `>>` sa pripojí iba k tasku, ktorý ju vytvoril, a `get_locations` by sa spustil bez čakania na healthchecky — pozri [Skupiny taskov](/devops-notes/python-advanced/skupiny-taskov/#skupina-s-parametrom).
 
 <Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'openweathermap', 'rustfs'] }, { group: 'Weather Ingestion', steps: ['get_locations', 'scrape … publish [0..N]'] }]} />
 
@@ -421,7 +422,7 @@ Inštancie `publish_data` bežia paralelne a „stiahni → pripíš → nahraj�
 
 ## Cvičenia
 
-### 17.1 · Mestá bez duplicít
+### 19.1 · Mestá bez duplicít
 
 Uprav `get_locations()`, aby odstránil prázdne riadky a medzery okolo názvov, zmenil názvy na malé písmená a vyradil duplicity (poradie zachovaj).
 

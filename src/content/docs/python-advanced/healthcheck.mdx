@@ -1,6 +1,6 @@
 ---
 title: Healthcheck, paralelné tasky a opakovanie
-description: Overenie dostupnosti služby pred sťahovaním — ping cez @task.bash a modul sh, HTTP /health; reťazenie operátorom >>, paralelné tasky v zozname, opakovanie (retries, retry_delay), task_display_name a skupiny taskov (task groups).
+description: Overenie dostupnosti služby pred sťahovaním — ping cez @task.bash a modul sh, HTTP /health; reťazenie operátorom >>, paralelné tasky v zozname, opakovanie (retries, retry_delay) a task_display_name.
 kind: chapter
 day: 3
 sidebar:
@@ -164,7 +164,7 @@ def is_service_alive() -> None:
     ...
 ```
 
-- **`retries=3`** = 3 **opakovania** po prvom neúspešnom pokuse, teda **až 4 behy**. (Lektor sa na kurze čudoval, prečo sa task spustil 4-krát — práve preto.)
+- **`retries=3`** = 3 **opakovania** po prvom neúspešnom pokuse, teda **až 4 behy**. (Lektor sa na 3. deň čudoval, prečo sa task spustil 4-krát — práve preto; na 4. deň to ukázal v UI: pri každom pokuse je *Try Number* 1, 2, 3, 4.)
 - **`retry_delay`** je pauza medzi pokusmi ako `timedelta` z modulu `datetime` (nie z `time`). Bez nej platí `default_task_retry_delay` z konfigurácie — **300 s**.
 - Kým čaká na ďalší pokus, task je v stave **`up_for_retry`** (žltá) a tasky za ním čakajú.
 - Opakuje sa po bežnej výnimke. **`AirflowFailException` opakovanie preskočí** — pozri [Logovanie a chyby](/devops-notes/python-advanced/logovanie-a-chyby/#ako-zastaviť-task).
@@ -221,43 +221,7 @@ def main(query: str = "kosice,sk"):
 Na slajdoch je `httpx.head` — server pošle iba hlavičky bez tela, na healthcheck to stačí. Funguje však iba vtedy, ak koncový bod HEAD podporuje. Ak chceš opakovanie pri výpadku, použi `AirflowException` a `retries`.
 </Solution>
 
-## Skupiny taskov (task groups)
-
-*Zo slajdov 3. dňa.* Keď healthcheckov pribúda, graf znepreľadňuje. **Task group** logicky zoskupí tasky v DAG-u — na vykonávanie nemá vplyv, slúži na:
-
-- lepšiu organizáciu kódu,
-- prehľadnejšie UI (skupina sa v grafe dá zbaliť a rozbaliť),
-- zoskupenie súvisiacich krokov.
-
-```python
-from airflow.sdk import task_group
-
-
-@task_group(
-    group_id="tg_healthcheck",
-    group_display_name="Healthcheck",
-    tooltip="Healthcheck of external services.",
-)
-def tg_healthcheck():
-    return [
-        is_service_alive_in_bash(),
-        is_service_alive(),
-        is_rustfs_alive(),
-    ]
-```
-
-So skupinou sa pracuje ako s ktorýmkoľvek taskom:
-
-```python
-@dag(...)
-def main(query: str = "kosice,sk"):
-    data = tg_healthcheck() >> scrape_data(query)
-    ...
-```
-
-<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, 'scrape_data', '…']} />
-
-ID taskov v skupine dostanú predponu skupiny: `tg_healthcheck.is_rustfs_alive` (vypneš ju cez `prefix_group_id=False`). Rovnako môžeš zoskupiť aj sťahovanie, spracovanie a publikovanie — ukážka je v kapitole [Dynamické mapovanie taskov](/devops-notes/python-advanced/dynamicke-mapovanie/#skupina-weather-ingestion).
+Keď healthcheckov pribúda, dajú sa zoskupiť do jednej „krabičky“ v grafe — pozri [Skupiny taskov](/devops-notes/python-advanced/skupiny-taskov/).
 
 ## Otestuj sa
 
@@ -287,10 +251,6 @@ Modul sh vytvorí z príkazu `ping` Python funkciu. Volanie spustí `ping -c 1 <
 
 <Question q="Prečo ping nie je dobrý healthcheck webovej služby?">
 Overí iba, že je dostupný stroj, nie že na ňom beží služba. Navyše niektoré servery na ping (ICMP) neodpovedajú vôbec.
-</Question>
-
-<Question q="Na čo slúži task group a ovplyvňuje vykonávanie DAG-u?">
-Logicky zoskupí tasky (kód, prehľadnosť UI). Vykonávanie neovplyvňuje — so skupinou sa pracuje ako s jedným taskom (`tg() >> next_task()`).
 </Question>
 
 ## Cvičenia

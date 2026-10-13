@@ -1,6 +1,6 @@
 ---
 title: Štruktúra projektu — cesty, konštanty a moduly
-description: Kam s cestou k dátam (nie absolútna, nie Variable), špeciálne premenné __file__ a __name__, modul pathlib, constants.py a tasks.py v priečinku dags, poradie importov a prečo relatívny import v dags nejde.
+description: Kam s cestou k dátam (nie absolútna, nie Variable), špeciálne premenné __file__ a __name__, modul pathlib, constants.py, tasks.py a helpers.py v priečinku dags, názvy spojení ako konštanty, poradie importov a prečo relatívny import v dags nejde.
 kind: chapter
 day: 3
 sidebar:
@@ -18,7 +18,7 @@ import Solution from '../../../components/Solution.astro';
 - S cestami pracuj cez **`pathlib.Path`**, nie ako s reťazcami: `/` skladá cesty, `.parent`, `.name`, `.suffix`, `.exists()`, `.mkdir(parents=True)`.
 - Poradie importov: **štandardná knižnica → knižnice tretích strán → vlastné moduly**, skupiny oddelené prázdnym riadkom.
 - Airflow pridá priečinok `dags/` do `sys.path`, takže funguje **`from constants import DATA_PATH`**. Relatívny `from .constants import …` v DAG súbore **nefunguje**.
-- Opakovaný kód (DRY) vytiahni do vlastných modulov: `constants.py` pre konštanty, `tasks.py` pre zdieľané tasky.
+- Opakovaný kód (DRY) vytiahni do vlastných modulov: `constants.py` pre konštanty (aj **názvy spojení**), `tasks.py` pre zdieľané tasky, `helpers.py` pre pomocné funkcie (`get_storage()`).
 </KeyPoints>
 
 ## Problém: kde sú súbory
@@ -198,7 +198,7 @@ Airflow totiž DAG súbory nenačítava ako súčasť balíka `dags`, ale ako sa
 
 ## DRY: modul tasks.py
 
-Keď neskôr pribudnú ďalšie DAG-y, tasky ako healthcheck RustFS by sme kopírovali do každého. Riešenie je rovnaké ako pri konštantách — **vlastný modul**:
+Keď pribudnú ďalšie DAG-y, tasky ako healthcheck RustFS by sme kopírovali do každého. Presne to sa stalo na 4. deň: nový DAG `report_builder` potreboval ten istý healthcheck a najrýchlejšie bolo celý task skopírovať — čím sme (znova) porušili DRY. Riešenie je rovnaké ako pri konštantách — **vlastný modul**:
 
 ```python title="dags/tasks.py"
 """Tasks shared by several DAGs."""
@@ -210,7 +210,7 @@ import httpx
 from airflow.sdk import BaseHook, task
 from airflow.sdk.exceptions import AirflowFailException
 
-from constants import STORAGE_CONN
+from constants import S3_CONN
 
 logger = logging.getLogger(__name__)
 
@@ -218,13 +218,13 @@ logger = logging.getLogger(__name__)
 @task(task_display_name="RustFS Healthcheck")
 def is_rustfs_alive() -> None:
     logger.info("RustFS Healthcheck")
-    conn = BaseHook.get_connection(STORAGE_CONN)
+    conn = BaseHook.get_connection(S3_CONN)
     response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
     if response.status_code != HTTPStatus.OK:
         raise AirflowFailException("RustFS is unhealthy.")
 ```
 
-V DAG-u: `from tasks import is_rustfs_alive`. Názvy spojení (`"openweathermap"`, `"rustfs"`) sa tiež opakujú — patria do `constants.py`.
+V oboch DAG-och potom: `from tasks import is_rustfs_alive`. Čokoľvek v tasku opravíš (napr. vágnu hlášku *„Something wrong happened“*), prejaví sa všade, kde sa používa. Spoločný task patrí do samostatného modulu, nie do jedného z DAG-ov, z ktorého by ho importovali ostatné.
 
 **Refaktoring** = zmena štruktúry kódu **bez zmeny jeho správania** (*Refactoring is the process of restructuring existing source code without changing its external behavior.*). Postup:
 
@@ -232,6 +232,65 @@ V DAG-u: `from tasks import is_rustfs_alive`. Názvy spojení (`"openweathermap"
 2. v pôvodnom module ju zmaž,
 3. importuj ju z nového modulu,
 4. over, že DAG robí presne to, čo predtým.
+
+## Názvy spojení ako konštanty
+
+*4. deň.* Reťazec `"openweathermap"` sa v kóde objavil trikrát. Pri reťazcoch je zákerný problém: preklep `"openweathermpa"` je stále platný reťazec, takže linter ani VS Code nič nehlásia. Zrúti sa to až **za behu**, keď `BaseHook.get_connection()` spojenie s takým menom nenájde.
+
+Z názvu spojenia preto spravíme konštantu:
+
+```python title="dags/constants.py"
+# Airflow Connection IDs
+WEATHER_CONN = "openweathermap"
+S3_CONN = "rustfs"
+
+# S3 (RustFS)
+BUCKET_NAME = "datasets"        # na kurze vlastný bucket každého účastníka
+DATASET_FILE = "dataset.csv"
+```
+
+```python
+conn = BaseHook.get_connection(WEATHER_CONN)
+```
+
+Výhody:
+
+- hodnota je definovaná na **jednom mieste** (DRY) — keď sa zmení konvencia pomenovania spojení, meníš jeden riadok, nehľadáš všetky výskyty,
+- `WEATHER_CONN` je **názov premennej** — preklep VS Code hneď podčiarkne a pri písaní ho ponúkne v automatickom dopĺňaní.
+
+Je to to isté pravidlo ako pri „bulharských konštantách“ (`HTTPStatus.OK` namiesto `200`) — tentoraz pre reťazce. Rovnako dopadli aj `BUCKET_NAME` a `DATASET_FILE`, ktoré používajú oba DAG-y.
+
+## helpers.py: pripojenie k S3 na jednom mieste
+
+*4. deň.* Vytvorenie `boto3.resource(...)` zo spojenia sa opakovalo vo `weather_scraper.py` aj v novom `report_builder.py`. Zabalíme ho do funkcie, ktorá vráti hotový objekt úložiska, a dáme ju do modulu **`helpers.py`** — bežný názov modulu s pomocnými funkciami:
+
+```python title="dags/helpers.py"
+"""Helper functions shared by several DAGs."""
+
+import boto3
+from airflow.sdk import BaseHook
+
+from constants import S3_CONN
+
+
+def get_storage():
+    """Return a boto3 S3 resource for the RustFS connection."""
+    conn = BaseHook.get_connection(S3_CONN)
+    return boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+```
+
+V taskoch potom stačí `bucket = get_storage().Bucket(BUCKET_NAME)`. Ak bude treba pridať ďalší parameter pripojenia, meníš ho na jednom mieste.
+
+Po každom takom presune ostanú v pôvodnom súbore **nepoužívané importy** — VS Code ich zobrazí sivou. Odstrániš ich cez *Quick Fix → Remove unused imports* (na kurze VS Code nevedel odstrániť všetky naraz, PyCharm to robí lepšie), alebo:
+
+```bash
+ruff check --select F401 --fix dags/     # F401 = imported but unused
+```
 
 ## Otestuj sa
 
@@ -253,6 +312,10 @@ Variable sa dá zmeniť za behu DAG-u (časť taskov by použila starú a časť
 
 <Question q="Čo je ekvivalentom `mkdir -p` v pathlib?">
 `cesta.mkdir(parents=True)` — vytvorí aj chýbajúce rodičovské priečinky. S `exist_ok=True` nezlyhá, ak už priečinok existuje.
+</Question>
+
+<Question q='Prečo je lepšie `get_connection(WEATHER_CONN)` ako `get_connection("openweathermap")`?'>
+Preklep v reťazci sa prejaví až za behu (spojenie sa nenájde). Preklep v názve premennej editor hneď podčiarkne a hodnota je definovaná na jednom mieste.
 </Question>
 
 <Question q="V akom poradí patria importy?">

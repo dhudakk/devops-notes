@@ -1,0 +1,511 @@
+---
+title: Assety — DAG spúšťaný dátami
+description: Ako spustiť report hneď po aktualizácii dát — plánovanie časom vs. polling vs. notifikácia (observer, producer–consumer); Airflow Assets (outlets, schedule=[asset]), DAG report_builder a celý projekt po 4. dni.
+kind: chapter
+day: 4
+sidebar:
+  order: 18
+  label: 18 · Assety
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- Druhý DAG má bežať **hneď po** tom, čo prvý aktualizuje dáta. Pevný čas („každú 21. minútu“) je modlenie, **polling** plytvá zdrojmi — treba **notifikáciu** (observer, producer–consumer).
+- V Airflow na to slúžia **Assets** (v Airflow 2 *Datasets*): logické označenie dát, ktoré jeden DAG vyrába a iný spotrebúva.
+- `WEATHER_DATA = Asset(uri="s3://bucket/dataset.csv", name="weather_data")` — v samostatnom module `assets.py`.
+- **Producent**: `@task(outlets=[WEATHER_DATA])` — po úspešnom skončení tasku vznikne udalosť assetu.
+- **Konzument**: `@dag(schedule=[WEATHER_DATA])` — DAG sa spustí po udalosti; v UI má run ID `asset_triggered__…`.
+- URI je len **informácia** — Airflow nič nesťahuje ani nekontroluje. Signál ide cez objekt assetu.
+</KeyPoints>
+
+## Problém: report po aktualizácii dát
+
+`weather_scraper` každých 20 minút stiahne počasie a pripíše ho do datasetu v S3. Teraz chceme, aby sa po každej aktualizácii spustil **ďalší DAG** — `report_builder` — a z najnovších dát vytvoril report (napr. stránku s aktuálnym počasím pre používateľov). Neskôr pribudne aj polnočný report za celý deň.
+
+Kedy má `report_builder` bežať?
+
+| Nápad | Problém |
+| --- | --- |
+| **cron** o minútu neskôr (`21 * * * *`…) | „budeme sa modliť“, aby scraper skončil do minúty. Healthchecky aj sťahovanie sú dlhotrvajúce operácie — môžu trvať sekundu, ale aj 10 minút. Keď to nestihne, report vznikne zo starých dát. |
+| **polling** — každú minútu sa pozrieť, či sa dataset zmenil | plytvanie zdrojmi: 60 kontrol za hodinu, pričom zmena nastane 3-krát. 57 kontrol je zbytočných. |
+| **notifikácia** — prvý DAG dá druhému vedieť, že skončil | ✔ druhý DAG beží presne vtedy, keď treba |
+
+### Polling vs. notifikácia
+
+**Polling** je Somár (v českom dabingu Oslík) zo Shreka 2 na ceste do Far Far Away: *„Už sme tam? Kedy tam budeme?“* — neustále dopytovanie sa, či udalosť už nastala.
+
+**Notifikácia** je sprievodca v nočnom vlaku. Lístok mu dáš pri nástupe a on ťa zobudí polhodinu pred tvojou stanicou — či vlak prichádza o 5:30, alebo pre poruchu rušňa o 9:30. Budík nastavený na 5:30 (cron) by ťa zobudil niekde na hranici. Lístkom si sa vlastne **prihlásil na odber udalosti**.
+
+Ten istý princíp má v informatike viac mien:
+
+- **prerušenie** (*interrupt*) v elektronike — robíš svoju prácu, kým ťa niekto „nepingne“ (stlačené tlačidlo, senzor),
+- návrhový vzor **observer** (pozorovateľ) v objektovom programovaní,
+- **producer–consumer** (producent–konzument): jeden proces niečo vyrobí a dá vedieť druhému, že môže začať.
+
+## Assets v Airflow
+
+V Airflow 3 sa tento mechanizmus volá **Assets** (v Airflow 2 *Datasets*). Asset je **logické zoskupenie dát** — pomenovanie dát, ktoré producent aktualizuje a ktorých aktualizácia spúšťa konzumentov.
+
+<Pipeline steps={['weather_scraper · publish_data', 'asset weather_data', 'report_builder']} caption="Producent → asset → konzument. V UI to uvidíš v sekcii Assets." />
+
+### 1. Definícia assetu
+
+Asset budú používať viaceré DAG-y, takže ho dáme do samostatného modulu:
+
+```python title="dags/assets.py"
+from airflow.sdk import Asset
+
+from constants import BUCKET_NAME, DATASET_FILE
+
+WEATHER_DATA = Asset(
+    uri=f"s3://{BUCKET_NAME}/{DATASET_FILE}",
+    name="weather_data",
+)
+```
+
+| Parameter | Význam |
+| --- | --- |
+| `uri` | *Uniform Resource Identifier* — jednoznačné označenie zdroja. Nie URL (adresa na webe): môže to byť súbor, objekt v S3, tabuľka… |
+| `name` | „strojový“ názov assetu v UI. Bez neho sa použije URI. |
+
+- URI je pre nás **informácia**, čoho sa asset týka. Airflow podľa nej nič nesťahuje ani nekontroluje — DAG-y spolu komunikujú cez **objekt** `WEATHER_DATA`. Notifikácia by prišla, aj keby v URI bolo čokoľvek iné.
+- Schéma `airflow://` je vyhradená (`ValueError: Asset scheme 'airflow' is reserved`). Pre vlastné schémy dokumentácia odporúča prefix `x-` (ako vlastné HTTP hlavičky).
+- Pozor: **prvý pozičný parameter je `name`**, nie `uri`. `Asset("s3://…")` nastaví meno aj URI na ten istý reťazec. Píš pomenované argumenty.
+
+### 2. Konzument: DAG spúšťaný assetom
+
+```python
+from assets import WEATHER_DATA
+
+
+@dag(
+    "report_builder",
+    dag_display_name="Report Builder",
+    description="Builds report from the latest weather information.",
+    schedule=[WEATHER_DATA],          # instead of cron
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+)
+def main():
+    ...
+```
+
+`schedule` je **zoznam** — DAG môže závisieť od viacerých assetov naraz. Ak chceš DAG obmedziť na určité obdobie, má aj `end_date` (po ňom sa už nespustí).
+
+Po načítaní je nový DAG **pozastavený** — v zozname DAG-ov prepni filter na *All* a zapni ho. V stĺpci *Schedule* nebude cron, ale `weather_data`, a nebude mať *Next Run* — nečaká na čas, ale na asset.
+
+### 3. Producent: outlets
+
+Asset aktualizuje task, ktorý dataset zapisuje — `publish_data`:
+
+```python
+from assets import WEATHER_DATA
+
+
+@task(task_display_name="Publish Data", outlets=[WEATHER_DATA])
+def publish_data(line: str) -> None:
+    ...
+```
+
+`outlets` (výstupy) = zoznam assetov, ktoré task po **úspešnom** skončení „pingne“. Či a kam sa naozaj niečo zapísalo, Airflow nerieši.
+
+### Čo uvidíš v UI
+
+- Po skončení `weather_scraper` sa sám spustí `report_builder`. V mriežke behov má iná ikona: ručné spustenie (▶), plánované (bez ikonky) a **spustené assetom**. Run ID začína **`asset_triggered__`**.
+- Pri behu nájdeš **Asset Events** — ktorý asset, zdrojový DAG a task a ktorý DAG run spustil.
+- V sekcii **Assets** klikni na `weather_data` — graf producent → asset → konzument a história udalostí.
+
+:::caution[Keď sa konzument nespustí]
+Na kurze u účastníčky asset nemal producenta: v `publish_data` chýbal parameter `outlets=[...]` (a import assetu). V sekcii *Assets* je to vidno — asset má konzumenta, ale žiadny task ho neaktualizuje. Druhý častý problém: `assets.py` nebol uložený.
+:::
+
+Overené na Airflow 3.3.2 so skutočným plánovačom (`airflow standalone`): po každom úspešnom behu `weather_scraper` vznikol beh `report_builder` s ID `asset_triggered__…`.
+
+## DAG report_builder
+
+Najprv iba jeden task, ktorý zaloguje *ping* — na overenie, že spúšťanie assetom funguje. Potom:
+
+1. **healthcheck RustFS** — keď úložisko nebeží, nemáme odkiaľ čítať ani kam zapisovať. Task `is_rustfs_alive` už máme — patrí do zdieľaného modulu [`tasks.py`](/devops-notes/python-advanced/struktura-projektu/#dry-modul-taskspy), nie skopírovaný do nového DAG-u,
+2. **build_report** — stiahne dataset do dočasného súboru; ak tam nie je, skončí s `AirflowFailException` (*nothing to do*); potom príde samotný report („magic“, pokračovanie na 5. deň); nakoniec vo `finally` zmaže dočasný súbor.
+
+```python title="dags/report_builder.py"
+"""Report builder: runs whenever the weather scraper updates the dataset (asset)."""
+
+import logging
+from pathlib import Path
+from tempfile import mkstemp
+
+from airflow.sdk import dag, task
+from airflow.sdk.exceptions import AirflowFailException
+from botocore.exceptions import ClientError
+from pendulum import datetime
+
+from assets import WEATHER_DATA
+from constants import BUCKET_NAME, DATASET_FILE
+from helpers import get_storage
+from tasks import is_rustfs_alive
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="Build Report")
+def build_report() -> None:
+    # download
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    _, temp_name = mkstemp(prefix="report-", suffix=".csv")
+    path = Path(temp_name)
+    try:
+        try:
+            bucket.download_file(DATASET_FILE, str(path))
+        except ClientError as error:
+            logger.warning("Dataset file not found. Nothing to do.")
+            raise AirflowFailException("Dataset file not found.") from error
+
+        # magic — the report itself comes next time; for now log the latest measurement
+        lines = path.read_text(encoding="utf-8").splitlines()
+        logger.info("Latest measurement: %s", lines[-1])
+    finally:
+        # cleanup
+        path.unlink(missing_ok=True)
+
+
+@dag(
+    "report_builder",
+    dag_display_name="Report Builder",
+    description="Builds report from the latest weather information.",
+    schedule=[WEATHER_DATA],
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops", "report"],
+    catchup=False,
+)
+def main():
+    is_rustfs_alive() >> build_report()
+
+
+main()
+```
+
+<Pipeline steps={['is_rustfs_alive', 'build_report']} />
+
+## Celý projekt po 4. dni
+
+```text
+~/airflow/
+├── dags/
+│   ├── constants.py        ← cesty, názvy spojení, bucket, súbor
+│   ├── helpers.py          ← get_storage()
+│   ├── assets.py           ← WEATHER_DATA
+│   ├── tasks.py            ← is_rustfs_alive (zdieľaný)
+│   ├── weather_scraper.py  ← producent
+│   └── report_builder.py   ← konzument
+├── data/
+│   └── openweathermap.schema.json
+└── ruff.toml               ← src = ["dags"]
+```
+
+Balíky: `pip install apache-airflow httpx jsonschema pendulum boto3`. Spojenia `openweathermap` a `rustfs`, Variable `weather_city`.
+
+```python title="dags/constants.py"
+"""Values shared by all DAGs. Python has no real constants — UPPER_CASE is the convention."""
+
+from pathlib import Path
+
+# ~/airflow — derived from this file's location, so it works wherever Airflow lives
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"
+SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+
+# Airflow Connection IDs
+WEATHER_CONN = "openweathermap"
+S3_CONN = "rustfs"
+
+# S3 (RustFS)
+BUCKET_NAME = "datasets"
+DATASET_FILE = "dataset.csv"
+CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+```
+
+```python title="dags/helpers.py"
+"""Helper functions shared by several DAGs."""
+
+import boto3
+from airflow.sdk import BaseHook
+
+from constants import S3_CONN
+
+
+def get_storage():
+    """Return a boto3 S3 resource for the RustFS connection."""
+    conn = BaseHook.get_connection(S3_CONN)
+    return boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+```
+
+```python title="dags/assets.py"
+"""Assets shared between DAGs: producers update them, consumers are scheduled by them."""
+
+from airflow.sdk import Asset
+
+from constants import BUCKET_NAME, DATASET_FILE
+
+WEATHER_DATA = Asset(
+    uri=f"s3://{BUCKET_NAME}/{DATASET_FILE}",
+    name="weather_data",
+)
+```
+
+```python title="dags/tasks.py"
+"""Tasks shared by several DAGs."""
+
+import logging
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import BaseHook, task
+from airflow.sdk.exceptions import AirflowFailException
+
+from constants import S3_CONN
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection(S3_CONN)
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health", timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException(f"RustFS is unhealthy: HTTP {response.status_code}")
+```
+
+```python title="dags/weather_scraper.py"
+"""Weather scraper: healthchecks -> scrape -> validate -> process -> publish to S3."""
+
+import json
+import logging
+from datetime import timedelta
+from http import HTTPStatus
+from pathlib import Path
+from tempfile import mkstemp
+
+import httpx
+import jsonschema
+from airflow.sdk import BaseHook, Variable, dag, task, task_group
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+from botocore.exceptions import ClientError
+from pendulum import datetime, from_timestamp
+
+from assets import WEATHER_DATA
+from constants import BUCKET_NAME, CSV_HEADER, DATASET_FILE, SCHEMA_PATH, WEATHER_CONN
+from helpers import get_storage
+from tasks import is_rustfs_alive
+
+logger = logging.getLogger(__name__)
+
+
+@task.bash(task_display_name="Ping OpenWeatherMap")
+def is_service_alive_in_bash() -> str:
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    return f"ping -c 1 -w 2 {conn.host}"
+
+
+@task(
+    task_display_name="OpenWeatherMap Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=10),
+)
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    response = httpx.head(url, follow_redirects=True, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"OpenWeatherMap unavailable: HTTP {response.status_code}")
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    logger.info("Scraping data for %s", query)
+    conn = BaseHook.get_connection(WEATHER_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        logger.warning("OpenWeatherMap answered HTTP %s", response.status_code)
+        raise AirflowFailException(f"Cannot get weather for {query}: {response.text}")
+    return response.json()
+
+
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+
+
+@task(task_display_name="Process Data")
+def process_data(data: dict) -> str:
+    values = [
+        from_timestamp(data["dt"]).to_iso8601_string(),
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ",".join(str(value) for value in values)
+
+
+@task(task_display_name="Publish Data", outlets=[WEATHER_DATA])
+def publish_data(line: str) -> None:
+    """Download the dataset from S3, append the line, upload it back."""
+    bucket = get_storage().Bucket(BUCKET_NAME)
+    _, temp_name = mkstemp(prefix="weather-", suffix=".csv")  # _ = fd we do not need
+    path = Path(temp_name)
+    try:
+        try:
+            bucket.download_file(DATASET_FILE, str(path))
+        except ClientError:
+            logger.warning("Dataset file not found, probably first dataset upload.")
+            with open(path, "w", encoding="utf-8") as file:
+                print(CSV_HEADER, file=file)
+
+        with open(path, "a", encoding="utf-8") as file:
+            print(line, file=file)
+
+        bucket.upload_file(str(path), DATASET_FILE)
+        logger.info("Dataset uploaded to s3://%s/%s", BUCKET_NAME, DATASET_FILE)
+    finally:
+        path.unlink(missing_ok=True)  # runs even when something above fails
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
+
+
+@task_group(
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
+)
+def tg_weather_ingestion(query: str):
+    data = scrape_data(query)
+    valid_data = validate_data(data)
+    line = process_data(valid_data)
+    publish_data(line)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops"],
+    catchup=False,
+)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    tg_healthcheck() >> tg_weather_ingestion(query)
+
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+**Ako odskúšané:** Airflow 3.3.2 cez `airflow standalone` (plánovač, executor, API server), lokálna náhrada OpenWeatherMap a S3 cez moto. Dva behy `weather_scraper`: prvý zalogoval *Dataset file not found, probably first dataset upload* a vytvoril `dataset.csv` s hlavičkou, druhý pripísal riadok. Každý spustil `report_builder` (`asset_triggered__…`), ktorý zalogoval posledné meranie. V dočasnom priečinku neostali žiadne súbory.
+
+## Otestuj sa
+
+<Question q="Prečo nespúšťať report builder cronom o minútu neskôr ako scraper?">
+Scraper môže trvať dlhšie (healthchecky, retries, pomalá služba). Keď nestihne skončiť, report vznikne zo starých dát.
+</Question>
+
+<Question q="Čo je polling a prečo je horší ako notifikácia?">
+Pravidelné dopytovanie sa, či udalosť nastala („Už sme tam?“). Väčšina kontrol je zbytočná a udalosť zistíš až pri najbližšej kontrole. Pri notifikácii ťa producent upozorní presne vtedy, keď sa udalosť stane.
+</Question>
+
+<Question q="Ako sa v Airflow 3 volá mechanizmus, ktorým jeden DAG spustí iný po aktualizácii dát, a ako sa volal v Airflow 2?">
+Assets; v Airflow 2 Datasets.
+</Question>
+
+<Question q="Ktorý parameter dá producent a ktorý konzument?">
+Producent (task): `outlets=[WEATHER_DATA]`. Konzument (DAG): `schedule=[WEATHER_DATA]`.
+</Question>
+
+<Question q="Skontroluje Airflow, že súbor v URI assetu naozaj existuje alebo sa zmenil?">
+Nie. URI je len informácia; udalosť vznikne po úspešnom skončení tasku s `outlets`, bez ohľadu na to, čo task naozaj zapísal.
+</Question>
+
+<Question q='Čo nastaví `Asset("s3://datasets/dataset.csv")`?'>
+Prvý pozičný parameter je `name`, takže meno aj URI budú `s3://datasets/dataset.csv`. Lepšie písať `Asset(uri=..., name=...)`.
+</Question>
+
+<Question q="Podľa čoho v UI poznáš beh spustený assetom?">
+Podľa ikony v mriežke behov a run ID s predponou `asset_triggered__`; pri behu sú aj Asset Events.
+</Question>
+
+## Cvičenia
+
+### 18.1 · Polnočný report
+
+Pridaj DAG `daily_report`, ktorý beží každý deň 5 minút po polnoci (UTC), bez catchup, a skladá sa z taskov `is_rustfs_alive` → `extract_yesterday_data` → `create_report` (zatiaľ prázdne). Prečo tu cron dáva zmysel a asset nie?
+
+<Solution>
+```python
+from airflow.sdk import dag, task
+from pendulum import datetime
+
+from tasks import is_rustfs_alive
+
+
+@task(task_display_name="Extract data from yesterday")
+def extract_yesterday_data() -> None:
+    pass
+
+
+@task(task_display_name="Create Report")
+def create_report() -> None:
+    pass
+
+
+@dag(
+    "daily_report",
+    dag_display_name="Daily Report",
+    description="Creates daily weather report.",
+    schedule="5 0 * * *",
+    start_date=datetime(2026, 1, 1, tz="UTC"),
+    tags=["weather", "devops", "daily"],
+    catchup=False,
+)
+def main():
+    is_rustfs_alive() >> extract_yesterday_data() >> create_report()
+
+
+main()
+```
+
+Denný report závisí od **času** (koniec dňa), nie od jednej aktualizácie dát — po každom asset evente by vznikol 72-krát denne. Kostra je zo slajdov 4. dňa; spracovanie dát (pandas) sa na prednáške nebralo.
+</Solution>

@@ -376,6 +376,108 @@ ping("-c", 1, host, _timeout=3)
 
 </div>
 
+## Skupiny taskov, S3 a assety
+
+<div class="sheet-grid">
+
+```python title="Task groups" wrap
+from airflow.sdk import task_group
+
+@task_group(group_id="tg_healthcheck",
+            group_display_name="Healthcheck",
+            tooltip="Healthcheck of external services.")
+def tg_healthcheck():
+    return [ping_owm(), is_rustfs_alive()]
+
+@task_group(group_display_name="Weather Ingestion")
+def tg_weather_ingestion(query: str):
+    publish_data(process_data(scrape_data(query)))
+    # nič nevracaj, ak skupinu reťazíš cez >>
+
+tg_healthcheck() >> tg_weather_ingestion(query)
+```
+
+```python title="boto3: bucket" wrap
+import boto3
+
+storage = boto3.resource(
+    "s3", endpoint_url="http://<host>:9000",
+    aws_access_key_id="<ACCESS_KEY>",
+    aws_secret_access_key="<SECRET_KEY>")
+bucket = storage.Bucket("mirek")  # bez siete
+bucket.create()                   # 200
+bucket.delete()                   # 204, len prázdny
+bucket.upload_file("local.csv", "dataset.csv")
+bucket.download_file("dataset.csv", "/tmp/x.csv")
+for obj in bucket.objects.all():
+    print(obj.key)
+# chýba → botocore.exceptions.ClientError (404)
+```
+
+```python title="helpers.py + constants.py" wrap
+WEATHER_CONN = "openweathermap"   # constants.py
+S3_CONN = "rustfs"
+BUCKET_NAME = "datasets"
+DATASET_FILE = "dataset.csv"
+
+def get_storage():                # helpers.py
+    conn = BaseHook.get_connection(S3_CONN)
+    return boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password)
+```
+
+```python title="publish_data: stiahni → pripíš → nahraj" wrap
+_, name = mkstemp(prefix="weather-")  # _ = fd
+path = Path(name)
+try:
+    try:
+        bucket.download_file(DATASET_FILE, str(path))
+    except ClientError:
+        logger.warning("Dataset not found, first upload")
+        path.write_text(CSV_HEADER + "\n")
+    with open(path, "a") as file:
+        print(line, file=file)
+    bucket.upload_file(str(path), DATASET_FILE)
+finally:
+    path.unlink(missing_ok=True)      # vždy
+```
+
+```bash title="Dočasné súbory v Bashi" wrap
+mktemp         # /tmp/tmp.XXXXXXXXXX
+mktemp -d      # priečinok
+mktemp -u      # len meno (dry run)
+```
+
+```python title="Assets" wrap
+# assets.py
+from airflow.sdk import Asset
+WEATHER_DATA = Asset(
+    uri="s3://datasets/dataset.csv",
+    name="weather_data")   # 1. pozičný = name!
+
+# producent (task)
+@task(outlets=[WEATHER_DATA])
+def publish_data(line: str): ...
+
+# konzument (DAG) — namiesto cronu
+@dag("report_builder", schedule=[WEATHER_DATA],
+     start_date=datetime(2026, 1, 1), catchup=False)
+def main(): ...
+# run ID: asset_triggered__…
+```
+
+</div>
+
+| Čo | Ako |
+| --- | --- |
+| DAG chýba v UI | červený odznak *DAG Import Errors* · `airflow dags list-import-errors` · hľadaj polením (zakomentuj časť `main()`) |
+| nepoužívané importy | `ruff check --select F401 --fix dags/` |
+| 204 No Content | úspech (2xx), bez tela odpovede |
+| `NamedTemporaryFile` + boto3 | `mode="w+b"`, `download_fileobj` / `upload_fileobj`, pred uploadom `file.seek(0)` |
+
 ## Užitočné drobnosti
 
 | Čo | Ako |

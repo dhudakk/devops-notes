@@ -189,3 +189,39 @@ Na skripty a CLI nástroje odporúča knižnicu **loguru**: `from loguru import 
 PyCharm je stále najlepšie prostredie na Python, ale na vzdialený vývoj (ako na kurze) chce výrazne lepší stroj: kedysi zabral rovno 2 GB disku a neustále hlásil málo prostriedkov. VS Code server je skromnejší, aj keď tiež rastie (u Mireka 1,1 GB). Na remote development v PyCharme môže byť potrebná platená licencia.
 
 <p class="wisdom-day">Deň 3</p>
+
+## Aj reťazce môžu byť „bulharské konštanty“
+
+Preklep v reťazci (`"openweathermpa"`) linter nezachytí — je to platný reťazec. Zrúti sa až za behu. Keď z neho spravíš konštantu (`WEATHER_CONN`), preklep editor hneď podčiarkne a názov ti ponúkne v dopĺňaní.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Najprv si to vyskúšaj v ipythone
+
+Novú knižnicu (napr. boto3) si vyskúšaj interaktívne — nemusíš meniť DAG a klikať na Trigger. „Javisti môžu slepo závidieť, lebo tí stále iba kompilujú a buildujú.“ Od Pythonu 3.13 je aj obyčajný `python` interpreter farebný a pohodlnejší, ale vychytávky ako `objekt?` má iba ipython.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Hľadaj chybu polením
+
+Keď nevieš, ktorý riadok za chybu môže, zakomentuj polovicu (prázdny blok vyplň `pass`) a sleduj, či chyba zmizla. Potom polovicu z polovice — kým ju nenájdeš.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Podčiarkovník pre nepotrebnú hodnotu
+
+`_, path = mkstemp()` — keď funkcia vracia viac hodnôt a jednu nepotrebuješ, pomenuj ju `_`. Je to platný názov premennej a každý pochopí, že ju zámerne ignoruješ.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Premenná platí v celej funkcii
+
+V C či Jave platí premenná od najbližšieho bloku po jeho koniec, takže premennú z `try` by si vo `finally` nevidel. V Pythone platí v celej funkcii — na to si treba zvyknúť.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Vibe coding je silný, ale nebezpečný
+
+Kým uvidíš správny výsledok, uvidíš milión nesprávnych — a potrebuješ rozumieť, čo sa deje vo vnútri. AI vie poradiť elegantné riešenie (napr. `NamedTemporaryFile`), ale keď nevieš, ako funguje, zasekneš sa na detailoch.
+
+<p class="wisdom-day">Deň 4</p>

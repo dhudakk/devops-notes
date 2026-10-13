@@ -4,8 +4,8 @@ description: Weather for several places at once — DAG input parameters (Param)
 kind: chapter
 day: 3
 sidebar:
-  order: 17
-  label: 17 · Dynamic mapping
+  order: 19
+  label: 19 · Dynamic mapping
 ---
 
 import KeyPoints from '../../../../components/KeyPoints.astro';
@@ -14,7 +14,7 @@ import Solution from '../../../../components/Solution.astro';
 import Pipeline from '../../../../components/Pipeline.astro';
 
 :::note[From the day 3 slides]
-This chapter comes from the day 3 slides; the lecture covers it on day 4. The complete project at the end is tested on Airflow 3.3.2.
+This chapter comes from the day 3 slides; the lecture covers it on day 5. The project at the end follows the day 3 slides and is tested on Airflow 3.3.2 — the day 4 changes (`helpers.py`, assets, connection names as constants) are in the [Assets](/devops-notes/en/python-advanced/assety/) chapter.
 :::
 
 <KeyPoints>
@@ -126,7 +126,7 @@ The whole task is in the project below.
 
 ## The Weather Ingestion group
 
-You can also group downloading, validation, processing, and publishing into a [task group](/devops-notes/en/python-advanced/healthcheck/#task-groups):
+You can also group downloading, validation, processing, and publishing into a [task group](/devops-notes/en/python-advanced/skupiny-taskov/):
 
 ```python
 @task_group(
@@ -140,13 +140,14 @@ def weather_ingestion():
     valid_data = validate_data.expand(payload=data)
     entries = process_data.expand(data=valid_data)
     publish_data.expand(entry=entries)
-    return data
 
 
 @dag(...)
 def main():
     tg_healthcheck() >> weather_ingestion()
 ```
+
+The group deliberately **returns nothing** (the slides end it with `return data`): when a group returns a value, `>>` attaches only to the task that produced it, and `get_locations` would start without waiting for the healthchecks — see [Task groups](/devops-notes/en/python-advanced/skupiny-taskov/#a-group-with-a-parameter).
 
 <Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'openweathermap', 'rustfs'] }, { group: 'Weather Ingestion', steps: ['get_locations', 'scrape … publish [0..N]'] }]} />
 
@@ -421,7 +422,7 @@ The `publish_data` instances run in parallel, and “download → append → upl
 
 ## Exercises
 
-### 17.1 · Cities without duplicates
+### 19.1 · Cities without duplicates
 
 Change `get_locations()` to drop empty lines and spaces around names, lower-case the names, and remove duplicates (keeping the order).
 
