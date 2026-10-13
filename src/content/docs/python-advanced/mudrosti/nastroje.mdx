@@ -65,3 +65,15 @@ scrape_data | process_data | publish_data
 | **Ansible** | vzdialená správa a automatizácia serverov — príde neskôr v DevOps kurze |
 
 <p class="wisdom-day">Deň 1</p>
+
+## Swap a zram, keď dochádza RAM
+
+Na stroji so 4 GB RAM Airflow ľahko minie pamäť — stroj zamrzne a padá SSH. Rýchla pomoc je **2 GB swap súbor** (`fallocate`, `mkswap`, `swapon`, `free -h`). Mirek chce vyskúšať aj **zram**: jadro komprimuje časť RAM za behu, takže zo 4 GB je efektívne viac, za cenu trochu výkonu. Na jeho starých Raspberry Pi s 1 GB RAM to „vie celkom elegantne pomôcť“.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Uprac po VS Code serveri
+
+VS Code si pri každej aktualizácii uloží na server novú verziu do `~/.vscode-server` a disk sa pomaly plní. Mirek má na to skript, ktorý ponechá iba dve najnovšie verzie, a spúšťa ho z crontabu každú polnoc — pozri [Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/#upratanie-vs-code-servera).
+
+<p class="wisdom-day">Deň 2</p>

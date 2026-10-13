@@ -2,7 +2,7 @@
 title: CLI parametre a výnimky
 description: Parametre príkazového riadku s balíkom click, bezpečné odovzdanie API kľúča, výnimky, logovanie, stack trace, sys.exit() a prečo potrebujeme Airflow.
 kind: chapter
-day: 1
+day: 2
 sidebar:
   order: 6
   label: 06 · CLI a výnimky
@@ -21,23 +21,77 @@ import Solution from '../../../components/Solution.astro';
 </KeyPoints>
 
 :::note[Kedy sa to preberá]
-Táto kapitola je zo slajdov 1. dňa, ale na prednáške sa parametre príkazového riadku dokončujú až na začiatku ďalšieho stretnutia. Plán lektora: `query` je jediný povinný argument, `units` má predvolenú hodnotu a `appid` sa číta z premennej prostredia.
+Kapitola je zo slajdov 1. dňa; parametre príkazového riadku (click) sa na prednáške prebrali na začiatku 2. dňa, výnimky zo slajdov 1. dňa sa dopĺňajú priebežne.
 :::
+
+## Čo je zlé na natvrdo zapísaných hodnotách
+
+Workflow z 1. dňa má mesto, jednotky aj API kľúč zapísané **natvrdo** (*hard-coded*) — vždy stiahne Košice a kľúč je súčasťou skriptu. Kľúč v kóde je navyše **bezpečnostný problém**: kto vidí kód (napr. v Gite), vidí aj kľúč.
+
+Ako hodnoty dostať zvonka:
+
+| Spôsob | Poznámka |
+| --- | --- |
+| **parametre príkazového riadku** | pohodlné, ale argumenty vidí každý v zozname procesov (`ps aux`) |
+| **premenné prostredia** | v zozname procesov sa nezobrazia; prostredie musí byť chránené (napr. kontajner s `--env-file`) |
+| **trezor / secrets manager** | napr. HashiCorp Vault — tajomstvá sú mimo kódu aj mimo stroja |
+
+Mesto a jednotky budú parametre, kľúč pôjde z premennej prostredia.
 
 ## Parametre príkazového riadku
 
-Workflow bude neskôr bežať na pozadí, ale často potrebuješ aj nástroj, ktorému pri spustení zmeníš správanie parametrami. Štandardná knižnica má `argparse`; my použijeme pohodlnejší balík **click**.
+Workflow bude neskôr bežať na pozadí, ale často potrebuješ aj nástroj, ktorému pri spustení zmeníš správanie parametrami. Štandardná knižnica má `argparse` (trochu kostrbatý); my použijeme veľmi populárny balík **click**.
 
 ```bash
 (venv) $ pip install click
 ```
 
-| Pojem v click | Význam | Príklad |
+### Anatómia príkazu
+
+```bash
+docker container run -d -p 8080:80 nginx
+```
+
+| Časť | Pojem | Typ v Pythone |
 | --- | --- | --- |
-| **command** | samotný príkaz (funkcia) | `./workflow.py` |
-| **argument** | povinná pozičná hodnota | `kosice` |
-| **option** | pomenovaná voliteľná hodnota | `--units metric` |
-| **flag** | option bez hodnoty, zapína/vypína niečo | `--verbose` |
+| `docker` | **command** — hlavný príkaz | — |
+| `container run` | **subcommand** — podpríkaz (ako `ip route`, `ip addr`) | — |
+| `-d` | **flag** — príznak, buď je nastavený, alebo nie | `bool` |
+| `-p 8080:80` | **option** — pomenovaná voľba s hodnotou | zvyčajne `str` |
+| `nginx` | **argument** — pozičná hodnota | `str` |
+
+### Dekorátory
+
+click opisuje príkaz pomocou **dekorátorov** — zápisu `@niečo` nad funkciou. Dekorátor je funkcia, ktorá **obaľuje inú funkciu**: dostane ju ako parameter a môže niečo urobiť pred jej spustením aj po ňom.
+
+```python
+@click.command()
+def main():
+    ...
+```
+
+Na rovnakom princípe stoja webové rámce Flask či FastAPI — `@app.get("/info")` nad funkciou znamená, že `curl localhost/info` spustí práve ju. A v Airflow dekorátormi označíme DAG (`@dag`) aj úlohy (`@task`).
+
+### Postupne s click
+
+1. **`@click.command()`** — skript zrazu rozumie `--help`. Parameter `help="..."` je opis, ktorý sa v pomocníkovi zobrazí.
+2. **`@click.argument("query")`** — povinný argument (v `--help` bez hranatých zátvoriek). Ak funkcia `main` nemá parameter `query`, skončí to chybou:
+
+   ```text
+   TypeError: main() got an unexpected keyword argument 'query'
+   ```
+
+   click totiž každý argument a option odovzdá funkcii ako **pomenovaný argument** s rovnakým názvom. Doplň `def main(query: str):` a pošli `query` ďalej do `scrape_data()`.
+3. **`@click.option("--units", ...)`** — voliteľná voľba. Bez kontroly by prešla aj nezmysel (`--units celsius`) a API by potichu vrátilo Kelviny. Kontrolu môžeš napísať ručne:
+
+   ```python
+   if units not in ["metric", "standard", "imperial"]:
+       print("Units must be metric, standard or imperial.")
+       sys.exit(1)
+   ```
+
+   …ale click to urobí za teba: `type=click.Choice([...])` odmietne inú hodnotu s pekne vypísanou chybou, doplní povolené hodnoty do `--help` a `default="metric"` nastaví predvolenú hodnotu. Na ukončenie programu používaj `sys.exit()`, nie `quit()` — to je určené pre interaktívny interpreter.
+4. **`@click.option("--appid", envvar="APPID")`** — kľúč možno zadať ako option, ale aj cez premennú prostredia.
 
 ```python
 import click
@@ -59,18 +113,24 @@ def main(query: str, appid: str, units: str) -> None:
     publish_data(entry)
 ```
 
-`envvar="APPID"` znamená: ak `--appid` nezadáš, click hodnotu vezme z premennej prostredia `APPID`. `click.Choice` odmietne iné jednotky ešte pred spustením workflowu.
+`envvar="APPID"` znamená: ak `--appid` nezadáš, click hodnotu vezme z premennej prostredia `APPID`. `click.Choice` odmietne iné jednotky ešte pred spustením workflowu. Všimni si, že kód workflowu sa takmer nezmenil — click iba **opisuje** parametre príkazu.
 
 ### Spustenie
 
 ```bash
 ./workflow.py --help                          # pomocník vygenerovaný z dekorátorov
 ./workflow.py kosice --appid <API_KEY>        # funguje, ale kľúč je viditeľný!
-APPID=<API_KEY> ./workflow.py kosice          # kľúč cez premennú prostredia
+APPID=<API_KEY> ./workflow.py kosice          # kľúč iba pre tento jeden príkaz
+export APPID=<API_KEY>                        # kľúč pre celé aktuálne prostredie
+./workflow.py kosice
 ```
 
+Lektor to ukázal naživo: do workflowu pridal `sleep(30)`, spustil ho s `--appid` a v druhom termináli `ps aux | grep python` ukázal celý príkaz aj s kľúčom. Pri spustení cez premennú prostredia tam kľúč nebol.
+
 :::danger[Citlivé údaje nepatria do argumentov]
-Argumenty príkazu vidí každý používateľ systému: `ps aux | grep python` ukáže celý príkaz aj s kľúčom. Premenná prostredia sa v zozname procesov nezobrazí — „premenná prostredia nie je proces“. (Úplne tajná nie je — vlastník procesu a `root` si ju vedia prečítať, ale je to výrazne bezpečnejšie.)
+Argumenty príkazu vidí každý používateľ systému: `ps aux | grep python` ukáže celý príkaz aj s kľúčom. Na zdieľanom stroji stačí počkať — alebo si napísať skript, ktorý zoznam procesov skenuje. Premenná prostredia sa v zozname procesov nezobrazí — „premenná prostredia nie je proces“. (Úplne tajná nie je — vlastník procesu a `root` si ju vedia prečítať, ale je to výrazne bezpečnejšie.)
+
+Ak sa zviditeľneniu citlivého údaja nevieš vyhnúť, nech trvá **čo najkratšie**.
 :::
 
 ## Nesprávny dopyt
@@ -291,6 +351,14 @@ Odpoveďou na každú otázku je **Apache Airflow** — bude náš workflow spú
 
 <Question q="Aký je rozdiel medzi argumentom a option v click?">
 Argument je povinná pozičná hodnota (`kosice`). Option je pomenovaná, zvyčajne voliteľná hodnota s predvolenou hodnotou (`--units metric`). Flag je option bez hodnoty.
+</Question>
+
+<Question q="Čo je dekorátor?">
+Funkcia, ktorá obaľuje inú funkciu — dostane ju ako parameter a môže niečo vykonať pred jej spustením aj po ňom. Zapisuje sa `@dekorator` nad definíciou funkcie (`@click.command`, `@dag`, `@task`).
+</Question>
+
+<Question q="Akého typu je v Pythone flag ako `-d` v `docker container run -d`?">
+`bool` — príznak je buď nastavený (`True`), alebo nie (`False`).
 </Question>
 
 <Question q="Prečo neodovzdávať API kľúč ako `--appid KĽÚČ`?">

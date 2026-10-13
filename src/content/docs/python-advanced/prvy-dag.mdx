@@ -1,0 +1,186 @@
+---
+title: Prvý DAG
+description: DAG ako dekorovaná funkcia v priečinku dags/, jeho parametre (dag_id, schedule, start_date, catchup…), cron syntax a práca s DAG-om vo webovom UI.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · Prvý DAG
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- DAG-y žijú v priečinku **`~/airflow/dags/`**. DAG je funkcia s dekorátorom **`@dag`** z `airflow.sdk` — a na konci súboru ju musíš **zavolať**.
+- `schedule` používa **cron** syntax: `*/20 * * * *` = každých 20 minút. Existujú aj aliasy (`@daily`, `@hourly`…).
+- `start_date` a `end_date` ohraničujú, kedy sa DAG spúšťa. Časy sú v **UTC**.
+- `catchup=True` dobehne zmeškané behy; v Airflow 3 je predvolene **`False`**.
+- Nový DAG je **pozastavený** — v UI ho zapneš prepínačom; **Trigger** ho spustí ručne hneď.
+</KeyPoints>
+
+## DAG krok za krokom
+
+DAG-y musia byť v priečinku `dags/` v domovskom priečinku Airflow. Po inštalácii neexistuje, vytvor ho:
+
+```bash
+(venv) $ mkdir ~/airflow/dags
+```
+
+V ňom vytvor `weather_scraper.py` a postupuj po krokoch — po každom ulož súbor a pozri sa do UI:
+
+1. **Obyčajná funkcia** — v UI sa nič neobjaví, je to len funkcia.
+
+   ```python
+   def main():
+       pass
+   ```
+
+   `pass` je prázdny príkaz — v Pythone ním označíš prázdne telo (jazyky z rodiny C by mali `{}`).
+
+2. **Dekorátor `@dag`** — stále nič. Funkcia je označená ako DAG, ale nikto ju nezavolal.
+
+   ```python
+   from airflow.sdk import dag
+
+
+   @dag()
+   def main():
+       pass
+   ```
+
+3. **Zavolanie** — až teraz sa DAG objaví v zozname (pozastavený), s názvom podľa funkcie: `main`.
+
+   ```python
+   main()
+   ```
+
+Funkciu, ktorá definuje DAG, môžeš nazvať ľubovoľne. Lektor ju vždy volá `main` — je jasné, že to je „hlavná“ funkcia súboru.
+
+:::note[Ako rýchlo sa DAG objaví]
+V Airflow 2 mohlo trvať aj niekoľko desiatok sekúnd, kým sa nový súbor načítal. Airflow 3 je výrazne rýchlejší, ale chvíľu počkať a obnoviť stránku sa oplatí. Ak sa DAG neobjaví ani tak, pozri [Keď niečo nejde](/devops-notes/python-advanced/airflow-instalacia/#keď-niečo-nejde).
+:::
+
+DAG sa dá zapísať viacerými spôsobmi — napríklad cez kontextový manažér `with DAG(...) as dag:` a klasické operátory. My používame **dekorátory** (tzv. TaskFlow API): DAG aj tasky sú obyčajné Python funkcie, čo je pre programátora najprirodzenejšie. Ak uvidíš iný zápis, ide o to isté.
+
+## Parametre DAG-u
+
+```python title="dags/weather_scraper.py"
+from airflow.sdk import dag
+from pendulum import datetime
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    end_date=datetime(2026, 12, 31),
+    tags=["weather", "devops"],
+    catchup=False,
+)
+def main():
+    pass
+
+
+main()
+```
+
+| Parameter | Význam |
+| --- | --- |
+| `dag_id` (prvý argument) | jedinečný **strojový** identifikátor, bez medzier (pravidlá ako pre názvy premenných). Bez neho sa použije názov funkcie |
+| `dag_display_name` | názov pre ľudí, ktorý sa zobrazí v zozname |
+| `description` | opis — ukáže sa pri podržaní kurzora nad DAG-om a v záložke **Details** |
+| `tags` | značky na kategorizáciu; v UI podľa nich vieš filtrovať |
+| `schedule` | kedy a ako často sa má spúšťať (cron alebo alias); `None` = iba ručne |
+| `start_date` | od kedy sa má spúšťať (pred týmto termínom sa nespustí) |
+| `end_date` | dokedy sa má spúšťať (potom sa už nespustí) |
+| `catchup` | či dobehnúť zmeškané behy |
+
+:::tip[Konvencia z Kiwi.com]
+Lektor bol na prednáške Kiwi.com, kde mali pravidlo písať do názvu DAG-u aj to, ako často sa spúšťa (napr. „… 1 hour“). Konvencie pomenovania si zvyčajne určí tím alebo firma.
+:::
+
+### Plánovanie: cron
+
+`schedule` používa syntax **cronu** — päť polí oddelených medzerou:
+
+```text
+┌───────── minúta (0–59)
+│ ┌─────── hodina (0–23)
+│ │ ┌───── deň v mesiaci (1–31)
+│ │ │ ┌─── mesiac (1–12)
+│ │ │ │ ┌─ deň v týždni (0–6, 0 = nedeľa)
+│ │ │ │ │
+*/20 * * * *
+```
+
+| Zápis | Kedy | Alias |
+| --- | --- | --- |
+| `*/20 * * * *` | každých 20 minút | — |
+| `0 * * * *` | každú celú hodinu | `@hourly` |
+| `0 0 * * *` | každý deň o polnoci | `@daily`, `@midnight` |
+| `0 0 * * 0` | každú nedeľu o polnoci | `@weekly` |
+| `0 0 1 * *` | prvý deň v mesiaci | `@monthly` |
+| `0 0 1 1 *` | 1. januára | `@yearly`, `@annually` |
+| `0 3 * * 6` | každú sobotu o 03:00 | — |
+
+Najmenšia granularita je **jedna minúta**. OpenWeatherMap aktualizuje údaje zhruba každých 15–20 minút, preto `*/20`. Na skúšanie si daj kratší interval (`*/5 * * * *`), nech nečakáš.
+
+### start_date, end_date a časové zóny
+
+`start_date` vytvoríš cez `pendulum.datetime` (spätne kompatibilný s `datetime`): `datetime(2026, 9, 23)` = 23. 9. 2026 o polnoci **UTC**.
+
+Ak UI ukazuje ďalší beh „o 2:00 v noci“, nie je to chyba — v lete je Slovensko UTC+2. Časovú zónu zobrazenia zmeníš v UI v menu používateľa. Pravidlo z 1. dňa platí aj tu: ukladať a počítať v UTC, lokálny čas iba na zobrazenie.
+
+### catchup
+
+Predstav si, že DAG beží každých 20 minút od dnes do konca mesiaca. Medzitým stroj na deň vypadne (vypnutý počítač, výpadok elektriny). Vznikne „diera“ v dátach.
+
+- `catchup=True` — Airflow zistí, ktoré behy chýbajú, a **spustí ich dodatočne**, každý so svojím časom (pre nás: 20-minútové intervaly). Má zmysel, ak zdroj vie vrátiť **historické** údaje.
+- `catchup=False` — zmeškané behy sa nedobiehajú. Správne, keď sa úloha musí udiať **presne v danom čase** — ak sa pred týždňom nezapol chladiaci systém v elektrárni, dodatočne to už nedoženieš.
+
+:::caution[Predvolená hodnota]
+Na slajdoch je, že predvolená hodnota je `True` — to platilo v **Airflow 2**. V **Airflow 3** je predvolene `False` (nastavenie `[scheduler] catchup_by_default`). Uvádzaj ju preto v DAG-u vždy explicitne.
+:::
+
+## DAG vo webovom UI
+
+- **Pozastavený / aktívny** — nový DAG je pozastavený (*paused*). Prepínačom ho zapneš; v zozname vieš filtrovať *Active* / *Paused*.
+- **Trigger** — tlačidlo ▶ spustí DAG ručne hneď, bez čakania na plán. Ručné behy sú v prehľade označené ikonou.
+- **Next run / Latest run** — kedy sa DAG spustí najbližšie a kedy bežal naposledy.
+- **Details** — `dag_id`, opis a ďalšie vlastnosti; **Graph** — grafická podoba DAG-u (zatiaľ prázdna, nemáme tasky).
+
+## Otestuj sa
+
+<Question q="Prečo sa DAG nezobrazí v UI, hoci má funkcia dekorátor `@dag`?">
+Funkciu treba ešte zavolať — na konci súboru `main()`. Bez toho Airflow DAG nevytvorí.
+</Question>
+
+<Question q="Čo znamená `schedule='*/20 * * * *'`?">
+Spúšťaj každých 20 minút (každú hodinu, každý deň, každý mesiac, každý deň v týždni).
+</Question>
+
+<Question q="Aký je rozdiel medzi `dag_id` a `dag_display_name`?">
+`dag_id` je jedinečný strojový identifikátor bez medzier; `dag_display_name` je názov pre ľudí, ktorý sa zobrazí v UI.
+</Question>
+
+<Question q="Prečo UI ukazuje ďalší beh o 2:00, keď je `start_date` o polnoci?">
+`start_date` je v UTC a UI ukazuje lokálny čas (Slovensko v lete UTC+2).
+</Question>
+
+<Question q="Kedy nastaviť `catchup=False`?">
+Keď sa úloha musí udiať presne v danom čase alebo zdroj nevie vrátiť historické údaje — zmeškané behy by nemali zmysel. V Airflow 3 je to predvolená hodnota.
+</Question>
+
+## Cvičenia
+
+### 9.1 · Cron výrazy
+
+Napíš `schedule` pre: (a) každú hodinu o 15. minúte, (b) pracovné dni o 7:30, (c) každých 10 minút, (d) prvého v mesiaci o 6:00.
+
+<Solution>
+(a) `15 * * * *`, (b) `30 7 * * 1-5`, (c) `*/10 * * * *`, (d) `0 6 1 * *`. Pozor — Airflow ich vyhodnocuje v UTC.
+</Solution>

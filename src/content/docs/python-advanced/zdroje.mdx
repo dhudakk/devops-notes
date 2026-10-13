@@ -17,6 +17,7 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | Deň | Materiál |
 | --- | --- |
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
+| 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 
 ## Z čoho je ktorá kapitola
 
@@ -27,11 +28,28 @@ API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené 
 | [03 · Workflow v Pythone](/devops-notes/python-advanced/workflow-v-pythone/) | deň 1 — slajdy s. 2–7, 14–15, prepis 2. časti (ipython, type hinty) |
 | [04 · HTTP, JSON a slovníky](/devops-notes/python-advanced/http-a-json/) | deň 1 — slajdy s. 7–9, 12–15, prepis 2. časti (stavové kódy, objekty) |
 | [05 · Spracovanie a CSV](/devops-notes/python-advanced/spracovanie-a-csv/) | deň 1 — slajdy s. 15–18, prepis 2. časti (poradie stĺpcov, UTC, pendulum) |
-| [06 · CLI a výnimky](/devops-notes/python-advanced/cli-a-vynimky/) | deň 1 — slajdy s. 19–24 (na prednáške sa dokončuje v ďalší deň) |
-| [Ťahák](/devops-notes/python-advanced/tahak/) | deň 1 — „Daily Cheat Sheet“, s. 25–26 |
+| [06 · CLI a výnimky](/devops-notes/python-advanced/cli-a-vynimky/) | deň 1 — slajdy s. 19–24; prepis 2. dňa (click, dekorátory, `ps aux`) |
+| [07 · Airflow a DAG](/devops-notes/python-advanced/airflow-a-dag/) | deň 2 — slajdy s. 3, 9; prepis (alternatívy, DAG, zlaté pravidlo operátora) |
+| [08 · Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/) | deň 2 — slajdy s. 1–7; prepis (konfigurácia, JWT problém, swap) |
+| [09 · Prvý DAG](/devops-notes/python-advanced/prvy-dag/) | deň 2 — slajdy s. 7–9; prepis (parametre DAG-u, cron, catchup, UI) |
+| [10 · Tasky a XCom](/devops-notes/python-advanced/tasky-a-xcom/) | deň 2 — slajdy s. 9–13; prepis (stavy, logy, XCom, `dag.test()`, parametre) |
+| [11 · Connections a Variables](/devops-notes/python-advanced/connections-a-variables/) | deň 2 — slajdy s. 13–14, 21–23; prepis (Connections, hooky) |
+| [12 · Validácia a healthcheck](/devops-notes/python-advanced/validacia-a-healthcheck/) | deň 2 — slajdy s. 14–21 (prepis 2. dňa končí pri hookoch) |
+| [Ťahák](/devops-notes/python-advanced/tahak/) | „Daily Cheat Sheet“ — deň 1 s. 25–26, deň 2 s. 25–26 |
 
 ## Opravy oproti slajdom
 
 - Kľúče v odpovedi OpenWeatherMap: `main.temp` (nie `main.temperature`), `sys.sunrise`, `sys.sunset`, `sys.country` a mesto v `name`.
 - V ťaháku na slajdoch je `add(10 + 20)` — správne `add(10, 20)`.
 - Ukážka s click volá funkciu `validate_schema()`, ktorá na slajdoch nie je definovaná; v poznámkach je kompletný, odskúšaný `workflow.py`.
+
+### Deň 2 (overené na Airflow 3.3.2)
+
+- `catchup` má v **Airflow 3** predvolenú hodnotu `False` (na slajdoch `True`, čo platilo v Airflow 2).
+- Parameter `.test()` sa volá `logical_date`, nie `execution_date`; `airflow dags trigger` má `-l/--logical-date`, nie `-e`.
+- Healthcheck s `retries=3` vyvoláva `AirflowFailException` — tá opakovanie **preskočí**. Pre opakovanie treba obyčajnú výnimku.
+- Výsledný DAG na slajdoch: `process_data(measurement)` pracuje s neexistujúcou premennou (má byť `data`), `upload_data` má byť `publish_data`, `units` má hodnotu `'metrics'` (správne `metric`) a argumenty `scrape_data(query, appid, units)` sú v inom poradí ako jej parametre.
+- Docker compose pre PostgreSQL mieša premenné obrazu Bitnami (`POSTGRESQL_…`) s oficiálnym obrazom `postgres`; v connection stringu je preklep `airflowow`.
+- V ťaháku: `logging.getLogger(__file__)` → bežne `__name__`; pri „správe s úrovňou error“ je `logger.warning`.
+- Pri skripte na upratanie VS Code servera: komentár hovorí „každé dve hodiny“, záznam v crontabe je `@midnight`, a názov súboru sa líši (`vscode-cleanup.bash` vs. `vscode-server-cleanup.sh`).
+- Krátky `airflow.cfg` z 2. dňa spôsobil padanie taskov (chýba `jwt_secret`) — v poznámkach je postup s vygenerovaným configom.

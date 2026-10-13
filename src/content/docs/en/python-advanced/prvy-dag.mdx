@@ -1,0 +1,186 @@
+---
+title: Your First DAG
+description: A DAG as a decorated function in the dags/ folder, its parameters (dag_id, schedule, start_date, catchup…), cron syntax, and working with a DAG in the web UI.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · First DAG
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- DAGs live in **`~/airflow/dags/`**. A DAG is a function with the **`@dag`** decorator from `airflow.sdk` — and you must **call** it at the end of the file.
+- `schedule` uses **cron** syntax: `*/20 * * * *` = every 20 minutes. Aliases exist too (`@daily`, `@hourly`…).
+- `start_date` and `end_date` bound when the DAG runs. Times are in **UTC**.
+- `catchup=True` backfills missed runs; in Airflow 3 the default is **`False`**.
+- A new DAG is **paused** — switch it on in the UI; **Trigger** runs it manually right away.
+</KeyPoints>
+
+## A DAG step by step
+
+DAGs must be in the `dags/` folder inside the Airflow home folder. It does not exist after installation, so create it:
+
+```bash
+(venv) $ mkdir ~/airflow/dags
+```
+
+Create `weather_scraper.py` in it and go step by step — save the file after each step and look at the UI:
+
+1. **A plain function** — nothing appears in the UI; it is just a function.
+
+   ```python
+   def main():
+       pass
+   ```
+
+   `pass` is the empty statement — it marks an empty body in Python (C-family languages would have `{}`).
+
+2. **The `@dag` decorator** — still nothing. The function is marked as a DAG, but nobody called it.
+
+   ```python
+   from airflow.sdk import dag
+
+
+   @dag()
+   def main():
+       pass
+   ```
+
+3. **The call** — only now does the DAG appear in the list (paused), named after the function: `main`.
+
+   ```python
+   main()
+   ```
+
+You can name the function that defines the DAG however you like. The instructor always calls it `main` — it is clearly the file's “main” function.
+
+:::note[How fast the DAG appears]
+In Airflow 2 a new file could take tens of seconds to load. Airflow 3 is much faster, but waiting a moment and refreshing the page still pays off. If the DAG does not appear even then, see [When something does not work](/devops-notes/en/python-advanced/airflow-instalacia/#when-something-does-not-work).
+:::
+
+A DAG can be written in several ways — for example with the `with DAG(...) as dag:` context manager and classic operators. We use **decorators** (the so-called TaskFlow API): both the DAG and the tasks are plain Python functions, which feels most natural to a programmer. If you see another style, it is the same thing.
+
+## DAG parameters
+
+```python title="dags/weather_scraper.py"
+from airflow.sdk import dag
+from pendulum import datetime
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    end_date=datetime(2026, 12, 31),
+    tags=["weather", "devops"],
+    catchup=False,
+)
+def main():
+    pass
+
+
+main()
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `dag_id` (first argument) | a unique **machine** identifier, no spaces (rules like variable names). Without it, the function name is used |
+| `dag_display_name` | a human-friendly name shown in the list |
+| `description` | shown when you hover over the DAG and on the **Details** tab |
+| `tags` | labels for categorising; you can filter by them in the UI |
+| `schedule` | when and how often to run (cron or an alias); `None` = manual only |
+| `start_date` | from when to run (it never runs before this) |
+| `end_date` | until when to run (it no longer runs after this) |
+| `catchup` | whether to backfill missed runs |
+
+:::tip[A convention from Kiwi.com]
+The instructor attended a Kiwi.com talk where their rule was to put the run frequency into the DAG name too (e.g. “… 1 hour”). Naming conventions are usually set by the team or the company.
+:::
+
+### Scheduling: cron
+
+`schedule` uses **cron** syntax — five space-separated fields:
+
+```text
+┌───────── minute (0–59)
+│ ┌─────── hour (0–23)
+│ │ ┌───── day of month (1–31)
+│ │ │ ┌─── month (1–12)
+│ │ │ │ ┌─ day of week (0–6, 0 = Sunday)
+│ │ │ │ │
+*/20 * * * *
+```
+
+| Expression | When | Alias |
+| --- | --- | --- |
+| `*/20 * * * *` | every 20 minutes | — |
+| `0 * * * *` | every full hour | `@hourly` |
+| `0 0 * * *` | every day at midnight | `@daily`, `@midnight` |
+| `0 0 * * 0` | every Sunday at midnight | `@weekly` |
+| `0 0 1 * *` | the first day of the month | `@monthly` |
+| `0 0 1 1 *` | 1 January | `@yearly`, `@annually` |
+| `0 3 * * 6` | every Saturday at 03:00 | — |
+
+The finest granularity is **one minute**. OpenWeatherMap updates its data roughly every 15–20 minutes, hence `*/20`. While testing, use a shorter interval (`*/5 * * * *`) so you do not have to wait.
+
+### start_date, end_date, and time zones
+
+Create `start_date` with `pendulum.datetime` (backwards compatible with `datetime`): `datetime(2026, 9, 23)` = 23 September 2026 at midnight **UTC**.
+
+If the UI shows the next run “at 2 am”, it is not a bug — Slovakia is UTC+2 in summer. Change the display time zone in the UI's user menu. The day 1 rule applies here too: store and calculate in UTC, use local time only for display.
+
+### catchup
+
+Imagine the DAG runs every 20 minutes from today until the end of the month. In between, the machine is down for a day (computer switched off, power cut). A “hole” appears in the data.
+
+- `catchup=True` — Airflow finds out which runs are missing and **runs them afterwards**, each with its own time (for us: 20-minute intervals). This makes sense if the source can return **historical** data.
+- `catchup=False` — missed runs are not backfilled. Right when the job must happen **at that exact time** — if a power plant's cooling did not switch on a week ago, you cannot catch up on it now.
+
+:::caution[The default value]
+The slides say the default is `True` — that was true in **Airflow 2**. In **Airflow 3** the default is `False` (the `[scheduler] catchup_by_default` setting). So always state it explicitly in the DAG.
+:::
+
+## The DAG in the web UI
+
+- **Paused / active** — a new DAG is *paused*. Switch it on with the toggle; the list can be filtered by *Active* / *Paused*.
+- **Trigger** — the ▶ button runs the DAG manually right away, without waiting for the schedule. Manual runs are marked with an icon in the overview.
+- **Next run / Latest run** — when the DAG runs next and when it last ran.
+- **Details** — `dag_id`, the description, and other properties; **Graph** — the DAG drawn as a graph (empty for now; we have no tasks).
+
+## Test yourself
+
+<Question q="Why does the DAG not appear in the UI although the function has the `@dag` decorator?">
+The function still has to be called — `main()` at the end of the file. Without it, Airflow does not create the DAG.
+</Question>
+
+<Question q="What does `schedule='*/20 * * * *'` mean?">
+Run every 20 minutes (every hour, every day, every month, every weekday).
+</Question>
+
+<Question q="What is the difference between `dag_id` and `dag_display_name`?">
+`dag_id` is the unique machine identifier without spaces; `dag_display_name` is the human-friendly name shown in the UI.
+</Question>
+
+<Question q="Why does the UI show the next run at 2 am when `start_date` is midnight?">
+`start_date` is in UTC and the UI shows local time (Slovakia is UTC+2 in summer).
+</Question>
+
+<Question q="When should you set `catchup=False`?">
+When the job must happen at a specific time or the source cannot return historical data — missed runs would make no sense. In Airflow 3 it is the default.
+</Question>
+
+## Exercises
+
+### 9.1 · Cron expressions
+
+Write a `schedule` for: (a) every hour at minute 15, (b) weekdays at 7:30, (c) every 10 minutes, (d) the first of the month at 6:00.
+
+<Solution>
+(a) `15 * * * *`, (b) `30 7 * * 1-5`, (c) `*/10 * * * *`, (d) `0 6 1 * *`. Careful — Airflow evaluates them in UTC.
+</Solution>

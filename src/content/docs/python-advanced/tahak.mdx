@@ -142,6 +142,80 @@ if response.status_code == HTTPStatus.NOT_FOUND:
 
 </div>
 
+## Apache Airflow
+
+<div class="sheet-grid">
+
+```bash title="Inštalácia a beh"
+pip install apache-airflow
+airflow info                # vytvorí ~/airflow/airflow.cfg
+export AIRFLOW_HOME=$(pwd)/airflow_home
+airflow standalone          # všetko naraz, UI :8080
+tmux attach                 # späť k sedeniu
+sudo systemctl status airflow
+```
+
+```bash title="CLI"
+airflow dags list
+airflow tasks list weather_scraper
+airflow dags test weather_scraper
+airflow dags trigger -l 2026-03-15 weather_scraper
+airflow variables set weather_city poprad,sk
+airflow variables get weather_city
+airflow connections get openweathermap
+```
+
+```python title="DAG a tasky"
+from airflow.sdk import dag, task
+from pendulum import datetime
+
+@task
+def scrape_data(query: str) -> dict: ...
+
+@dag("weather_scraper", schedule="*/20 * * * *",
+     start_date=datetime(2026, 1, 1),
+     catchup=False, tags=["weather"])
+def main(query: str = "kosice,sk"):
+    data = scrape_data(query)
+    is_service_alive() >> data
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+```python title="Connections, Variables, chyby"
+from airflow.sdk import BaseHook, Variable
+from airflow.sdk.exceptions import (
+    AirflowException, AirflowFailException)
+
+conn = BaseHook.get_connection("openweathermap")
+conn.host; conn.port; conn.password
+conn.extra_dejson.get("units")
+Variable.get("weather_city", default="kosice,sk")
+Variable.get("cfg", deserialize_json=True)
+
+@task(retries=3, retry_delay=timedelta(seconds=30))
+raise AirflowException("retry me")
+raise AirflowFailException("no retry")
+```
+
+</div>
+
+| Čo | Ako |
+| --- | --- |
+| cron | `min hod deň mesiac deň_v_týždni` · `*/20 * * * *` · `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly` |
+| config premennou prostredia | `AIRFLOW__CORE__LOAD_EXAMPLES=False` |
+| Variable / Connection z prostredia | `AIRFLOW_VAR_WEATHER_CITY=…` · `AIRFLOW_CONN_OPENWEATHERMAP='{"conn_type": …}'` |
+| stavy taskov | queued (sivá) · running · success (zelená) · failed (červená) · upstream_failed (oranžová) · up_for_retry (žltá) |
+| `retries=3` | až 4 behy; `retry_delay` predvolene 300 s |
+| súbor vedľa DAG-u | `Path(__file__).parent / "weather.schema.json"` |
+| JSON schéma | `jsonschema.validate(instance=data, schema=schema)` |
+| logovanie | `logger = logging.getLogger(__name__)` · DEBUG < INFO < WARNING < ERROR < CRITICAL |
+| swap | `fallocate -l 2G /swapfile` → `chmod 600` → `mkswap` → `swapon` · `free -h` |
+| tmux (prefix `Ctrl+b`) | `c` nové okno · `n`/`p` ďalšie/predošlé · `"`/`%` rozdeliť · `d` odpojiť · `tmux attach` |
+
 ## Užitočné drobnosti
 
 | Čo | Ako |

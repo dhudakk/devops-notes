@@ -1,0 +1,281 @@
+---
+title: Installing and Running Airflow
+description: Installing with pip, AIRFLOW_HOME and airflow.cfg, running airflow standalone, the web UI, keeping it running (tmux, systemd), swap, and troubleshooting.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Installing Airflow
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+
+<KeyPoints>
+- Airflow is a Python package: `pip install apache-airflow` (in a venv). **It does not run on Windows** (it depends on `fcntl`) — only through WSL.
+- `airflow info` creates the home folder `~/airflow` (or per `AIRFLOW_HOME`) and `airflow.cfg` inside it.
+- In `airflow.cfg` you only need `load_examples = False`. **Do not delete or trim the generated file** — it contains e.g. `jwt_secret`.
+- Every option can also be set with an environment variable `AIRFLOW__SECTION__KEY`, e.g. `AIRFLOW__CORE__LOAD_EXAMPLES=False`.
+- `airflow standalone` starts all components at once; the UI runs on port **8080**, and the `admin` password is in the log and in `simple_auth_manager_passwords.json.generated`.
+</KeyPoints>
+
+## Installation
+
+:::caution[Windows]
+Airflow depends on the `fcntl` module, which does not exist on Windows. On Windows you need **WSL** — which is why the course works on an Ubuntu server.
+:::
+
+Airflow's default home folder is `~/airflow`. We work there, and the virtual environment lives there too:
+
+```bash
+mkdir ~/airflow && cd ~/airflow
+python3 -m venv venv
+source venv/bin/activate
+(venv) $ pip install apache-airflow
+```
+
+The course runs **Airflow 3.3** (the instructor had 3.3.2). If you want PostgreSQL as the database, install it with the extra: `pip install "apache-airflow[postgres]"` (it adds the `psycopg2-binary` and `asyncpg` drivers).
+
+## AIRFLOW_HOME and airflow.cfg
+
+```bash
+(venv) $ airflow info
+```
+
+Besides the version, the executor, and the database path, it prints `airflow_home`. It also creates the `~/airflow` folder (if missing) with the configuration file **`airflow.cfg`** inside. Set a different home folder with an environment variable:
+
+```bash
+export AIRFLOW_HOME=$(pwd)/airflow_home
+```
+
+### What to change in the configuration
+
+| Section / option | Value | Meaning |
+| --- | --- | --- |
+| `[core] dags_folder` | `~/airflow/dags` (default) | where DAGs are loaded from |
+| `[core] load_examples` | **`False`** | otherwise lots of example DAGs load and you get lost in the list |
+| `[database] sql_alchemy_conn` | `sqlite:////home/ubuntu/airflow/airflow.db` (default) | connection to the metadata database |
+| `[core] parallelism` | `4` (default 32) | how many tasks may run at once across Airflow |
+| `[core] max_active_tasks_per_dag` | `2` (default 16) | how many tasks of one DAG at once |
+| `[core] max_active_runs_per_dag` | `1` (default 16) | how many runs of one DAG at once |
+| `[api] expose_config` | `True` | the configuration is also shown in the web UI |
+
+The lower parallelism values come from the slides — the lab machines have only **2 cores, 4 GB RAM, and a 20 GB disk**.
+
+Airflow reaches its database through **SQLAlchemy**, the most popular Python ORM; `sql_alchemy_conn` is its *connection string*. **SQLite** (everything in one file) is enough for the course, but it is slower and does not support parallelism — **not for production**, where PostgreSQL belongs.
+
+:::danger[Do not trim the generated airflow.cfg]
+In the course the instructor replaced `airflow.cfg` with a short version holding a few options. Tasks then kept failing (*state mismatch… queued*) without a clear log. The cause: the generated file also contains a random `jwt_secret` in the `[api_auth]` section — without it each component generates its own and they do not trust each other.
+
+**Fix:** keep the generated file whole and change only `load_examples = False`. If yours is already broken, move `~/airflow` aside, run `airflow info` again (a clean config appears), and bring your `dags/` folder back.
+:::
+
+### Configuration through environment variables
+
+Every option from `airflow.cfg` can be set with an environment variable of the form `AIRFLOW__{SECTION}__{KEY}` — double underscores separate the prefix, the section, and the key:
+
+```bash
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__DAGS_FOLDER=/home/ubuntu/airflow/dags
+```
+
+This is especially handy in containers and CI.
+
+## Running it
+
+```bash
+(venv) $ airflow standalone
+```
+
+`standalone` starts the scheduler, API server, DAG processor, and triggerer together — **for development and testing**. On the first start it prints the `admin` login and password in the log; the password is also stored in `~/airflow/simple_auth_manager_passwords.json.generated`.
+
+:::caution[`airflow api-server` is not enough]
+One participant ran `airflow api-server` — the web UI was up, but no DAGs appeared, because neither the DAG processor nor the scheduler was running. In the course always use `airflow standalone`.
+:::
+
+### The web interface
+
+- Airflow runs on port **8080**: `http://<machine-IP>:8080` (the lab machine's IP is in `echo $HOSTIP`).
+- VS Code watches what runs on the server: in the **Ports** tab it automatically forwards port 8080 to your computer, so the UI also opens at `http://localhost:8080`.
+
+In the UI you find the list of DAGs, their runs, the graph, task logs, and under **Admin** for example Connections and Variables.
+
+## Keeping Airflow running
+
+When you close VS Code, processes started in its terminal stop working (but linger in the system). To keep Airflow collecting weather while you are not connected:
+
+### tmux
+
+```bash
+tmux                         # a new session (VS Code can open a tmux terminal directly)
+(venv) $ airflow standalone  # run Airflow inside tmux
+# close VS Code — Airflow keeps running
+tmux attach                  # reattach to the session when you are back
+```
+
+| Shortcut (default prefix `Ctrl+b`) | Action |
+| --- | --- |
+| `prefix c` | new window |
+| `prefix 0`–`9`, `prefix n` / `p` | switch window / next / previous |
+| `prefix "` / `prefix %` | split into panes above each other / side by side |
+| `prefix d` | detach from the session (it keeps running) |
+| `prefix ?` | list of shortcuts |
+
+The instructor has remapped the prefix to `Ctrl+Space` — that is why the slides say “META” = `Ctrl+Space`.
+
+### A systemd service
+
+More robust is running Airflow as a **systemd unit**. On stop/restart it kills the **whole cgroup**, including the scheduler's and workers' forked processes — no orphaned processes are left. Save it as `/etc/systemd/system/airflow.service` (adjust the paths to where your venv is):
+
+```ini title="/etc/systemd/system/airflow.service"
+[Unit]
+Description=Apache Airflow (standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+Environment=AIRFLOW_HOME=/home/ubuntu/airflow
+Environment=PATH=/home/ubuntu/airflow/venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/ubuntu/airflow
+ExecStart=/home/ubuntu/airflow/venv/bin/airflow standalone
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now airflow     # start now and after every reboot
+sudo systemctl status airflow           # state and the latest logs
+sudo journalctl -u airflow -f           # live log
+sudo systemctl restart airflow          # clean restart without orphaned processes
+```
+
+## PostgreSQL in Docker (optional)
+
+```yaml title="compose.yaml"
+services:
+  postgres:
+    image: postgres:18-alpine
+    volumes:
+      - db_data:/var/lib/postgresql
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    restart: always
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  db_data:
+```
+
+```ini title="airflow.cfg"
+[database]
+sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@localhost:5432/airflow
+```
+
+The slides mix the Bitnami image's variable names (`POSTGRESQL_…`) with the official image; above is the version for the official `postgres` image.
+
+## Lab machine resources
+
+### Swap
+
+On a machine with 4 GB of RAM, Airflow easily runs out of memory — the machine freezes or the connection drops. **Swap** helps:
+
+```bash
+sudo fallocate --length 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+sudo sysctl vm.swappiness=10
+free -h                                  # watch memory and swap
+```
+
+Swap enabled like this disappears after a reboot. Make it permanent with the line `/swapfile none swap sw 0 0` in `/etc/fstab`.
+
+### Cleaning up the VS Code server
+
+VS Code stores a new version in `~/.vscode-server` on the server with every update, and the disk fills up. The script from the slides keeps only the two newest versions:
+
+```bash title="~/bin/vscode-server-cleanup.sh"
+#!/usr/bin/env bash
+set -o errexit
+set -o pipefail
+set -o nounset
+
+readonly DIR="${HOME}/.vscode-server/cli/servers"
+readonly KEEP_VERSIONS=2
+
+function main() {
+    [ -d "$DIR" ] || exit 0
+    # remove staging folders
+    find "${DIR}" -maxdepth 1 -type d -name "*.staging" -exec rm -rf {} +
+    # keep the newest KEEP_VERSIONS "Stable-*" versions
+    ls --directory -t "${DIR}/Stable"-* 2>/dev/null \
+        | tail --lines "+$((KEEP_VERSIONS + 1))" \
+        | xargs --no-run-if-empty rm -rf
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+```
+
+Adding it to crontab (every midnight; an existing entry is replaced):
+
+```bash
+(crontab -l 2>/dev/null | grep --invert-match "vscode-server-cleanup.sh"; \
+ echo "@midnight /home/ubuntu/bin/vscode-server-cleanup.sh >/dev/null 2>&1") | crontab -
+```
+
+## When something does not work
+
+| Symptom | Cause and fix |
+| --- | --- |
+| the DAG does not appear in the UI | the folder must be called **`dags`** (not `dag`); save the file (`Ctrl+S`); wait a moment and refresh; check `airflow dags list` |
+| the UI runs but there are no DAGs | you started only `airflow api-server` → run `airflow standalone` |
+| tasks fail, state *queued* / *state mismatch*, JWT in the logs | a trimmed `airflow.cfg` without `jwt_secret` → restore the generated config |
+| the machine freezes, SSH / VS Code drops | out of RAM → enable swap, watch `free -h` |
+| VS Code underlines `from airflow.sdk import dag` | select the venv interpreter and *Python: Restart Language Server* |
+
+After loading, a `__pycache__` folder appears in `dags/` — the module's precompiled bytecode. It is a side effect of Python loading the file.
+
+## Test yourself
+
+<Question q="Why can Airflow not be installed on Windows, and what can you do?">
+It depends on the `fcntl` module, which does not exist on Windows. Use WSL or a Linux server.
+</Question>
+
+<Question q="What does `airflow info` do besides printing information?">
+It creates the home folder (`~/airflow` or per `AIRFLOW_HOME`) with the configuration file `airflow.cfg` in it.
+</Question>
+
+<Question q="How do you set the `load_examples` option from `[core]` with an environment variable?">
+`AIRFLOW__CORE__LOAD_EXAMPLES=False` — the `AIRFLOW` prefix, the section, and the key, separated by double underscores.
+</Question>
+
+<Question q="Why not use SQLite in production?">
+Everything is in one file, it is slow, and it does not support running tasks in parallel. Production uses e.g. PostgreSQL.
+</Question>
+
+<Question q="Why run Airflow in tmux or as a systemd service?">
+Processes started in the VS Code terminal stop working when you disconnect. In tmux or as a service, Airflow keeps running and collects data without you; systemd also restarts it cleanly and starts it after a reboot.
+</Question>
+
+<Question q="What made the tasks fail with the *queued* state in the course?">
+A trimmed `airflow.cfg` without `jwt_secret` — the components generated their own secrets and could not verify each other. The generated config, with only `load_examples` changed, fixed it.
+</Question>

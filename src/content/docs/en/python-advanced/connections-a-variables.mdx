@@ -1,0 +1,215 @@
+---
+title: Connections, Hooks, and Variables
+description: Configuration and secrets outside the code — a Connection to a service created in the UI, reading it with BaseHook, and Variables in the UI, the CLI, and environment variables.
+kind: chapter
+day: 2
+sidebar:
+  order: 11
+  label: 11 · Connections and Variables
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Secrets and connection settings belong in a **Connection** (Admin → Connections), not in the code.
+- Read them in code with a **hook**: `conn = BaseHook.get_connection("openweathermap")` → `conn.schema`, `conn.host`, `conn.port`, `conn.password`, `conn.extra_dejson`.
+- Other settings (e.g. the city) belong in **Variables** (Admin → Variables): `Variable.get("weather_city", default="kosice,sk")`.
+- Variables and Connections can also come from environment variables: `AIRFLOW_VAR_WEATHER_CITY`, `AIRFLOW_CONN_OPENWEATHERMAP` — without being stored in the database.
+- Name Variables with a project **prefix**, in `snake_case`, lower case: `weather_city`.
+</KeyPoints>
+
+## The problem
+
+The key and the service address are hard-coded — impractical, and for the key not safe either. Connection details may also differ per environment (*development*, *testing*, *staging*, *production*). Airflow has two mechanisms for this:
+
+| Mechanism | For |
+| --- | --- |
+| **Connections** + **hooks** | how to connect to a service: address, port, credentials, key |
+| **Variables** | other workflow settings, e.g. the city |
+
+## Connection: creating it in the UI
+
+**Admin → Connections → Add Connection** and fill in the form:
+
+| Field | Value |
+| --- | --- |
+| Connection Id | `openweathermap` |
+| Connection Type | `Generic` |
+| Description | `The openweathermap.org service for retrieving weather info` |
+| Host | `api.openweathermap.org` |
+| Login | (empty — the service has no user) |
+| Password | your API key |
+| Port | `443` |
+| Schema | `https` |
+| Extra Fields JSON | `{"units": "metric"}` |
+
+It is similar to the environment-variable forms in graphical tools for running containers. The form changes with the *Connection Type* — e.g. the *File* type asks for a path.
+
+- **Password** is a sensible place for an API key — Airflow stores it encrypted and does not show it in the UI.
+- **Extra** is JSON for anything else that belongs to the connection. The default `units` fit here.
+
+The same from the command line:
+
+```bash
+airflow connections add openweathermap \
+    --conn-type generic \
+    --conn-host api.openweathermap.org \
+    --conn-schema https \
+    --conn-port 443 \
+    --conn-password "$APPID" \
+    --conn-extra '{"units": "metric"}'
+```
+
+## Hook: reading the connection in code
+
+```python
+from airflow.sdk import BaseHook
+
+conn = BaseHook.get_connection("openweathermap")
+```
+
+| Attribute | Value from the form |
+| --- | --- |
+| `conn.schema` | `https` |
+| `conn.host` | `api.openweathermap.org` |
+| `conn.port` | `443` |
+| `conn.login` / `conn.password` | credentials — for us the key |
+| `conn.extra_dejson` | the Extra field as a dictionary: `{"units": "metric"}` |
+
+`scrape_data()` now builds everything from the connection. We pass the request parameters as a **dictionary** — clearer than building a query string:
+
+```python
+@task
+def scrape_data(query: str) -> dict:
+    print(">> Scraping Data")
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params)
+    return response.json()
+```
+
+The workflow works the same, but you now change the address, key, and units in the UI — without touching the code. You can read the connection right in the task (as above) or once into a global variable.
+
+### A Connection from an environment variable
+
+In containers and CI it is handy to define a connection with an `AIRFLOW_CONN_<ID>` environment variable — in JSON form:
+
+```bash
+export AIRFLOW_CONN_OPENWEATHERMAP='{"conn_type": "generic", "host": "api.openweathermap.org",
+  "schema": "https", "port": 443, "password": "<API_KEY>", "extra": {"units": "metric"}}'
+```
+
+Such a connection does not show in the UI (it is not in the database), but `BaseHook.get_connection()` finds it.
+
+## Variables
+
+The city belongs neither in the connection settings nor in the code. For such settings Airflow has **Variables** — key–value pairs in the metadata database.
+
+### Creating one in the UI
+
+**Admin → Variables → Add Variable**: a name, a value, and an optional description. For example `weather_city` = `kosice,sk`.
+
+### Naming conventions
+
+- a **prefix** by project or team, so names do not clash — ours is `weather_`,
+- `snake_case`,
+- in larger projects **hierarchical** names with a `.`, `_`, or `__` separator,
+- case does not matter, but **lower case** is preferred — upper case is for environment variables and constants.
+
+### Reading in code
+
+```python
+from airflow.sdk import Variable
+
+city = Variable.get("weather_city")                       # VARIABLE_NOT_FOUND error if missing
+city = Variable.get("weather_city", default="kosice,sk")  # with a default
+config = Variable.get("weather_config", deserialize_json=True)  # a JSON value straight as a dict
+```
+
+### From the command line
+
+```bash
+$ airflow variables set weather_city poprad,sk
+Variable weather_city created
+$ airflow variables get weather_city
+poprad,sk
+$ airflow variables list
+$ airflow variables delete weather_city
+Variable weather_city deleted
+```
+
+### Through an environment variable
+
+```bash
+$ export AIRFLOW_VAR_WEATHER_CITY=kosice
+$ airflow variables get weather_city
+kosice
+```
+
+Careful: **Admin → Variables** still shows the original value. The environment variable stores nothing — it applies only while it exists, and it takes precedence over the value in the database.
+
+### The city from a Variable in the DAG
+
+Just change the default value of the DAG parameter:
+
+```python
+@dag(
+    "weather_scraper",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    data = scrape_data(query)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+- For a **manual run**, the form's default value shows the variable's content — and you can override it.
+- **Scheduled runs** use the variable's value as is.
+
+:::note[Variable.get outside a task]
+Top-level code in the file (including parameter defaults) runs on **every** load of the DAG — Airflow parses files repeatedly. Here `Variable.get()` hits the database on every parse. That is fine for the course; in production Airflow recommends reading Variables inside a task.
+:::
+
+## Test yourself
+
+<Question q="What is the difference between a Connection and a Variable?">
+A Connection describes how to connect to a service (host, port, schema, credentials, extra). A Variable is a general key–value pair for other workflow settings (e.g. the city).
+</Question>
+
+<Question q="How do you get the API key stored in the `openweathermap` Connection inside a task?">
+`BaseHook.get_connection("openweathermap").password` (with `from airflow.sdk import BaseHook`).
+</Question>
+
+<Question q="What does `conn.extra_dejson` return?">
+The Extra field deserialised from JSON into a dictionary, e.g. `{"units": "metric"}`.
+</Question>
+
+<Question q="Which environment variable overrides the `weather_city` Variable?">
+`AIRFLOW_VAR_WEATHER_CITY`. It applies while it exists and is not stored in the database.
+</Question>
+
+<Question q="What would you name a Variable holding the alert e-mail in the weather project?">
+E.g. `weather_alert_email` — a project prefix, `snake_case`, lower case.
+</Question>
+
+## Exercises
+
+### 11.1 · A different city without touching the code
+
+The DAG runs with the city from the `weather_city` Variable. Change the city to Poprad so it applies to scheduled runs too — in two ways: through the UI and through the CLI.
+
+<Solution>
+- **UI:** Admin → Variables → `weather_city` → edit to `poprad,sk`.
+- **CLI:** `airflow variables set weather_city poprad,sk`.
+
+The `AIRFLOW_VAR_WEATHER_CITY` environment variable would also work, but only for processes that see it, and it would store nothing.
+</Solution>

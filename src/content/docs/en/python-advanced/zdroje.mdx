@@ -17,6 +17,7 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | Day | Material |
 | --- | --- |
 | 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
+| 2 | [Day 2: Apache Airflow Introduction (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.2.pdf) |
 
 ## Which chapter comes from where
 
@@ -27,11 +28,28 @@ The API key from the slides and the lab machines' password and IP addresses are 
 | [03 · Workflow in Python](/devops-notes/en/python-advanced/workflow-v-pythone/) | day 1 — slides pp. 2–7, 14–15, transcript part 2 (ipython, type hints) |
 | [04 · HTTP, JSON, and dicts](/devops-notes/en/python-advanced/http-a-json/) | day 1 — slides pp. 7–9, 12–15, transcript part 2 (status codes, objects) |
 | [05 · Processing and CSV](/devops-notes/en/python-advanced/spracovanie-a-csv/) | day 1 — slides pp. 15–18, transcript part 2 (column order, UTC, pendulum) |
-| [06 · CLI and exceptions](/devops-notes/en/python-advanced/cli-a-vynimky/) | day 1 — slides pp. 19–24 (finished in the lecture on the next day) |
-| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | day 1 — “Daily Cheat Sheet”, pp. 25–26 |
+| [06 · CLI and exceptions](/devops-notes/en/python-advanced/cli-a-vynimky/) | day 1 — slides pp. 19–24; day 2 transcript (click, decorators, `ps aux`) |
+| [07 · Airflow and DAGs](/devops-notes/en/python-advanced/airflow-a-dag/) | day 2 — slides pp. 3, 9; transcript (alternatives, DAG, golden rule of operators) |
+| [08 · Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/) | day 2 — slides pp. 1–7; transcript (configuration, the JWT problem, swap) |
+| [09 · First DAG](/devops-notes/en/python-advanced/prvy-dag/) | day 2 — slides pp. 7–9; transcript (DAG parameters, cron, catchup, UI) |
+| [10 · Tasks and XCom](/devops-notes/en/python-advanced/tasky-a-xcom/) | day 2 — slides pp. 9–13; transcript (states, logs, XCom, `dag.test()`, parameters) |
+| [11 · Connections and Variables](/devops-notes/en/python-advanced/connections-a-variables/) | day 2 — slides pp. 13–14, 21–23; transcript (Connections, hooks) |
+| [12 · Validation and healthcheck](/devops-notes/en/python-advanced/validacia-a-healthcheck/) | day 2 — slides pp. 14–21 (the day 2 transcript ends at hooks) |
+| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | “Daily Cheat Sheet” — day 1 pp. 25–26, day 2 pp. 25–26 |
 
 ## Corrections to the slides
 
 - OpenWeatherMap response keys: `main.temp` (not `main.temperature`), `sys.sunrise`, `sys.sunset`, `sys.country`, and the city in `name`.
 - The slides' cheat sheet has `add(10 + 20)` — it should be `add(10, 20)`.
 - The click example calls a `validate_schema()` function that the slides never define; the notes contain a complete, tested `workflow.py`.
+
+### Day 2 (verified on Airflow 3.3.2)
+
+- `catchup` defaults to `False` in **Airflow 3** (the slides say `True`, which held in Airflow 2).
+- The `.test()` parameter is `logical_date`, not `execution_date`; `airflow dags trigger` takes `-l/--logical-date`, not `-e`.
+- The healthcheck with `retries=3` raises `AirflowFailException` — which **skips** retrying. Retries need a normal exception.
+- The final DAG in the slides: `process_data(measurement)` uses a variable that does not exist (should be `data`), `upload_data` should be `publish_data`, `units` is `'metrics'` (should be `metric`), and the arguments of `scrape_data(query, appid, units)` are in a different order than its parameters.
+- The PostgreSQL Docker compose mixes the Bitnami image's variables (`POSTGRESQL_…`) with the official `postgres` image; the connection string has a typo, `airflowow`.
+- In the cheat sheet: `logging.getLogger(__file__)` → usually `__name__`; the “error-level message” example uses `logger.warning`.
+- For the VS Code server cleanup script: the comment says “every two hours”, the crontab entry is `@midnight`, and the file names differ (`vscode-cleanup.bash` vs `vscode-server-cleanup.sh`).
+- The short day 2 `airflow.cfg` made tasks fail (no `jwt_secret`) — the notes describe the generated-config approach.

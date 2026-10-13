@@ -105,3 +105,57 @@ V Pythone prejde `a = 10`, potom `a = "Jano"`, potom `a = True`. V C, Jave či C
 Proces má limit otvorených súborov (`ulimit -n`). Workflow, ktorý ich nezatvára, raz spadne — preto `with open(...)`.
 
 <p class="wisdom-day">Deň 1</p>
+
+## Dekorátory sú všade
+
+Dekorátor je funkcia, ktorá obaľuje inú funkciu. V Pythone je to „úplne krásny prístup“ a stoja na ňom celé rámce: **click** (`@click.command`), **Flask** a **FastAPI** (`@app.get("/info")` — routovanie bez magickej konfigurácie bokom) aj **Airflow** (`@dag`, `@task`).
+
+<p class="wisdom-day">Deň 2</p>
+
+## click: CLI bez námahy
+
+click je extrémne populárny, lebo sa s ním robí „dobre, rýchlo a ľahko“ — parametre príkazu len **opíšeš** dekorátormi a kód workflowu ostane takmer nezmenený. `--help`, kontrolu hodnôt (`click.Choice`) aj predvolené hodnoty dostaneš zadarmo. Python je tak aj dobrý jazyk na DevOps nástroje, nielen Bash.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Organize Imports
+
+Ruff podčiarkne importy, ktoré nie sú zoradené (`I001: Import block is un-sorted or un-formatted`). Netreba ich triediť ručne — v *Quick Fix* (`Ctrl+.`) zvoľ **Organize Imports**.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Ctrl+/ komentuje všade
+
+Zakomentovanie a odkomentovanie riadku alebo výberu je `Ctrl+/` — univerzálna skratka naprieč veľkými editormi (VS Code, IntelliJ…). Ak to nemáš nastavené inak.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Citlivý údaj odhaľ čo najkratšie
+
+Ak sa nevieš vyhnúť tomu, aby bol tajný údaj na chvíľu viditeľný (napr. v argumentoch procesu), nech je to **čo najkratšie**. Proces, ktorý beží 30 sekúnd s kľúčom v argumentoch, je 30 sekúnd vystavený každému, kto spustí `ps aux`.
+
+<p class="wisdom-day">Deň 2</p>
+
+## sys.exit(), nie quit()
+
+`quit()` je pomôcka pre interaktívny interpreter. V skripte ukončuj program cez `sys.exit()` — a v Airflow tasku vyvolaj výnimku.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Funkcia DAG-u sa volá main
+
+Funkciu, ktorá definuje DAG, si môžeš nazvať ľubovoľne. Mirek ju vždy volá `main` — „nebudem vymýšľať weather scraper DAG alebo DAG weather scraper“. Ľudský názov aj tak patrí do `dag_display_name`.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Frekvencia v názve DAG-u
+
+Z prednášky Kiwi.com: do názvu DAG-u píšu aj to, ako často sa spúšťa (napr. „… 1 hour“), aby to bolo jasné už zo zoznamu. Konvencie si dohodnite v tíme.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Vygenerovaný config neosekávaj
+
+Mirek nahradil vygenerovaný `airflow.cfg` krátkou verziou „iba s tým, čo treba“ — a tasky začali záhadne padať. Chýbal v ňom náhodný `jwt_secret`. Ponaučenie: vygenerovaný konfigurák nechaj celý a meň v ňom iba to, čo potrebuješ.
+
+<p class="wisdom-day">Deň 2</p>

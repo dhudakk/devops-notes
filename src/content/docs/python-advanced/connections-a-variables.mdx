@@ -1,0 +1,215 @@
+---
+title: Connections, hooky a Variables
+description: Konfigurácia a tajomstvá mimo kódu — spojenie (Connection) k službe vytvorené v UI, jeho načítanie cez BaseHook a premenné (Variables) v UI, CLI aj cez premenné prostredia.
+kind: chapter
+day: 2
+sidebar:
+  order: 11
+  label: 11 · Connections a Variables
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Citlivé údaje a nastavenia spojenia patria do **Connection** (Admin → Connections), nie do kódu.
+- V kóde ich načítaš **hookom**: `conn = BaseHook.get_connection("openweathermap")` → `conn.schema`, `conn.host`, `conn.port`, `conn.password`, `conn.extra_dejson`.
+- Ostatné nastavenia (napr. mesto) patria do **Variables** (Admin → Variables): `Variable.get("weather_city", default="kosice,sk")`.
+- Variables aj Connections vieš nastaviť aj premennou prostredia: `AIRFLOW_VAR_WEATHER_CITY`, `AIRFLOW_CONN_OPENWEATHERMAP` — bez uloženia do databázy.
+- Variables pomenúvaj s **prefixom** projektu, v `snake_case`, malými písmenami: `weather_city`.
+</KeyPoints>
+
+## Problém
+
+Kľúč a adresa služby sú v kóde natvrdo — to nie je praktické a pri kľúči ani bezpečné. Navyše sa podmienky spojenia môžu meniť podľa prostredia (*development*, *testing*, *staging*, *production*). Airflow na to má dva mechanizmy:
+
+| Mechanizmus | Na čo |
+| --- | --- |
+| **Connections** + **hooks** | ako sa pripojiť k službe: adresa, port, prihlasovacie údaje, kľúč |
+| **Variables** | ostatné nastavenia workflowu, napr. mesto |
+
+## Connection: vytvorenie v UI
+
+**Admin → Connections → Add Connection** a vyplň formulár:
+
+| Pole | Hodnota |
+| --- | --- |
+| Connection Id | `openweathermap` |
+| Connection Type | `Generic` |
+| Description | `The openweathermap.org service for retrieving weather info` |
+| Host | `api.openweathermap.org` |
+| Login | (prázdne — služba nemá používateľa) |
+| Password | tvoj API kľúč |
+| Port | `443` |
+| Schema | `https` |
+| Extra Fields JSON | `{"units": "metric"}` |
+
+Je to podobné ako formuláre na premenné prostredia v grafických nástrojoch na spúšťanie kontajnerov. Podľa typu spojenia (*Connection Type*) sa formulár mení — napr. typ *File* pýta cestu.
+
+- **Password** je rozumné miesto pre API kľúč — Airflow ho uloží zašifrovaný a v UI ho nezobrazuje.
+- **Extra** je JSON pre všetko navyše, čo k spojeniu patrí. Predvolené jednotky (`units`) sa sem hodia.
+
+Z príkazového riadku to isté:
+
+```bash
+airflow connections add openweathermap \
+    --conn-type generic \
+    --conn-host api.openweathermap.org \
+    --conn-schema https \
+    --conn-port 443 \
+    --conn-password "$APPID" \
+    --conn-extra '{"units": "metric"}'
+```
+
+## Hook: načítanie spojenia v kóde
+
+```python
+from airflow.sdk import BaseHook
+
+conn = BaseHook.get_connection("openweathermap")
+```
+
+| Atribút | Hodnota z formulára |
+| --- | --- |
+| `conn.schema` | `https` |
+| `conn.host` | `api.openweathermap.org` |
+| `conn.port` | `443` |
+| `conn.login` / `conn.password` | prihlasovacie údaje — u nás kľúč |
+| `conn.extra_dejson` | pole Extra ako slovník: `{"units": "metric"}` |
+
+`scrape_data()` si teraz všetko poskladá zo spojenia. Parametre požiadavky odovzdáme ako **slovník** — prehľadnejšie ako skladať query string:
+
+```python
+@task
+def scrape_data(query: str) -> dict:
+    print(">> Scraping Data")
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params)
+    return response.json()
+```
+
+Workflow funguje rovnako, ale adresu, kľúč aj jednotky teraz meníš v UI — bez zásahu do kódu. Spojenie môžeš čítať priamo v tasku (ako vyššie) alebo raz do globálnej premennej.
+
+### Connection z premennej prostredia
+
+V kontajneroch a v CI sa hodí definovať spojenie premennou prostredia `AIRFLOW_CONN_<ID>` — v JSON tvare:
+
+```bash
+export AIRFLOW_CONN_OPENWEATHERMAP='{"conn_type": "generic", "host": "api.openweathermap.org",
+  "schema": "https", "port": 443, "password": "<API_KEY>", "extra": {"units": "metric"}}'
+```
+
+Takéto spojenie sa nezobrazí v UI (nie je v databáze), ale `BaseHook.get_connection()` ho nájde.
+
+## Variables
+
+Mesto nepatrí do konfigurácie spojenia, ani do kódu. Na takéto nastavenia má Airflow **Variables** — dvojice kľúč–hodnota v metadátovej databáze.
+
+### Vytvorenie v UI
+
+**Admin → Variables → Add Variable**: názov, hodnota a voliteľný opis. Napríklad `weather_city` = `kosice,sk`.
+
+### Menné konvencie
+
+- **prefix** podľa projektu alebo tímu, aby sa názvy nebili — u nás `weather_`,
+- `snake_case`,
+- pri väčších projektoch **hierarchické** názvy s oddeľovačom `.`, `_` alebo `__`,
+- na veľkosti písmen síce nezáleží, ale preferujú sa **malé** — veľké písmená patria premenným prostredia a konštantám.
+
+### Čítanie v kóde
+
+```python
+from airflow.sdk import Variable
+
+city = Variable.get("weather_city")                       # chyba VARIABLE_NOT_FOUND, ak neexistuje
+city = Variable.get("weather_city", default="kosice,sk")  # predvolená hodnota
+config = Variable.get("weather_config", deserialize_json=True)  # JSON hodnota rovno ako dict
+```
+
+### Z príkazového riadku
+
+```bash
+$ airflow variables set weather_city poprad,sk
+Variable weather_city created
+$ airflow variables get weather_city
+poprad,sk
+$ airflow variables list
+$ airflow variables delete weather_city
+Variable weather_city deleted
+```
+
+### Cez premennú prostredia
+
+```bash
+$ export AIRFLOW_VAR_WEATHER_CITY=kosice
+$ airflow variables get weather_city
+kosice
+```
+
+Pozor: v **Admin → Variables** uvidíš stále pôvodnú hodnotu. Premenná prostredia nič neukladá — platí, iba kým existuje, a má prednosť pred hodnotou v databáze.
+
+### Mesto z Variable v DAG-u
+
+Stačí upraviť predvolenú hodnotu parametra DAG-u:
+
+```python
+@dag(
+    "weather_scraper",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    data = scrape_data(query)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+- Pri **ručnom spustení** sa ako predvolená hodnota vo formulári ukáže obsah premennej — dá sa prepísať.
+- **Plánované behy** použijú hodnotu premennej bez zmeny.
+
+:::note[Variable.get mimo tasku]
+Kód na najvyššej úrovni súboru (aj predvolené hodnoty parametrov) sa vykoná pri **každom** načítaní DAG-u — Airflow súbory parsuje opakovane. `Variable.get()` tu teda pri každom parsovaní siaha do databázy. Pre kurz je to v poriadku; v produkcii Airflow odporúča čítať Variables až vo vnútri tasku.
+:::
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi Connection a Variable?">
+Connection opisuje, ako sa pripojiť k službe (host, port, schéma, prihlasovacie údaje, extra). Variable je všeobecná dvojica kľúč–hodnota pre ostatné nastavenia workflowu (napr. mesto).
+</Question>
+
+<Question q="Ako v tasku získaš API kľúč uložený v Connection `openweathermap`?">
+`BaseHook.get_connection("openweathermap").password` (s `from airflow.sdk import BaseHook`).
+</Question>
+
+<Question q="Čo vráti `conn.extra_dejson`?">
+Obsah poľa Extra deserializovaný z JSON-u na slovník, napr. `{"units": "metric"}`.
+</Question>
+
+<Question q="Akú premennú prostredia použiješ na prepísanie Variable `weather_city`?">
+`AIRFLOW_VAR_WEATHER_CITY`. Platí, kým existuje, a do databázy sa neuloží.
+</Question>
+
+<Question q="Ako by si nazval Variable s e-mailom pre upozornenia v projekte weather?">
+Napr. `weather_alert_email` — prefix projektu, `snake_case`, malé písmená.
+</Question>
+
+## Cvičenia
+
+### 11.1 · Iné mesto bez úpravy kódu
+
+DAG beží s mestom z Variable `weather_city`. Zmeň mesto na Poprad tak, aby to platilo aj pre plánované behy — dvoma spôsobmi: cez UI a cez CLI.
+
+<Solution>
+- **UI:** Admin → Variables → `weather_city` → upraviť na `poprad,sk`.
+- **CLI:** `airflow variables set weather_city poprad,sk`.
+
+Premenná prostredia `AIRFLOW_VAR_WEATHER_CITY` by tiež fungovala, ale iba pre procesy, ktoré ju vidia, a nič by neuložila.
+</Solution>
