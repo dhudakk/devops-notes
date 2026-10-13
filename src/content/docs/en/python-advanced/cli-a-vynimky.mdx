@@ -2,7 +2,7 @@
 title: CLI Options and Exceptions
 description: Command-line options with click, passing the API key safely, exceptions, logging, stack traces, sys.exit(), and why we need Airflow.
 kind: chapter
-day: 1
+day: 2
 sidebar:
   order: 6
   label: 06 · CLI and exceptions
@@ -21,23 +21,77 @@ import Solution from '../../../../components/Solution.astro';
 </KeyPoints>
 
 :::note[When this is covered]
-This chapter comes from the day 1 slides, but in the lecture the command-line options are finished only at the start of the next session. The instructor's plan: `query` is the only required argument, `units` has a default, and `appid` is read from an environment variable.
+The chapter comes from the day 1 slides; command-line options (click) were taught at the start of day 2, and the day 1 exceptions material is filled in along the way.
 :::
+
+## What is wrong with hard-coded values
+
+The day 1 workflow has the city, the units, and the API key written **hard-coded** into it — it always downloads Košice and the key is part of the script. A key in the code is also a **security problem**: anyone who can see the code (e.g. in Git) sees the key.
+
+How to get the values in from outside:
+
+| Way | Note |
+| --- | --- |
+| **command-line options** | convenient, but anyone can see arguments in the process list (`ps aux`) |
+| **environment variables** | do not show in the process list; the environment must be protected (e.g. a container with `--env-file`) |
+| **vault / secrets manager** | e.g. HashiCorp Vault — secrets live outside the code and outside the machine |
+
+The city and units become options; the key comes from an environment variable.
 
 ## Command-line options
 
-The workflow will later run in the background, but you often need a tool whose behaviour you change with options when you run it. The standard library has `argparse`; we use the more comfortable **click** package.
+The workflow will later run in the background, but you often need a tool whose behaviour you change with options when you run it. The standard library has `argparse` (a bit clunky); we use the very popular **click** package.
 
 ```bash
 (venv) $ pip install click
 ```
 
-| click term | Meaning | Example |
+### Anatomy of a command
+
+```bash
+docker container run -d -p 8080:80 nginx
+```
+
+| Part | Term | Python type |
 | --- | --- | --- |
-| **command** | the command itself (a function) | `./workflow.py` |
-| **argument** | a required positional value | `kosice` |
-| **option** | a named, optional value | `--units metric` |
-| **flag** | an option without a value that switches something on or off | `--verbose` |
+| `docker` | **command** — the main command | — |
+| `container run` | **subcommand** (like `ip route`, `ip addr`) | — |
+| `-d` | **flag** — either set or not | `bool` |
+| `-p 8080:80` | **option** — a named choice with a value | usually `str` |
+| `nginx` | **argument** — a positional value | `str` |
+
+### Decorators
+
+click describes a command with **decorators** — the `@something` line above a function. A decorator is a function that **wraps another function**: it receives it as a parameter and can do something before and after it runs.
+
+```python
+@click.command()
+def main():
+    ...
+```
+
+Web frameworks such as Flask or FastAPI work the same way — `@app.get("/info")` above a function means `curl localhost/info` runs exactly that function. And in Airflow, decorators mark the DAG (`@dag`) and the tasks (`@task`).
+
+### Step by step with click
+
+1. **`@click.command()`** — the script suddenly understands `--help`. The `help="..."` parameter is the description shown in the help.
+2. **`@click.argument("query")`** — a required argument (shown without square brackets in `--help`). If `main` has no `query` parameter, it fails:
+
+   ```text
+   TypeError: main() got an unexpected keyword argument 'query'
+   ```
+
+   click passes every argument and option to the function as a **keyword argument** with the same name. Add `def main(query: str):` and pass `query` on to `scrape_data()`.
+3. **`@click.option("--units", ...)`** — an optional choice. Without a check, nonsense (`--units celsius`) would get through and the API would silently return Kelvin. You could write the check by hand:
+
+   ```python
+   if units not in ["metric", "standard", "imperial"]:
+       print("Units must be metric, standard or imperial.")
+       sys.exit(1)
+   ```
+
+   …but click does it for you: `type=click.Choice([...])` rejects other values with a neat error, lists the allowed values in `--help`, and `default="metric"` sets the default. Exit a program with `sys.exit()`, not `quit()` — that one is meant for the interactive interpreter.
+4. **`@click.option("--appid", envvar="APPID")`** — the key can be given as an option, but also through an environment variable.
 
 ```python
 import click
@@ -59,18 +113,24 @@ def main(query: str, appid: str, units: str) -> None:
     publish_data(entry)
 ```
 
-`envvar="APPID"` means: if you omit `--appid`, click takes the value from the `APPID` environment variable. `click.Choice` rejects other units before the workflow even starts.
+`envvar="APPID"` means: if you omit `--appid`, click takes the value from the `APPID` environment variable. `click.Choice` rejects other units before the workflow even starts. Notice that the workflow code barely changed — click only **describes** the command's parameters.
 
 ### Running it
 
 ```bash
 ./workflow.py --help                          # help generated from the decorators
 ./workflow.py kosice --appid <API_KEY>        # works, but the key is visible!
-APPID=<API_KEY> ./workflow.py kosice          # key in an environment variable
+APPID=<API_KEY> ./workflow.py kosice          # key for this one command only
+export APPID=<API_KEY>                        # key for the whole current environment
+./workflow.py kosice
 ```
 
+The instructor showed it live: he added `sleep(30)` to the workflow, ran it with `--appid`, and in a second terminal `ps aux | grep python` showed the whole command including the key. Run through an environment variable, the key was not there.
+
 :::danger[Secrets do not belong in arguments]
-Every user on the system can see command arguments: `ps aux | grep python` shows the whole command including the key. An environment variable does not appear in the process list — “an environment variable is not a process”. (It is not perfectly secret — the process owner and `root` can read it — but it is much safer.)
+Every user on the system can see command arguments: `ps aux | grep python` shows the whole command including the key. On a shared machine you just have to wait — or write a script that scans the process list. An environment variable does not appear in the process list — “an environment variable is not a process”. (It is not perfectly secret — the process owner and `root` can read it — but it is much safer.)
+
+If you cannot avoid exposing a secret, keep the exposure **as short as possible**.
 :::
 
 ## A wrong query
@@ -291,6 +351,14 @@ The answer to every question is **Apache Airflow** — it will run our workflow 
 
 <Question q="What is the difference between an argument and an option in click?">
 An argument is a required positional value (`kosice`). An option is a named, usually optional value with a default (`--units metric`). A flag is an option without a value.
+</Question>
+
+<Question q="What is a decorator?">
+A function that wraps another function — it receives it as a parameter and can do something before and after it runs. It is written as `@decorator` above the function definition (`@click.command`, `@dag`, `@task`).
+</Question>
+
+<Question q="What Python type is a flag like `-d` in `docker container run -d`?">
+`bool` — a flag is either set (`True`) or not (`False`).
 </Question>
 
 <Question q="Why not pass the API key as `--appid KEY`?">

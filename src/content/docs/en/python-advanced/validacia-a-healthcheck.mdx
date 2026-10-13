@@ -1,0 +1,423 @@
+---
+title: Validation, Logging, and Healthcheck
+description: Checking data with a JSON schema, file paths via pathlib and __file__, logging levels, a service healthcheck, chaining tasks with >>, and retrying on failure.
+kind: chapter
+day: 2
+sidebar:
+  order: 12
+  label: 12 · Validation and healthcheck
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **JSON Schema** describes the shape of a JSON document; `jsonschema.validate(instance=..., schema=...)` raises `ValidationError` when the data does not fit.
+- Open files next to the DAG with **`Path(__file__).parent / "file"`** — a relative path is resolved against the folder Airflow was started in.
+- Log with `logger = logging.getLogger(__name__)` at the right level: `DEBUG` < `INFO` < `WARNING` < `ERROR` < `CRITICAL`.
+- A task that returns nothing is put before another with the **`>>`** operator: `is_service_alive() >> scrape_data(query)`.
+- `retries=3` = up to **4** attempts; `retry_delay` is the pause between them (300 s by default). **`AirflowFailException` skips the retries.**
+</KeyPoints>
+
+## Validating data with a JSON schema
+
+What if the API changes the shape of its response? Or XML arrives instead of JSON? The workflow would crash somewhere in `process_data` on an unexpected `KeyError` — or, worse, store nonsense. So we **check the data before processing it**.
+
+A JSON document has no schema the way a table in an SQL database does. The **JSON Schema** project ([json-schema.org](https://json-schema.org/)) lets you describe a JSON document's shape with another JSON document: which keys must exist, of which type, in which range. You can build a schema in the online validator [jsonschemavalidator.net](https://www.jsonschemavalidator.net/).
+
+A schema for the data we use — stored next to the DAG as `weather.schema.json`:
+
+```json title="dags/weather.schema.json"
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenWeatherMap current weather",
+  "type": "object",
+  "required": ["dt", "name", "main", "wind", "sys"],
+  "properties": {
+    "dt": { "type": "integer" },
+    "name": { "type": "string" },
+    "main": {
+      "type": "object",
+      "required": ["temp", "humidity", "pressure"],
+      "properties": {
+        "temp": { "type": "number" },
+        "humidity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "pressure": { "type": "number" }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "required": ["speed", "deg"],
+      "properties": {
+        "speed": { "type": "number", "minimum": 0 },
+        "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "sys": {
+      "type": "object",
+      "required": ["country"],
+      "properties": { "country": { "type": "string" } }
+    }
+  }
+}
+```
+
+### Checking from the command line
+
+```bash
+(venv) $ pip install jsonschema
+(venv) $ jsonschema --instance weather.json weather.schema.json
+(venv) $ echo $?        # 0 = the document matches the schema, 1 = it does not
+```
+
+The `jsonschema` CLI reports that it is deprecated and recommends `check-jsonschema` (a separate package built on `jsonschema`):
+
+```bash
+check-jsonschema --schemafile weather.schema.json weather.json
+```
+
+### Checking in Python
+
+```python
+import json
+
+import jsonschema
+
+with open("weather.schema.json", encoding="utf-8") as file:
+    schema = json.load(file)
+
+jsonschema.validate(instance=payload, schema=schema)   # on failure: jsonschema.ValidationError
+```
+
+### The validate_data() task
+
+```python
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.validate(instance=payload, schema=schema)
+    return payload
+```
+
+The task only checks the data and passes it on — we put it between downloading and processing:
+
+<Pipeline steps={['scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## The path to a file: pathlib and `__file__`
+
+With `open("weather.schema.json")` the task fails with *file not found*. A relative path is resolved against the **current folder of the process** — where Airflow was started, not where the DAG is. An absolute path (`/home/ubuntu/airflow/dags/...`) would work, but the solution would not be portable.
+
+Besides `__name__`, every module has the special variable **`__file__`** — the absolute path to the module itself. Instead of juggling the path with string methods, we use the **`Path`** object from the `pathlib` module:
+
+```python
+from pathlib import Path
+
+DAG_FOLDER = Path(__file__).parent                  # the folder the DAG lives in
+SCHEMA_PATH = DAG_FOLDER / "weather.schema.json"    # the / operator joins paths
+DATASET_PATH = DAG_FOLDER / "dataset.csv"
+
+SCHEMA_PATH.read_text(encoding="utf-8")             # the whole file's content
+with DATASET_PATH.open("a", encoding="utf-8") as file:
+    ...
+```
+
+| Expression | Meaning |
+| --- | --- |
+| `Path(__file__)` | the path to the current module |
+| `.parent` | the parent folder |
+| `path / "file"` | appends a path part (works on Linux and Windows) |
+| `.exists()`, `.read_text()`, `.open()` | test existence, read, open |
+
+## Logging
+
+`print()` shows up in Airflow logs at **INFO** level. An error should be marked as an error — with the `logging` module:
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.info("Downloaded weather for %s", query)
+logger.warning("Disk is almost full")
+logger.error("Unexpected data from the service: %s", error.message)
+```
+
+| Level | When | Example |
+| --- | --- | --- |
+| `DEBUG` | debugging — anything you would `print()`; **not in production** (may contain sensitive data) | variable values |
+| `INFO` | normal events | start/shutdown, login/logout |
+| `WARNING` | it went fine, but something deserves attention | disk running out, a deprecated version |
+| `ERROR` | an error, but the application carries on | a record was not saved because of invalid data |
+| `CRITICAL` | the application cannot continue | disk full, a key database unreachable |
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/log-levels.png" alt="Decision tree for log levels: for developers TRACE or DEBUG depending on whether variable states are logged; for operators INFO if there is no unwanted state, otherwise WARN if the process can continue, ERROR if the application can continue, else FATAL." width="1008" height="712" loading="lazy" />
+  <figcaption>Choosing a log level. Image from the instructor's slides. Python has no TRACE, and FATAL is called CRITICAL.</figcaption>
+</figure>
+
+Do not put values into the message with an f-string; use `%s` and arguments — the logger builds the message only if it is actually written.
+
+## Healthcheck
+
+Before we start downloading, we check whether the service is **available** at all — if it is down, there is nothing to do. A service can be tested by:
+
+| Way | Success judged by |
+| --- | --- |
+| an HTTP request to an endpoint | the status code, or whether a connection can be made at all |
+| a command-line command | the command's exit code |
+| connecting to an open port | whether the connection succeeds |
+
+Three approaches from the slides — the `is_service_alive()` task:
+
+```python title="1. Bash task: ping"
+@task.bash
+def is_service_alive() -> str:
+    conn = BaseHook.get_connection("openweathermap")
+    return f"ping -c 1 -w 2 {conn.host}"      # task.bash runs the returned command
+```
+
+```python title="2. The sh module"
+from sh import ping                           # pip install sh
+
+
+@task(task_display_name="Openweathermap Healthcheck")
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    ping(conn.host, "-c", "1", _timeout=3)    # raises an exception on failure
+```
+
+```python title="3. HTTP HEAD"
+@task(task_display_name="Service Healthcheck")
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    response = httpx.head(url, follow_redirects=True)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"Service unavailable. HTTP status: {response.status_code}")
+```
+
+The **HEAD** method is like GET, but the server returns only the headers, no body — enough to check availability, and cheaper.
+
+## Chaining tasks with `>>`
+
+The healthcheck returns nothing, so we cannot “pass it on” as an argument. We set the order with the **bit-shift operator** `>>`:
+
+```python
+measurement = scrape_data(query)
+is_service_alive() >> measurement     # the healthcheck must run before scrape_data
+```
+
+`a >> b` means “`b` runs only after `a`”. (In the other direction, `b << a`.)
+
+<Pipeline steps={['is_service_alive', 'scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## Retrying on failure
+
+When a task fails, the DAG run ends with it. A task (and the whole DAG) can, however, be **retried automatically**:
+
+```python
+from datetime import timedelta
+
+
+@task(retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    ...
+```
+
+- `retries=3` does not mean 3 attempts in total but **3 retries** after the first failed run — up to **4** runs in total.
+- `retry_delay` is the pause between attempts. Without it the configuration's `default_task_retry_delay` applies — **300 s**. The default number of retries is 0.
+
+:::danger[AirflowFailException and retries do not mix]
+In the slides the healthcheck raises `AirflowFailException` on failure and at the same time has `retries=3`. But `AirflowFailException` means *“fail without retrying”* — the retries never happen. Verified on Airflow 3.3: with `retries=2` a normal exception ran the task **3×**, `AirflowFailException` only **1×**.
+
+- a **temporary problem** (service unavailable, timeout) → a normal exception (e.g. `AirflowException`), so it is retried,
+- a **permanent problem** (wrong key, unknown city, wrong schema) → `AirflowFailException`; retrying would not help.
+:::
+
+## The complete DAG
+
+Everything together — healthcheck, download, validation, processing, and writing; the connection from a Connection, the city from a Variable:
+
+```python title="dags/weather_scraper.py"
+"""Weather scraper: healthcheck -> scrape -> validate -> process -> publish."""
+
+import json
+import logging
+from datetime import timedelta
+from http import HTTPStatus
+from pathlib import Path
+
+import httpx
+import jsonschema
+from airflow.sdk import BaseHook, Variable, dag, task
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+from pendulum import datetime, from_timestamp
+
+CONNECTION_NAME = "openweathermap"
+DAG_FOLDER = Path(__file__).parent
+SCHEMA_PATH = DAG_FOLDER / "weather.schema.json"
+DATASET_PATH = DAG_FOLDER / "dataset.csv"
+HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+
+logger = logging.getLogger(__name__)
+
+
+@task(
+    task_display_name="Service Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=30),
+)
+def is_service_alive() -> None:
+    """Fail (and retry) when openweathermap.org does not answer."""
+    conn = BaseHook.get_connection(CONNECTION_NAME)
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    try:
+        response = httpx.head(url, follow_redirects=True, timeout=10)
+    except httpx.RequestError as error:
+        raise AirflowException(f"Service unavailable: {error}") from error
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(
+            f"Service unavailable. HTTP status: {response.status_code}"
+        )
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    """Download the current weather for `query`."""
+    conn = BaseHook.get_connection(CONNECTION_NAME)
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params, timeout=10)
+
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        raise AirflowFailException(
+            "401 Unauthorized: check the API key in the connection."
+        )
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        raise AirflowFailException(f'404 Not Found: city "{query}" does not exist.')
+    response.raise_for_status()  # other errors fail normally, so retries apply
+
+    return response.json()
+
+
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    """Check that the data has the shape we expect."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+
+
+@task(task_display_name="Process Data")
+def process_data(data: dict) -> str:
+    """Turn the dictionary into one CSV line."""
+    values = [
+        from_timestamp(data["dt"]).to_iso8601_string(),
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ",".join(str(value) for value in values)
+
+
+@task(task_display_name="Publish Data")
+def publish_data(entry: str) -> None:
+    """Append the line to the dataset; write the header into an empty file."""
+    with DATASET_PATH.open("a", encoding="utf-8") as file:
+        if file.tell() == 0:
+            print(HEADER, file=file)
+        print(entry, file=file)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops"],
+    catchup=False,
+)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    measurement = scrape_data(query)
+    is_service_alive() >> measurement
+    valid_data = validate_data(measurement)
+    entry = process_data(valid_data)
+    publish_data(entry)
+
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+Tested on Airflow 3.3.2 with `python weather_scraper.py` (`dag.test()`) against a local stand-in for OpenWeatherMap: a successful run, an unknown city (404), a wrong key (401), and data that does not match the schema — on errors nothing is written to the dataset.
+
+## Test yourself
+
+<Question q="What is JSON Schema for?">
+It describes the expected shape of a JSON document (required keys, types, ranges). Before processing, we use it to check that the service's data has the shape we rely on.
+</Question>
+
+<Question q='Why does `open("weather.schema.json")` in a task not find the file lying next to the DAG?'>
+A relative path is resolved against the process's current folder (where Airflow was started), not the DAG's folder. `Path(__file__).parent / "weather.schema.json"` fixes it.
+</Question>
+
+<Question q="Which log level do you choose when a record was not saved because of invalid data, but the application carries on?">
+`ERROR`. (`CRITICAL` would be if the application could not continue; `WARNING` if everything went through but something deserved attention.)
+</Question>
+
+<Question q="At most how many times does a task with `retries=3` run?">
+4 times — the first run and 3 retries.
+</Question>
+
+<Question q="What does `is_service_alive() >> scrape_data(query)` mean?">
+`scrape_data` runs only after `is_service_alive` has finished successfully. The `>>` operator sets the order of tasks that do not pass data to each other.
+</Question>
+
+<Question q="Why is HEAD better than GET for a healthcheck?">
+The server returns only the headers without a response body — enough to find out availability, and less data is transferred.
+</Question>
+
+## Exercises
+
+### 12.1 · A healthcheck through an open port
+
+Write a variant of `is_service_alive()` that only tries to connect to `conn.host` and `conn.port` (TCP) with a 3-second timeout. On failure it raises an exception so that the task is retried.
+
+<Solution variant="hint">
+The standard library's `socket` module has `socket.create_connection((host, port), timeout=3)`. Open the connection with `with` so it is closed right away.
+</Solution>
+
+<Solution>
+```python
+import socket
+
+
+@task(task_display_name="Port Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    try:
+        with socket.create_connection((conn.host, conn.port), timeout=3):
+            pass
+    except OSError as error:
+        raise AirflowException(f"Cannot connect to {conn.host}:{conn.port}: {error}") from error
+```
+
+`OSError` covers a refused connection, a timeout, and an unknown host. A plain `AirflowException` is raised, so `retries` apply.
+</Solution>

@@ -1,0 +1,228 @@
+---
+title: Tasky, XCom a testovanie
+description: Funkcie ako tasky s dekorátorom @task, stavy taskov a ich farby, logy a XCom, serializácia, spúšťanie cez dag.test() a parametre DAG-u pri ručnom spustení.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Tasky a XCom
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- Task je funkcia s dekorátorom **`@task`**. Aby bol v DAG-u, musíš ho **zavolať** vo funkcii DAG-u.
+- Návratová hodnota tasku putuje do ďalšieho cez **XCom** (*cross-communication*) — musí byť **serializovateľná** (reťazec, číslo, zoznam, slovník).
+- Odovzdaním výsledku (`entry = process_data(data)`) vzniká v grafe šípka — **závislosť**.
+- `if __name__ == "__main__": main().test() else: main()` — DAG spustíš priamo z VS Code alebo cez `python weather_scraper.py`, so všetkými logmi v termináli.
+- Parametre funkcie DAG-u s predvolenými hodnotami sa zobrazia ako **formulár pri ručnom spustení** (Trigger).
+</KeyPoints>
+
+## Z funkcií tasky
+
+Funkcie z `workflow.py` z 1. dňa presunieme do súboru s DAG-om a každú označíme dekorátorom `@task`:
+
+```python title="dags/weather_scraper.py"
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import dag, task
+from pendulum import datetime, from_timestamp
+
+
+@task
+def scrape_data(query: str, units: str, appid: str) -> dict:
+    print(">> Scraping Data")
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    response = httpx.get(url, params={"q": query, "units": units, "appid": appid})
+    return response.json()
+
+
+@task
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    measured_at = from_timestamp(data["dt"]).to_iso8601_string()
+    return f"{measured_at},{data['name']},{data['sys']['country']},{data['main']['temp']}"
+
+
+@task
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    with open("/home/ubuntu/airflow/dataset.csv", mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+)
+def main():
+    data = scrape_data("kosice,sk", "metric", "<API_KEY>")
+    entry = process_data(data)
+    publish_data(entry)
+
+
+main()
+```
+
+- `from pendulum import from_timestamp` — importuješ iba funkciu, ktorú potrebuješ, a voláš ju priamo, bez `pendulum.`.
+- Samotný dekorátor nestačí — task sa v grafe objaví až vtedy, keď ho DAG **zavolá**.
+- Funkcie definuj mimo funkcie DAG-u; v nej ich iba voláš.
+- Kľúč natvrdo v kóde je dočasné riešenie — nahradíme ho v kapitole [Connections, hooky a Variables](/devops-notes/python-advanced/connections-a-variables/).
+
+<Pipeline steps={['scrape_data', 'process_data', 'publish_data']} caption="Záložka Graph: šípky vznikli z toho, že výsledok jedného tasku je argumentom ďalšieho." />
+
+Na slajdoch majú tasky aj ľudský názov: `@task(task_display_name="Scrape Data")`.
+
+## Stavy taskov
+
+Po spustení (tlačidlo **Trigger**) každý task mení farbu podľa stavu:
+
+| Stav | Farba | Význam |
+| --- | --- | --- |
+| `queued` / `scheduled` | sivá | čaká na spustenie |
+| `running` | svetlozelená | práve beží |
+| `success` | zelená | skončil v poriadku |
+| `failed` | červená | zlyhal |
+| `upstream_failed` | oranžová | **nespustil sa**, lebo zlyhal task pred ním (*upstream*) |
+| `up_for_retry` | žltá | zlyhal, ale ešte sa zopakuje |
+
+<Pipeline steps={[{ label: 'scrape_data', state: 'failed' }, { label: 'process_data', state: 'upstream_failed' }, { label: 'publish_data', state: 'upstream_failed' }]} caption="Keď zlyhá prvý task, ďalšie sa nespustia." />
+
+V mriežke (**Grid**) je každý beh stĺpček; kliknutím vyberieš konkrétny beh. Navigácia hore (*breadcrumb*) ukazuje, či si v konkrétnom behu, alebo v aktuálnej podobe DAG-u.
+
+## Logy, XCom a Rendered Templates
+
+Po kliknutí na task v konkrétnom behu:
+
+- **Logs** — všetko, čo task vypísal (`print()` sa loguje na úrovni INFO), plus množstvo logov samotného Airflow pred spustením a po ňom. Logy vieš filtrovať podľa úrovne. Na konci je `Done. Returned value was: …` — návratová hodnota.
+- **Rendered Templates** — s akými argumentmi sa task skutočne spustil (napr. `("kosice,sk", "metric", "…")`).
+- **XCom** — hodnoty, ktoré task odovzdal ďalším. Náš JSON z OpenWeatherMap tam uvidíš rozbalený na kľúče a hodnoty.
+
+### XCom a serializácia
+
+**XCom** (*cross-communication*) je mechanizmus, ktorým si tasky posielajú dáta. Návratová hodnota tasku sa uloží (do metadátovej databázy) a ďalší task ju dostane ako argument.
+
+Aby sa hodnota dala uložiť a preniesť, Airflow ju musí **serializovať** — previesť do formátu, ktorý sa dá uložiť alebo poslať po sieti — a na druhej strane **deserializovať**, teda poskladať späť.
+
+| Bez problémov | Problém |
+| --- | --- |
+| `str`, `int`, `float`, `bool`, `None` | obrázok, otvorený súbor, spojenie s databázou |
+| `list`, `dict` (aj vnorené — teda JSON) | pandas `DataFrame` (potrebuje ďalšie knižnice, napr. PyArrow) |
+
+Ak task vráti niečo, čo Airflow serializovať nevie, task zlyhá s chybou. XCom je na **malé** dáta — veľké súbory ukladaj inam (disk, S3) a cez XCom posielaj iba cestu.
+
+## Spustenie priamo z VS Code: dag.test()
+
+Spúšťanie cez UI ide cez plánovač a trvá. Pri ladení je rýchlejšie spustiť DAG priamo:
+
+```python
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+- Keď súbor spustíš sám (▶ vo VS Code alebo `python weather_scraper.py`), `__name__` je `"__main__"` a zavolá sa `.test()` — celý DAG zbehne v jednom procese a **všetky logy** vidíš v termináli.
+- Keď súbor načítava Airflow, zavolá sa iba `main()`.
+- Beh sa zapíše aj do UI (v mriežke ho uvidíš), logy však zostanú v termináli.
+
+:::caution[Prečo podmienka]
+Nezavolaj `main().test()` bez podmienky. `.test()` súbor s DAG-om znova načíta — a ten by znova spustil `.test()`. Výsledok: `RecursionError: maximum recursion depth exceeded`. (Overené na Airflow 3.3.)
+:::
+
+V logoch z `.test()` hľadaj: `starting task_id=scrape_data`, `Done. Returned value was: …`, `Pushing xcom` a na konci `DagRun Finished … state=success`.
+
+`.test()` má viac parametrov, napr. `logical_date` — dátum a čas behu. (Na slajdoch je `execution_date`; v Airflow 3 sa volá `logical_date`.) To isté z príkazového riadku: `airflow dags test weather_scraper`.
+
+## Ukončenie DAG-u pri chybe
+
+Pri zlom kľúči alebo neexistujúcom meste nemá zmysel pokračovať. Na 1. dni sme volali `sys.exit()` / `quit()` — Airflow síce zareaguje, ale nie je to dobrý spôsob. V tasku **vyvolaj výnimku**:
+
+```python
+from airflow.sdk.exceptions import AirflowFailException
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    raise AirflowFailException(f'City "{query}" was not found.')
+```
+
+`AirflowFailException` task ukončí **bez opakovania** — pri zlom kľúči by opakovanie nepomohlo. Ostatné výnimky task ukončia ako `failed` a ak má nastavené `retries`, Airflow ho zopakuje. Viac v kapitole [Validácia, logovanie a healthcheck](/devops-notes/python-advanced/validacia-a-healthcheck/#opakovanie-pri-zlyhaní).
+
+## Parametre DAG-u pri ručnom spustení
+
+Funkcia DAG-u môže mať parametre s predvolenými hodnotami:
+
+```python
+@dag("weather_scraper", schedule="*/20 * * * *", start_date=datetime(2026, 1, 1), catchup=False)
+def main(
+    query: str = "kosice,sk",
+    units: str = "metric",
+    appid: str = "<API_KEY>",
+):
+    data = scrape_data(query, units, appid)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+- Pri **Trigger** sa zobrazí formulár s týmito parametrami a predvolenými hodnotami — pred spustením ich môžeš zmeniť (napr. `presov,sk`).
+- Plánované behy použijú predvolené hodnoty.
+- Typ ovplyvní formulár: `int` dostane číselné pole, `bool` zaškrtávacie políčko.
+- Bez predvolených hodnôt by sa DAG nedal spustiť — funkcia by čakala parametre, ktoré nikto nezadal.
+
+Pokročilejšie parametre (validácia, opisy, výber z hodnôt) rieši trieda `Param` z `airflow.sdk` — pozri dokumentáciu.
+
+## Otestuj sa
+
+<Question q="Ako z obyčajnej funkcie spravíš task a kedy sa objaví v grafe?">
+Pridáš jej dekorátor `@task` (z `airflow.sdk`). V grafe sa objaví, až keď ju zavoláš vo funkcii DAG-u.
+</Question>
+
+<Question q="Čo znamená stav `upstream_failed`?">
+Task sa nespustil, lebo zlyhal niektorý task pred ním, od ktorého závisí.
+</Question>
+
+<Question q="Čo je XCom a aké hodnoty cezeň môžeš posielať?">
+Mechanizmus na výmenu dát medzi taskmi — návratová hodnota tasku sa uloží a ďalší ju dostane. Hodnota musí byť serializovateľná (reťazec, číslo, zoznam, slovník…) a malá.
+</Question>
+
+<Question q="Čo je serializácia a deserializácia?">
+Serializácia prevedie objekt do formátu, ktorý sa dá uložiť alebo poslať po sieti; deserializácia z neho objekt znova poskladá.
+</Question>
+
+<Question q='Prečo `main().test()` iba pod `if __name__ == "__main__":`?'>
+`.test()` súbor s DAG-om znova načíta; bez podmienky by sa `.test()` volalo znova a znova (`RecursionError`). Pri načítaní Airflow-om sa má volať iba `main()`.
+</Question>
+
+<Question q="Aký je rozdiel medzi `AirflowFailException` a inou výnimkou v tasku?">
+`AirflowFailException` task ukončí bez opakovania. Iná výnimka ho ukončí ako `failed`, ale ak má `retries`, Airflow ho zopakuje.
+</Question>
+
+## Cvičenia
+
+### 10.1 · Štvrtý task
+
+Pridaj task `report_data(entry: str) -> int`, ktorý vypíše dĺžku CSV riadku a vráti ju. Zaraď ho za `publish_data` tak, aby dostal ten istý `entry`. Ako bude vyzerať graf?
+
+<Solution>
+```python
+@task
+def report_data(entry: str) -> int:
+    print(f"Stored {len(entry)} characters")
+    return len(entry)
+
+
+def main():
+    data = scrape_data("kosice,sk", "metric", "<API_KEY>")
+    entry = process_data(data)
+    publish_data(entry)
+    report_data(entry)
+```
+
+`publish_data` aj `report_data` závisia iba od `process_data`, takže v grafe budú **vedľa seba** (paralelne), nie za sebou. Ak má `report_data` bežať až po zápise, pridaj závislosť `publish_data(entry) >> report_data(entry)`.
+</Solution>

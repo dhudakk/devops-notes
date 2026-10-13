@@ -1,0 +1,108 @@
+---
+title: Apache Airflow and DAGs
+description: What Apache Airflow is, its alternatives, what a DAG (directed acyclic graph) is, what Airflow consists of, and the golden rule of operators.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Airflow and DAGs
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Apache Airflow** is a platform for authoring, scheduling, and monitoring workflows written in **Python**. Airbnb originally created it.
+- In Airflow a workflow is called a **DAG** — a *Directed Acyclic Graph*: tasks are vertices, dependencies are arrows, and **it must contain no cycle**.
+- A step in a DAG is a **task**; internally it is an **operator**.
+- **The golden rule of operators:** one operator (task) = **one** job. On failure only that one task is repeated.
+- Airflow consists of the **scheduler**, the **API server** (web UI), the **DAG processor**, the **triggerer**, the **executor**, and the **metadata database**.
+</KeyPoints>
+
+## What is Apache Airflow
+
+> Airflow™ is a platform created by the community to programmatically author, schedule, and monitor workflows (in Python).
+
+In other words: a **workflow orchestrator**. It started at **Airbnb** and is now developed by the community at the Apache Software Foundation. It is open source, written in Python, and battle-tested.
+
+On day 1 we built the workflow as a script. Questions remained that a script cannot answer — **who, where, and when** runs it, who logs it, and how we find out it failed. That is what Airflow is for.
+
+### Alternatives
+
+| Tool | Note |
+| --- | --- |
+| **Luigi** | backed by Spotify; tasks in Python, a slightly different approach |
+| **Prefect** | younger and modern; also Python (`from prefect import flow, task`) |
+| **Argo Workflows** | workflow orchestration directly in Kubernetes |
+| **Google Cloud Composer**, **Astronomer** | managed Airflow — the provider takes care of operations |
+
+Some course participants already use Airflow at work — through Cloud Composer or Astronomer.
+
+## What is a DAG
+
+Airflow does not say *workflow* but **DAG** — *Directed Acyclic Graph*.
+
+- **Graph** here does not mean the plot of a function (a sine wave) but a **planar graph** drawn on paper: **vertices** (nodes) and **edges** between them. Vertices are tasks, edges are dependencies.
+- **Directed** — edges are **arrows**; you can only move in the arrow's direction.
+- **Acyclic** — there must be **no cycle** (loop) anywhere: following the arrows, you never get back to a vertex you started from.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/dag-vs-not-dag.png" alt="Left: a DAG with arrows between vertices and no cycle. Right: a graph that is not a DAG — it contains cycles, such as two vertices with arrows in both directions and a vertex with an arrow to itself." width="1200" height="502" loading="lazy" />
+  <figcaption>Left a DAG, right a graph with cycles — not a DAG any more. Image from the instructor's slides (source: Crypto Beginners).</figcaption>
+</figure>
+
+:::caution[Why there must be no cycle]
+A workflow started at 10:00 loops or waits for something that has meanwhile switched off. At 11:00 it starts again, at 12:00 again — and every run is waiting. When system resources run out, the whole thing grinds to a halt. That is why Airflow refuses a DAG with a cycle outright.
+:::
+
+Our weather workflow as a DAG:
+
+<Pipeline steps={['scrape_data', 'process_data', 'publish_data']} caption="Each task is a vertex; the arrows set the order." />
+
+## Task and operator
+
+One step in a DAG is a **task**. Internally Airflow represents it with an **operator** (e.g. `PythonOperator`, `BashOperator`) — whenever you read “operator”, it means a task.
+
+### The golden rule of operators
+
+> **Always define only one job per operator.**
+
+Our workflow could be written as a single task — download, transform, store, separated only by comments. But when a task fails, Airflow **repeats the whole task** (*retry*). If the CSV write fails, the data is downloaded and processed again — and only then is the write retried. For an HTTP request of a few seconds that hardly matters; for an operation of minutes or hours it does.
+
+So: tasks should be **atomic, short, and clearly separated**, with a clear input and output. On failure only the one that failed is repeated. Our ETL has three letters — and therefore three tasks.
+
+## What Airflow consists of
+
+| Component | Role |
+| --- | --- |
+| **scheduler** | decides when each DAG and task runs |
+| **DAG processor** | loads (parses) the DAG files in the `dags/` folder |
+| **API server** | the REST API and the web user interface (port 8080) |
+| **triggerer** | handles tasks waiting for an external event |
+| **executor / workers** | run the tasks themselves |
+| **metadata database** | the state of DAGs, runs, tasks, Connections, Variables… |
+
+`airflow standalone` starts everything at once — for development and trying things out. In production (e.g. in Kubernetes or Docker) the components run separately so they can scale; the scheduler is the most important one, and more than one can run.
+
+## Test yourself
+
+<Question q="What does DAG stand for, and what does each word mean?">
+*Directed Acyclic Graph*. Graph — vertices (tasks) and edges (dependencies). Directed — edges are arrows, followed only in their direction. Acyclic — the graph must contain no cycle.
+</Question>
+
+<Question q="Why must a workflow not contain a cycle?">
+A run could get stuck; further scheduled runs would start while earlier ones are still running and pile up until system resources run out.
+</Question>
+
+<Question q="What does the golden rule of operators say, and why?">
+One operator (task) should do only one job. On failure Airflow repeats the whole task — if it contained several steps, it would needlessly repeat the ones that had succeeded (and might take long).
+</Question>
+
+<Question q="What is the relationship between a task and an operator?">
+A task is a step in a DAG; Airflow represents it internally with an operator (`PythonOperator`, `BashOperator`…). In practice they are the same thing.
+</Question>
+
+<Question q="Which Airflow component reads the files in `dags/`, and which decides when to run?">
+The DAG processor parses the files; the scheduler decides when things run.
+</Question>

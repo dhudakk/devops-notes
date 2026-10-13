@@ -65,3 +65,15 @@ New systems often do not even install `crontab` any more — **systemd timers** 
 | **Ansible** | remote server management and automation — comes later in the DevOps course |
 
 <p class="wisdom-day">Day 1</p>
+
+## Swap and zram when RAM runs out
+
+On a machine with 4 GB of RAM, Airflow easily runs out of memory — the machine freezes and SSH drops. A quick fix is a **2 GB swap file** (`fallocate`, `mkswap`, `swapon`, `free -h`). Mirek also wants to try **zram**: the kernel compresses part of the RAM on the fly, so 4 GB effectively becomes more, at a small performance cost. On his old 1 GB Raspberry Pis it “can help quite elegantly”.
+
+<p class="wisdom-day">Day 2</p>
+
+## Clean up after the VS Code server
+
+VS Code stores a new version in `~/.vscode-server` on the server with every update, and the disk slowly fills up. Mirek has a script that keeps only the two newest versions and runs it from crontab every midnight — see [Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/#cleaning-up-the-vs-code-server).
+
+<p class="wisdom-day">Day 2</p>

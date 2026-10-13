@@ -1,0 +1,115 @@
+---
+/**
+ * A DAG drawn as a row of task boxes joined by arrows (wraps on narrow screens).
+ * Steps can carry an Airflow task state to show its colour.
+ *
+ * <Pipeline steps={["Scrape Data", "Process Data", "Publish Data"]} />
+ * <Pipeline steps={[{ label: "Scrape Data", state: "failed" }, { label: "Process Data", state: "upstream_failed" }]} />
+ */
+type State = 'success' | 'failed' | 'upstream_failed' | 'running' | 'queued' | 'up_for_retry' | 'skipped';
+
+interface Props {
+  steps: (string | { label: string; state?: State })[];
+  /** Short text under the diagram. */
+  caption?: string;
+}
+
+const { steps, caption } = Astro.props;
+const items = steps.map((step) => (typeof step === 'string' ? { label: step } : step));
+---
+
+<figure class="pipeline not-content">
+  <ol>
+    {
+      items.map((item, index) => (
+        <li class:list={['pipeline__step', item.state && `is-${item.state}`]}>
+          <span class="pipeline__label">{item.label}</span>
+          {item.state && <span class="pipeline__state">{item.state}</span>}
+          {index < items.length - 1 && <span class="pipeline__arrow" aria-hidden="true" />}
+        </li>
+      ))
+    }
+  </ol>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .pipeline {
+    margin: 1.25rem 0;
+  }
+
+  ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .pipeline__step {
+    --state: var(--nb-border);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-inline-end: 2.25rem;
+    border: 1.5px solid var(--sl-color-text-accent);
+    border-inline-start: 5px solid var(--state);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+    padding: 0.45rem 0.8rem;
+  }
+
+  .pipeline__step:last-child {
+    margin-inline-end: 0;
+  }
+
+  .pipeline__label {
+    color: var(--sl-color-white);
+    font-family: var(--sl-font-mono);
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .pipeline__state {
+    color: var(--state);
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .pipeline__arrow {
+    position: absolute;
+    inset-inline-start: calc(100% + 0.35rem);
+    top: 50%;
+    width: 1.55rem;
+    height: 2px;
+    background: var(--sl-color-gray-3);
+  }
+
+  .pipeline__arrow::after {
+    content: '';
+    position: absolute;
+    inset-inline-end: -1px;
+    top: -4px;
+    border: 5px solid transparent;
+    border-inline-start: 7px solid var(--sl-color-gray-3);
+    border-inline-end: 0;
+  }
+
+  .is-success { --state: #2e9e5b; }
+  .is-failed { --state: #d64545; }
+  .is-upstream_failed { --state: #e8892b; }
+  .is-running { --state: #6cbf3a; }
+  .is-queued { --state: #8a8f9c; }
+  .is-up_for_retry { --state: #d4a90a; }
+  .is-skipped { --state: #d46fb0; }
+
+  figcaption {
+    margin-top: 0.5rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+</style>

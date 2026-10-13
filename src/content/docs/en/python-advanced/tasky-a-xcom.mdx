@@ -1,0 +1,228 @@
+---
+title: Tasks, XCom, and Testing
+description: Functions as tasks with the @task decorator, task states and their colours, logs and XCom, serialisation, running with dag.test(), and DAG parameters for manual runs.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Tasks and XCom
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- A task is a function with the **`@task`** decorator. To be part of the DAG, it must be **called** in the DAG function.
+- A task's return value travels to the next one via **XCom** (*cross-communication*) — it must be **serialisable** (string, number, list, dictionary).
+- Passing a result on (`entry = process_data(data)`) creates an arrow in the graph — a **dependency**.
+- `if __name__ == "__main__": main().test() else: main()` — run the DAG straight from VS Code or with `python weather_scraper.py`, with all logs in the terminal.
+- Parameters of the DAG function with default values appear as a **form for manual runs** (Trigger).
+</KeyPoints>
+
+## From functions to tasks
+
+We move the day 1 functions from `workflow.py` into the DAG file and mark each with the `@task` decorator:
+
+```python title="dags/weather_scraper.py"
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import dag, task
+from pendulum import datetime, from_timestamp
+
+
+@task
+def scrape_data(query: str, units: str, appid: str) -> dict:
+    print(">> Scraping Data")
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    response = httpx.get(url, params={"q": query, "units": units, "appid": appid})
+    return response.json()
+
+
+@task
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    measured_at = from_timestamp(data["dt"]).to_iso8601_string()
+    return f"{measured_at},{data['name']},{data['sys']['country']},{data['main']['temp']}"
+
+
+@task
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    with open("/home/ubuntu/airflow/dataset.csv", mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+)
+def main():
+    data = scrape_data("kosice,sk", "metric", "<API_KEY>")
+    entry = process_data(data)
+    publish_data(entry)
+
+
+main()
+```
+
+- `from pendulum import from_timestamp` — import only the function you need and call it directly, without `pendulum.`.
+- The decorator alone is not enough — a task appears in the graph only once the DAG **calls** it.
+- Define the functions outside the DAG function; inside it you only call them.
+- A hard-coded key is a temporary solution — we replace it in [Connections, hooks, and Variables](/devops-notes/en/python-advanced/connections-a-variables/).
+
+<Pipeline steps={['scrape_data', 'process_data', 'publish_data']} caption="The Graph tab: the arrows exist because one task's result is the next task's argument." />
+
+In the slides the tasks also have human names: `@task(task_display_name="Scrape Data")`.
+
+## Task states
+
+After a run (the **Trigger** button) each task changes colour according to its state:
+
+| State | Colour | Meaning |
+| --- | --- | --- |
+| `queued` / `scheduled` | grey | waiting to start |
+| `running` | light green | running right now |
+| `success` | green | finished fine |
+| `failed` | red | failed |
+| `upstream_failed` | orange | **did not run** because a task before it (*upstream*) failed |
+| `up_for_retry` | yellow | failed but will be retried |
+
+<Pipeline steps={[{ label: 'scrape_data', state: 'failed' }, { label: 'process_data', state: 'upstream_failed' }, { label: 'publish_data', state: 'upstream_failed' }]} caption="When the first task fails, the next ones do not run." />
+
+In the **Grid** each run is a column; click it to select that run. The breadcrumb navigation at the top shows whether you are looking at a particular run or at the DAG's current shape.
+
+## Logs, XCom, and Rendered Templates
+
+After clicking a task in a particular run:
+
+- **Logs** — everything the task printed (`print()` is logged at INFO level), plus plenty of Airflow's own logs before and after. Logs can be filtered by level. At the end is `Done. Returned value was: …` — the return value.
+- **Rendered Templates** — the arguments the task actually ran with (e.g. `("kosice,sk", "metric", "…")`).
+- **XCom** — the values the task passed on. Our OpenWeatherMap JSON shows up there broken into keys and values.
+
+### XCom and serialisation
+
+**XCom** (*cross-communication*) is the mechanism tasks use to send each other data. A task's return value is stored (in the metadata database) and the next task receives it as an argument.
+
+For a value to be stored and transferred, Airflow must **serialise** it — convert it into a format that can be saved or sent over the network — and on the other side **deserialise** it, i.e. rebuild it.
+
+| Fine | A problem |
+| --- | --- |
+| `str`, `int`, `float`, `bool`, `None` | an image, an open file, a database connection |
+| `list`, `dict` (nested too — i.e. JSON) | a pandas `DataFrame` (needs extra libraries, e.g. PyArrow) |
+
+If a task returns something Airflow cannot serialise, the task fails with an error. XCom is for **small** data — store big files elsewhere (disk, S3) and pass only the path through XCom.
+
+## Running straight from VS Code: dag.test()
+
+Running through the UI goes via the scheduler and takes time. While debugging it is faster to run the DAG directly:
+
+```python
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+- When you run the file yourself (▶ in VS Code or `python weather_scraper.py`), `__name__` is `"__main__"` and `.test()` is called — the whole DAG runs in one process and you see **all logs** in the terminal.
+- When Airflow loads the file, only `main()` is called.
+- The run is also recorded in the UI (you see it in the grid), but the logs stay in the terminal.
+
+:::caution[Why the condition]
+Do not call `main().test()` unconditionally. `.test()` loads the DAG file again — which would start `.test()` again. The result: `RecursionError: maximum recursion depth exceeded`. (Verified on Airflow 3.3.)
+:::
+
+In the `.test()` logs look for: `starting task_id=scrape_data`, `Done. Returned value was: …`, `Pushing xcom`, and at the end `DagRun Finished … state=success`.
+
+`.test()` has more parameters, e.g. `logical_date` — the date and time of the run. (The slides say `execution_date`; in Airflow 3 it is `logical_date`.) The same from the command line: `airflow dags test weather_scraper`.
+
+## Ending a DAG on an error
+
+With a wrong key or an unknown city there is no point continuing. On day 1 we called `sys.exit()` / `quit()` — Airflow reacts, but it is not a good way. In a task, **raise an exception**:
+
+```python
+from airflow.sdk.exceptions import AirflowFailException
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    raise AirflowFailException(f'City "{query}" was not found.')
+```
+
+`AirflowFailException` ends the task **without retrying** — retrying would not help with a wrong key. Other exceptions end the task as `failed`, and if it has `retries` set, Airflow repeats it. More in [Validation, logging, and healthcheck](/devops-notes/en/python-advanced/validacia-a-healthcheck/#retrying-on-failure).
+
+## DAG parameters for manual runs
+
+The DAG function can take parameters with default values:
+
+```python
+@dag("weather_scraper", schedule="*/20 * * * *", start_date=datetime(2026, 1, 1), catchup=False)
+def main(
+    query: str = "kosice,sk",
+    units: str = "metric",
+    appid: str = "<API_KEY>",
+):
+    data = scrape_data(query, units, appid)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+- On **Trigger** a form appears with these parameters and their defaults — you can change them before the run (e.g. `presov,sk`).
+- Scheduled runs use the default values.
+- The type shapes the form: `int` gets a number field, `bool` a checkbox.
+- Without default values the DAG could not run — the function would expect parameters nobody supplied.
+
+More advanced parameters (validation, descriptions, a choice of values) are handled by the `Param` class from `airflow.sdk` — see the documentation.
+
+## Test yourself
+
+<Question q="How do you turn a plain function into a task, and when does it appear in the graph?">
+Add the `@task` decorator (from `airflow.sdk`). It appears in the graph only once you call it in the DAG function.
+</Question>
+
+<Question q="What does the `upstream_failed` state mean?">
+The task did not run because a task before it, which it depends on, failed.
+</Question>
+
+<Question q="What is XCom, and what values can you send through it?">
+The mechanism for exchanging data between tasks — a task's return value is stored and the next task receives it. The value must be serialisable (string, number, list, dictionary…) and small.
+</Question>
+
+<Question q="What are serialisation and deserialisation?">
+Serialisation converts an object into a format that can be stored or sent over the network; deserialisation rebuilds the object from it.
+</Question>
+
+<Question q='Why `main().test()` only under `if __name__ == "__main__":`?'>
+`.test()` loads the DAG file again; without the condition `.test()` would be called again and again (`RecursionError`). When Airflow loads the file, only `main()` should be called.
+</Question>
+
+<Question q="What is the difference between `AirflowFailException` and another exception in a task?">
+`AirflowFailException` ends the task without retrying. Another exception ends it as `failed`, but if it has `retries`, Airflow repeats it.
+</Question>
+
+## Exercises
+
+### 10.1 · A fourth task
+
+Add a task `report_data(entry: str) -> int` that prints the length of the CSV line and returns it. Run it after `publish_data` so that it receives the same `entry`. What will the graph look like?
+
+<Solution>
+```python
+@task
+def report_data(entry: str) -> int:
+    print(f"Stored {len(entry)} characters")
+    return len(entry)
+
+
+def main():
+    data = scrape_data("kosice,sk", "metric", "<API_KEY>")
+    entry = process_data(data)
+    publish_data(entry)
+    report_data(entry)
+```
+
+`publish_data` and `report_data` both depend only on `process_data`, so in the graph they sit **side by side** (in parallel), not one after the other. If `report_data` must run only after the write, add the dependency `publish_data(entry) >> report_data(entry)`.
+</Solution>

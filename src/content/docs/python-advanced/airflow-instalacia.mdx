@@ -1,0 +1,281 @@
+---
+title: Inštalácia a spustenie Airflow
+description: Inštalácia cez pip, AIRFLOW_HOME a airflow.cfg, spustenie airflow standalone, webové UI, beh na pozadí (tmux, systemd), swap a riešenie problémov.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Inštalácia Airflow
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+
+<KeyPoints>
+- Airflow je Python balík: `pip install apache-airflow` (vo venv). **Na Windows nejde** (závislosť `fcntl`) — iba cez WSL.
+- `airflow info` vytvorí domovský priečinok `~/airflow` (alebo podľa `AIRFLOW_HOME`) a v ňom `airflow.cfg`.
+- V `airflow.cfg` stačí zmeniť `load_examples = False`. **Vygenerovaný súbor nemaž ani neosekávaj** — obsahuje napr. `jwt_secret`.
+- Každú voľbu možno nastaviť aj premennou prostredia `AIRFLOW__SEKCIA__KĽÚČ`, napr. `AIRFLOW__CORE__LOAD_EXAMPLES=False`.
+- `airflow standalone` spustí všetky komponenty naraz; UI beží na porte **8080**, heslo pre `admin` je v logu a v súbore `simple_auth_manager_passwords.json.generated`.
+</KeyPoints>
+
+## Inštalácia
+
+:::caution[Windows]
+Airflow závisí od modulu `fcntl`, ktorý na Windows neexistuje. Na Windows treba **WSL** — preto na kurze pracujeme na Ubuntu serveri.
+:::
+
+Predvolený domovský priečinok Airflow je `~/airflow`. Pracovať budeme v ňom, aj virtuálne prostredie bude tam:
+
+```bash
+mkdir ~/airflow && cd ~/airflow
+python3 -m venv venv
+source venv/bin/activate
+(venv) $ pip install apache-airflow
+```
+
+Na kurze beží **Airflow 3.3** (lektor mal 3.3.2). Ak chceš ako databázu PostgreSQL, nainštaluj ho s doplnkom: `pip install "apache-airflow[postgres]"` (pridá ovládače `psycopg2-binary` a `asyncpg`).
+
+## AIRFLOW_HOME a airflow.cfg
+
+```bash
+(venv) $ airflow info
+```
+
+Okrem verzie, executora či cesty k databáze vypíše aj `airflow_home`. Zároveň vytvorí priečinok `~/airflow` (ak neexistuje) a v ňom konfiguračný súbor **`airflow.cfg`**. Iný domovský priečinok nastavíš premennou prostredia:
+
+```bash
+export AIRFLOW_HOME=$(pwd)/airflow_home
+```
+
+### Čo v konfigurácii zmeniť
+
+| Sekcia / voľba | Hodnota | Význam |
+| --- | --- | --- |
+| `[core] dags_folder` | `~/airflow/dags` (predvolené) | odkiaľ sa načítavajú DAG-y |
+| `[core] load_examples` | **`False`** | inak sa načíta množstvo ukážkových DAG-ov a v zozname sa stratíš |
+| `[database] sql_alchemy_conn` | `sqlite:////home/ubuntu/airflow/airflow.db` (predvolené) | pripojenie k metadátovej databáze |
+| `[core] parallelism` | `4` (predvolené 32) | koľko taskov môže bežať naraz v celom Airflow |
+| `[core] max_active_tasks_per_dag` | `2` (predvolené 16) | koľko taskov jedného DAG-u naraz |
+| `[core] max_active_runs_per_dag` | `1` (predvolené 16) | koľko behov jedného DAG-u naraz |
+| `[api] expose_config` | `True` | konfigurácia sa zobrazí aj vo webovom UI |
+
+Nižšie hodnoty paralelizmu sú zo slajdov — laboratórne stroje majú iba **2 jadrá, 4 GB RAM a 20 GB disk**.
+
+Airflow používa na prístup k databáze najpopulárnejšie Python ORM **SQLAlchemy**; `sql_alchemy_conn` je jeho *connection string*. **SQLite** (všetko v jednom súbore) stačí na kurz, ale je pomalšie a nepodporuje paralelizmus — **v produkcii nie**, tam patrí PostgreSQL.
+
+:::danger[Neosekávaj vygenerovaný airflow.cfg]
+Lektor na kurze nahradil `airflow.cfg` skrátenou verziou s pár voľbami. Tasky potom padali (*state mismatch… queued*) bez zrozumiteľného logu. Príčina: vygenerovaný súbor obsahuje aj náhodný `jwt_secret` v sekcii `[api_auth]` — bez neho si ho komponenty generujú každý zvlášť a navzájom si neveria.
+
+**Riešenie:** nechaj vygenerovaný súbor celý a uprav v ňom iba `load_examples = False`. Ak ho už máš pokazený, presuň `~/airflow` bokom, spusti znova `airflow info` (vznikne čistý config) a vráť si priečinok `dags/`.
+:::
+
+### Konfigurácia cez premenné prostredia
+
+Každá voľba z `airflow.cfg` sa dá nastaviť premennou prostredia v tvare `AIRFLOW__{SEKCIA}__{KĽÚČ}` — dve podčiarkovníky oddeľujú prefix, sekciu a kľúč:
+
+```bash
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__DAGS_FOLDER=/home/ubuntu/airflow/dags
+```
+
+Hodí sa to najmä v kontajneroch a v CI.
+
+## Spustenie
+
+```bash
+(venv) $ airflow standalone
+```
+
+`standalone` spustí naraz scheduler, API server, DAG processor aj triggerer — **na vývoj a testovanie**. Pri prvom spustení vypíše do logu login `admin` a heslo; heslo je uložené aj v súbore `~/airflow/simple_auth_manager_passwords.json.generated`.
+
+:::caution[`airflow api-server` nestačí]
+Jedna účastníčka spustila `airflow api-server` — webové UI bežalo, ale DAG-y sa nezobrazovali, lebo nebežal DAG processor ani scheduler. Na kurze vždy `airflow standalone`.
+:::
+
+### Webové rozhranie
+
+- Airflow beží na porte **8080**: `http://<IP-stroja>:8080` (IP adresu laboratórneho stroja máš v premennej `echo $HOSTIP`).
+- VS Code sleduje, čo na serveri beží: v záložke **Ports** automaticky presmeruje port 8080 na tvoj počítač, takže UI otvoríš aj na `http://localhost:8080`.
+
+V UI nájdeš zoznam DAG-ov, ich behy, graf, logy taskov a v menu **Admin** napríklad Connections a Variables.
+
+## Airflow na pozadí
+
+Keď zavrieš VS Code, procesy spustené v jeho termináli prestanú fungovať (ale ostanú visieť v systéme). Aby Airflow zbieral počasie, aj keď nie si pripojený:
+
+### tmux
+
+```bash
+tmux                         # nové sedenie (vo VS Code môžeš rovno zvoliť terminál typu tmux)
+(venv) $ airflow standalone  # spusti Airflow vnútri tmux-u
+# zavri VS Code — Airflow beží ďalej
+tmux attach                  # po návrate sa pripojíš späť k sedeniu
+```
+
+| Skratka (predvolený prefix `Ctrl+b`) | Akcia |
+| --- | --- |
+| `prefix c` | nové okno |
+| `prefix 0`–`9`, `prefix n` / `p` | prepnutie okna / nasledujúce / predchádzajúce |
+| `prefix "` / `prefix %` | rozdelí okno na panely nad sebou / vedľa seba |
+| `prefix d` | odpojí sa od sedenia (beží ďalej) |
+| `prefix ?` | zoznam skratiek |
+
+Lektor má prefix premapovaný na `Ctrl+Space` — na slajdoch je preto „META“ = `Ctrl+Space`.
+
+### systemd služba
+
+Robustnejšie je spúšťať Airflow ako **systemd unit**. Pri stop/restart zabije **celú cgroup** vrátane forknutých procesov schedulera a workerov — nezostanú osirotené procesy. Ulož do `/etc/systemd/system/airflow.service` (cesty uprav podľa toho, kde máš venv):
+
+```ini title="/etc/systemd/system/airflow.service"
+[Unit]
+Description=Apache Airflow (standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+Environment=AIRFLOW_HOME=/home/ubuntu/airflow
+Environment=PATH=/home/ubuntu/airflow/venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/ubuntu/airflow
+ExecStart=/home/ubuntu/airflow/venv/bin/airflow standalone
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now airflow     # spusti teraz aj po reštarte
+sudo systemctl status airflow           # stav a posledné logy
+sudo journalctl -u airflow -f           # živý log
+sudo systemctl restart airflow          # čistý reštart bez osirotených procesov
+```
+
+## PostgreSQL v Dockeri (voliteľné)
+
+```yaml title="compose.yaml"
+services:
+  postgres:
+    image: postgres:18-alpine
+    volumes:
+      - db_data:/var/lib/postgresql
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    restart: always
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  db_data:
+```
+
+```ini title="airflow.cfg"
+[database]
+sql_alchemy_conn = postgresql+psycopg2://airflow:airflow@localhost:5432/airflow
+```
+
+Na slajdoch sú pomiešané názvy premenných obrazu Bitnami (`POSTGRESQL_…`) a oficiálneho obrazu; vyššie je verzia pre oficiálny obraz `postgres`.
+
+## Prostriedky laboratórneho stroja
+
+### Swap
+
+Airflow na stroji so 4 GB RAM ľahko minie pamäť — stroj potom zamrzne alebo vypadne spojenie. Pomôže **swap**:
+
+```bash
+sudo fallocate --length 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+sudo sysctl vm.swappiness=10
+free -h                                  # sleduj pamäť a swap
+```
+
+Takto zapnutý swap po reštarte stroja zmizne. Natrvalo ho zapneš riadkom `/swapfile none swap sw 0 0` v súbore `/etc/fstab`.
+
+### Upratanie VS Code servera
+
+VS Code si na serveri pri každej aktualizácii uloží novú verziu do `~/.vscode-server` a disk sa zapĺňa. Skript zo slajdov ponechá iba dve najnovšie verzie:
+
+```bash title="~/bin/vscode-server-cleanup.sh"
+#!/usr/bin/env bash
+set -o errexit
+set -o pipefail
+set -o nounset
+
+readonly DIR="${HOME}/.vscode-server/cli/servers"
+readonly KEEP_VERSIONS=2
+
+function main() {
+    [ -d "$DIR" ] || exit 0
+    # remove staging folders
+    find "${DIR}" -maxdepth 1 -type d -name "*.staging" -exec rm -rf {} +
+    # keep the newest KEEP_VERSIONS "Stable-*" versions
+    ls --directory -t "${DIR}/Stable"-* 2>/dev/null \
+        | tail --lines "+$((KEEP_VERSIONS + 1))" \
+        | xargs --no-run-if-empty rm -rf
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+```
+
+Pridanie do crontabu (každú polnoc; existujúci záznam sa nahradí):
+
+```bash
+(crontab -l 2>/dev/null | grep --invert-match "vscode-server-cleanup.sh"; \
+ echo "@midnight /home/ubuntu/bin/vscode-server-cleanup.sh >/dev/null 2>&1") | crontab -
+```
+
+## Keď niečo nejde
+
+| Príznak | Príčina a riešenie |
+| --- | --- |
+| DAG sa v UI nezobrazuje | priečinok sa musí volať **`dags`** (nie `dag`); súbor ulož (`Ctrl+S`); počkaj chvíľu a obnov stránku; over `airflow dags list` |
+| UI beží, ale žiadne DAG-y | spustil si iba `airflow api-server` → spusti `airflow standalone` |
+| tasky padajú, stav *queued* / *state mismatch*, v logoch JWT | osekaný `airflow.cfg` bez `jwt_secret` → obnov vygenerovaný config |
+| stroj zamŕza, padá SSH / VS Code | došla RAM → zapni swap, sleduj `free -h` |
+| VS Code podčiarkuje `from airflow.sdk import dag` | vyber interpreter z venv a *Python: Restart Language Server* |
+
+V priečinku `dags/` sa po načítaní objaví `__pycache__` — predkompilovaný bajtkód modulu. Je to vedľajší efekt toho, že Python súbor načítal.
+
+## Otestuj sa
+
+<Question q="Prečo nejde Airflow nainštalovať na Windows a čo s tým?">
+Závisí od modulu `fcntl`, ktorý na Windows neexistuje. Treba WSL alebo Linux server.
+</Question>
+
+<Question q="Čo urobí `airflow info` okrem výpisu informácií?">
+Vytvorí domovský priečinok (`~/airflow` alebo podľa `AIRFLOW_HOME`) a v ňom konfiguračný súbor `airflow.cfg`.
+</Question>
+
+<Question q="Ako nastavíš voľbu `load_examples` zo sekcie `[core]` premennou prostredia?">
+`AIRFLOW__CORE__LOAD_EXAMPLES=False` — prefix `AIRFLOW`, sekcia a kľúč, oddelené dvoma podčiarkovníkmi.
+</Question>
+
+<Question q="Prečo nepoužiť SQLite v produkcii?">
+Všetko je v jednom súbore, je pomalé a nepodporuje paralelný beh taskov. V produkcii sa používa napr. PostgreSQL.
+</Question>
+
+<Question q="Prečo spúšťať Airflow v tmux-e alebo ako systemd službu?">
+Procesy spustené v termináli VS Code prestanú fungovať, keď sa odpojíš. V tmux-e alebo ako služba Airflow beží ďalej a zbiera dáta aj bez teba; systemd ho navyše čisto reštartuje a spustí po reštarte stroja.
+</Question>
+
+<Question q="Čo spôsobilo, že na kurze tasky padali so stavom *queued*?">
+Skrátený `airflow.cfg` bez `jwt_secret` — komponenty si generovali vlastné tajomstvo a navzájom sa neoverili. Pomohol vygenerovaný config, v ktorom sa zmenilo iba `load_examples`.
+</Question>

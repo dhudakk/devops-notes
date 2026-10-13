@@ -1,0 +1,108 @@
+---
+title: Apache Airflow a DAG
+description: Čo je Apache Airflow, aké má alternatívy, čo je DAG (orientovaný acyklický graf), z čoho sa Airflow skladá a zlaté pravidlo operátora.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Airflow a DAG
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **Apache Airflow** je platforma na vytváranie, plánovanie a monitorovanie workflowov, ktoré sa píšu v **Pythone**. Pôvodne ho vytvorilo Airbnb.
+- Workflow sa v Airflow volá **DAG** — *Directed Acyclic Graph*, orientovaný acyklický graf: úlohy sú vrcholy, závislosti sú šípky a **nesmie v ňom byť cyklus**.
+- Úloha v DAG-u sa volá **task**, interne **operátor**.
+- **Zlaté pravidlo operátora:** jeden operátor (task) = **jedna** úloha. Pri zlyhaní sa opakuje iba ten jeden task.
+- Airflow sa skladá zo **schedulera**, **API servera** (webové UI), **DAG procesora**, **triggerera**, **executora** a **metadátovej databázy**.
+</KeyPoints>
+
+## Čo je Apache Airflow
+
+> Airflow™ je platforma vytvorená komunitou na vytváranie, plánovanie a monitorovanie workflowov pomocou programovania v jazyku Python.
+
+Inými slovami: **orchestrátor workflowov**. Vznikol vo firme **Airbnb**, dnes ho vyvíja komunita v Apache Software Foundation. Je open source, napísaný v Pythone a overený v praxi.
+
+Na prvom dni sme si postavili workflow ako skript. Zostali otázky, na ktoré skript nemá odpoveď — **kto, kde a kedy** ho spustí, kto ho bude logovať a ako zistíme, že zlyhal. Na to je Airflow.
+
+### Alternatívy
+
+| Nástroj | Poznámka |
+| --- | --- |
+| **Luigi** | stojí za ním Spotify; úlohy v Pythone, trochu iný prístup |
+| **Prefect** | mladší, moderný; tiež Python (`from prefect import flow, task`) |
+| **Argo Workflows** | orchestrácia workflowov priamo v Kubernetes |
+| **Google Cloud Composer**, **Astronomer** | spravovaný (*managed*) Airflow — o prevádzku sa stará poskytovateľ |
+
+Niektorí účastníci kurzu Airflow v práci už používajú — práve cez Cloud Composer alebo Astronomer.
+
+## Čo je DAG
+
+V Airflow sa nehovorí *workflow*, ale **DAG** — *Directed Acyclic Graph*.
+
+- **Graf** tu neznamená priebeh funkcie (sínusovku), ale **planárny graf** kreslený na papier: **vrcholy** (uzly) a **hrany** medzi nimi. Vrcholy sú tasky, hrany sú závislosti.
+- **Directed** (orientovaný) — hrany sú **šípky**, prechod je možný iba v smere šípky.
+- **Acyclic** (acyklický) — nikde v grafe **nesmie vzniknúť cyklus** (slučka): z vrcholu sa po šípkach nikdy nedostaneš späť doň.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/dag-vs-not-dag.png" alt="Vľavo DAG: šípky medzi vrcholmi bez cyklu. Vpravo graf, ktorý nie je DAG: obsahuje cykly, napr. dva vrcholy so šípkami oboma smermi a vrchol so šípkou samého do seba." width="1200" height="502" loading="lazy" />
+  <figcaption>Vľavo DAG, vpravo graf s cyklami — to už DAG nie je. Obrázok zo slajdov lektora (zdroj: Crypto Beginners).</figcaption>
+</figure>
+
+:::caution[Prečo nesmie byť cyklus]
+Workflow spustený o 10:00 sa zacyklí alebo čaká na niečo, čo sa medzitým vyplo. O 11:00 sa spustí znova, o 12:00 zas — a všetky behy čakajú. Keď dôjdu systémové prostriedky, celé to „kľakne“. Preto Airflow DAG s cyklom ani neprijme.
+:::
+
+Náš počasový workflow ako DAG:
+
+<Pipeline steps={['scrape_data', 'process_data', 'publish_data']} caption="Každý task je vrchol, šípky určujú poradie." />
+
+## Task a operátor
+
+Jedna úloha v DAG-u je **task**. Interne ju Airflow reprezentuje **operátorom** (napr. `PythonOperator`, `BashOperator`) — keď niekde čítaš „operator“, ide o task.
+
+### Zlaté pravidlo operátora
+
+> **Jedným operátorom vždy definuj iba jednu úlohu.**
+
+Náš workflow by sa dal napísať ako jediný task — stiahni, uprav, ulož, oddelené len komentármi. Lenže keď task zlyhá, Airflow ho **zopakuje celý** (*retry*). Ak zlyhá zápis do CSV, znova sa stiahnu dáta a znova sa spracujú — a až potom sa znova pokúsi o zápis. Pri HTTP dopyte na pár sekúnd je to jedno; pri operácii na minúty či hodiny už nie.
+
+Preto: tasky **atomické, krátke a jasne oddelené**, s jasným vstupom a výstupom. Pri zlyhaní sa opakuje iba ten jeden, ktorý zlyhal. Naše ETL má tri písmená — a teda tri tasky.
+
+## Z čoho sa Airflow skladá
+
+| Komponent | Úloha |
+| --- | --- |
+| **scheduler** (plánovač) | rozhoduje, kedy sa ktorý DAG a task spustí |
+| **DAG processor** | načítava (parsuje) súbory s DAG-mi z priečinka `dags/` |
+| **API server** | REST API a webové používateľské rozhranie (port 8080) |
+| **triggerer** | obsluhuje úlohy, ktoré čakajú na externú udalosť |
+| **executor / workery** | spúšťajú samotné tasky |
+| **metadátová databáza** | stav DAG-ov, behov, taskov, Connections, Variables… |
+
+Príkaz `airflow standalone` spustí všetko naraz — na vývoj a skúšanie. V produkcii (napr. v Kubernetes či Dockeri) bežia komponenty oddelene, aby sa dali škálovať; plánovač je najdôležitejší a môže ich bežať viac.
+
+## Otestuj sa
+
+<Question q="Čo znamená skratka DAG a čo znamená každé jej slovo?">
+*Directed Acyclic Graph*. Graf — vrcholy (tasky) a hrany (závislosti). Directed — hrany sú šípky, ide sa iba v ich smere. Acyclic — v grafe nesmie byť cyklus.
+</Question>
+
+<Question q="Prečo workflow nesmie obsahovať cyklus?">
+Beh by sa mohol zaseknúť; ďalšie plánované behy by sa spúšťali, kým predchádzajúce ešte bežia, a hromadili by sa, až kým nedôjdu systémové prostriedky.
+</Question>
+
+<Question q="Čo hovorí zlaté pravidlo operátora a prečo?">
+Jeden operátor (task) má robiť iba jednu úlohu. Pri zlyhaní Airflow opakuje celý task — keby obsahoval viac krokov, zbytočne by opakoval aj tie, ktoré prebehli v poriadku (a mohli trvať dlho).
+</Question>
+
+<Question q="Aký je vzťah medzi taskom a operátorom?">
+Task je úloha v DAG-u; Airflow ju interne reprezentuje operátorom (`PythonOperator`, `BashOperator`…). V praxi ide o to isté.
+</Question>
+
+<Question q="Ktorý komponent Airflow číta súbory z priečinka `dags/` a ktorý rozhoduje o spustení?">
+Súbory parsuje DAG processor, o čase spustenia rozhoduje scheduler.
+</Question>

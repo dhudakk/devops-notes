@@ -105,3 +105,57 @@ In Python, `a = 10`, then `a = "Jano"`, then `a = True` is fine. In C, Java, or 
 A process has a limit on open files (`ulimit -n`). A workflow that never closes them will eventually crash — hence `with open(...)`.
 
 <p class="wisdom-day">Day 1</p>
+
+## Decorators are everywhere
+
+A decorator is a function that wraps another function. In Python it is a “really beautiful approach”, and whole frameworks are built on it: **click** (`@click.command`), **Flask** and **FastAPI** (`@app.get("/info")` — routing with no magic configuration on the side), and **Airflow** (`@dag`, `@task`).
+
+<p class="wisdom-day">Day 2</p>
+
+## click: a CLI without effort
+
+click is extremely popular because working with it is “good, fast, and easy” — you just **describe** the command's parameters with decorators and the workflow code stays almost unchanged. `--help`, value checks (`click.Choice`), and defaults come for free. Python is a good language for DevOps tools, not only Bash.
+
+<p class="wisdom-day">Day 2</p>
+
+## Organize Imports
+
+Ruff underlines imports that are not sorted (`I001: Import block is un-sorted or un-formatted`). No need to sort them by hand — in *Quick Fix* (`Ctrl+.`) choose **Organize Imports**.
+
+<p class="wisdom-day">Day 2</p>
+
+## Ctrl+/ comments everywhere
+
+Commenting and uncommenting a line or a selection is `Ctrl+/` — a universal shortcut across the big editors (VS Code, IntelliJ…). Unless you have set it up differently.
+
+<p class="wisdom-day">Day 2</p>
+
+## Expose a secret as briefly as possible
+
+If you cannot avoid a secret being visible for a while (e.g. in a process's arguments), keep it **as short as possible**. A process that runs for 30 seconds with a key in its arguments is exposed for 30 seconds to anyone who runs `ps aux`.
+
+<p class="wisdom-day">Day 2</p>
+
+## sys.exit(), not quit()
+
+`quit()` is a helper for the interactive interpreter. In a script, end the program with `sys.exit()` — and in an Airflow task, raise an exception.
+
+<p class="wisdom-day">Day 2</p>
+
+## The DAG function is called main
+
+You can name the function that defines the DAG however you like. Mirek always calls it `main` — “I am not going to invent weather scraper DAG or DAG weather scraper”. The human name belongs in `dag_display_name` anyway.
+
+<p class="wisdom-day">Day 2</p>
+
+## Frequency in the DAG name
+
+From a Kiwi.com talk: they put the run frequency into the DAG name too (e.g. “… 1 hour”) so it is clear straight from the list. Agree on conventions in your team.
+
+<p class="wisdom-day">Day 2</p>
+
+## Do not trim a generated config
+
+Mirek replaced the generated `airflow.cfg` with a short version holding “only what is needed” — and tasks started failing mysteriously. It was missing the random `jwt_secret`. Lesson: keep a generated config whole and change only what you need.
+
+<p class="wisdom-day">Day 2</p>

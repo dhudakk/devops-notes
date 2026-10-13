@@ -1,0 +1,423 @@
+---
+title: Validácia, logovanie a healthcheck
+description: Kontrola dát JSON schémou, cesty k súborom cez pathlib a __file__, úrovne logovania, healthcheck služby, reťazenie taskov operátorom >> a opakovanie pri zlyhaní.
+kind: chapter
+day: 2
+sidebar:
+  order: 12
+  label: 12 · Validácia a healthcheck
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- **JSON Schema** opisuje tvar JSON dokumentu; `jsonschema.validate(instance=..., schema=...)` vyvolá `ValidationError`, ak dáta nesedia.
+- Súbory vedľa DAG-u otváraj cez **`Path(__file__).parent / "súbor"`** — relatívna cesta sa vyhodnocuje voči priečinku, kde bol spustený Airflow.
+- Loguj cez `logger = logging.getLogger(__name__)` so správnou úrovňou: `DEBUG` < `INFO` < `WARNING` < `ERROR` < `CRITICAL`.
+- Task, ktorý nič nevracia, zaradíš pred iný operátorom **`>>`**: `is_service_alive() >> scrape_data(query)`.
+- `retries=3` = až **4** pokusy; `retry_delay` je pauza medzi nimi (predvolene 300 s). **`AirflowFailException` opakovanie preskočí.**
+</KeyPoints>
+
+## Validácia dát JSON schémou
+
+Čo ak API zmení štruktúru odpovede? Alebo namiesto JSON-u príde XML? Workflow by spadol niekde v `process_data` na nečakanom `KeyError` — alebo, horšie, uložil nezmysly. Preto dáta **pred spracovaním overíme**.
+
+JSON dokument nemá schému tak ako tabuľka v SQL databáze. Projekt **JSON Schema** ([json-schema.org](https://json-schema.org/)) umožňuje opísať tvar JSON dokumentu iným JSON dokumentom: aké kľúče musia byť, akého typu, v akom rozsahu. Schému si môžeš vyskladať v online validátore [jsonschemavalidator.net](https://www.jsonschemavalidator.net/).
+
+Schéma pre údaje, ktoré používame — uložená vedľa DAG-u ako `weather.schema.json`:
+
+```json title="dags/weather.schema.json"
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenWeatherMap current weather",
+  "type": "object",
+  "required": ["dt", "name", "main", "wind", "sys"],
+  "properties": {
+    "dt": { "type": "integer" },
+    "name": { "type": "string" },
+    "main": {
+      "type": "object",
+      "required": ["temp", "humidity", "pressure"],
+      "properties": {
+        "temp": { "type": "number" },
+        "humidity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "pressure": { "type": "number" }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "required": ["speed", "deg"],
+      "properties": {
+        "speed": { "type": "number", "minimum": 0 },
+        "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "sys": {
+      "type": "object",
+      "required": ["country"],
+      "properties": { "country": { "type": "string" } }
+    }
+  }
+}
+```
+
+### Overenie z príkazového riadku
+
+```bash
+(venv) $ pip install jsonschema
+(venv) $ jsonschema --instance weather.json weather.schema.json
+(venv) $ echo $?        # 0 = dokument zodpovedá schéme, 1 = nezodpovedá
+```
+
+CLI `jsonschema` hlási, že je zastarané, a odporúča nástroj `check-jsonschema` (samostatný balík, postavený na `jsonschema`):
+
+```bash
+check-jsonschema --schemafile weather.schema.json weather.json
+```
+
+### Overenie v Pythone
+
+```python
+import json
+
+import jsonschema
+
+with open("weather.schema.json", encoding="utf-8") as file:
+    schema = json.load(file)
+
+jsonschema.validate(instance=payload, schema=schema)   # pri chybe: jsonschema.ValidationError
+```
+
+### Task validate_data()
+
+```python
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.validate(instance=payload, schema=schema)
+    return payload
+```
+
+Task dáta iba skontroluje a pošle ďalej — zaradíme ho medzi sťahovanie a spracovanie:
+
+<Pipeline steps={['scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## Cesta k súboru: pathlib a `__file__`
+
+S `open("weather.schema.json")` skončí task chybou *súbor neexistuje*. Relatívna cesta sa totiž vyhodnocuje voči **aktuálnemu priečinku procesu** — teda tam, kde bol spustený Airflow, nie tam, kde je DAG. Absolútna cesta (`/home/ubuntu/airflow/dags/...`) by fungovala, ale riešenie by nebolo prenositeľné.
+
+Každý modul má okrem `__name__` aj špeciálnu premennú **`__file__`** — absolútnu cestu k samotnému modulu. S cestou nebudeme čarovať cez metódy reťazcov, ale použijeme objekt **`Path`** z modulu `pathlib`:
+
+```python
+from pathlib import Path
+
+DAG_FOLDER = Path(__file__).parent                  # priečinok, v ktorom je DAG
+SCHEMA_PATH = DAG_FOLDER / "weather.schema.json"    # operátor / skladá cesty
+DATASET_PATH = DAG_FOLDER / "dataset.csv"
+
+SCHEMA_PATH.read_text(encoding="utf-8")             # celý obsah súboru
+with DATASET_PATH.open("a", encoding="utf-8") as file:
+    ...
+```
+
+| Zápis | Význam |
+| --- | --- |
+| `Path(__file__)` | cesta k aktuálnemu modulu |
+| `.parent` | rodičovský priečinok |
+| `cesta / "súbor"` | pripojenie časti cesty (funguje na Linuxe aj Windows) |
+| `.exists()`, `.read_text()`, `.open()` | test existencie, čítanie, otvorenie |
+
+## Logovanie
+
+`print()` sa v logoch Airflow objaví na úrovni **INFO**. Chybu treba označiť ako chybu — cez modul `logging`:
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.info("Downloaded weather for %s", query)
+logger.warning("Disk is almost full")
+logger.error("Unexpected data from the service: %s", error.message)
+```
+
+| Úroveň | Kedy | Príklad |
+| --- | --- | --- |
+| `DEBUG` | ladenie — čokoľvek, čo by si vypísal `print()`-om; **nie v produkcii** (môže obsahovať citlivé údaje) | hodnoty premenných |
+| `INFO` | bežné udalosti | štart/vypnutie, prihlásenie/odhlásenie |
+| `WARNING` | prebehlo v poriadku, ale niečo si zaslúži pozornosť | dochádza miesto, zastaraná verzia |
+| `ERROR` | chyba, ale aplikácia pracuje ďalej | záznam sa neuložil pre neplatné dáta |
+| `CRITICAL` | aplikácia nemôže pokračovať | došiel disk, nedostupná kľúčová databáza |
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/log-levels.png" alt="Rozhodovací strom úrovne logovania: pre vývojárov TRACE alebo DEBUG podľa toho, či logujem stav premenných; pre prevádzku INFO, ak nejde o nežiaduci stav, inak WARN ak proces môže pokračovať, ERROR ak aplikácia môže pokračovať, inak FATAL." width="1008" height="712" loading="lazy" />
+  <figcaption>Ako vybrať úroveň logu. Obrázok zo slajdov lektora. V Pythone TRACE neexistuje a FATAL sa volá CRITICAL.</figcaption>
+</figure>
+
+Do správy nevkladaj hodnoty f-stringom, ale cez `%s` a argumenty — logger správu poskladá, iba ak sa naozaj zapíše.
+
+## Healthcheck
+
+Kým začneme sťahovať, overíme, či je služba vôbec **dostupná** — ak nefunguje, nemáme čo robiť. Službu možno testovať:
+
+| Spôsob | Úspech podľa |
+| --- | --- |
+| HTTP požiadavka na koncový bod | stavového kódu, alebo či sa vôbec podarí pripojiť |
+| príkaz z príkazového riadku | návratového kódu príkazu |
+| pripojenie na otvorený port | či sa podarí pripojiť |
+
+Tri spôsoby zo slajdov — task `is_service_alive()`:
+
+```python title="1. Bash task: ping"
+@task.bash
+def is_service_alive() -> str:
+    conn = BaseHook.get_connection("openweathermap")
+    return f"ping -c 1 -w 2 {conn.host}"      # task.bash spustí vrátený príkaz
+```
+
+```python title="2. Modul sh"
+from sh import ping                           # pip install sh
+
+
+@task(task_display_name="Openweathermap Healthcheck")
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    ping(conn.host, "-c", "1", _timeout=3)    # pri chybe vyvolá výnimku
+```
+
+```python title="3. HTTP HEAD"
+@task(task_display_name="Service Healthcheck")
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    response = httpx.head(url, follow_redirects=True)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"Service unavailable. HTTP status: {response.status_code}")
+```
+
+Metóda **HEAD** je ako GET, ale server vráti iba hlavičky, bez tela — na overenie dostupnosti stačí a je lacnejšia.
+
+## Reťazenie taskov operátorom `>>`
+
+Healthcheck nič nevracia, takže ho nevieme „odovzdať“ ako argument. Poradie určíme **bit-shift operátorom** `>>`:
+
+```python
+measurement = scrape_data(query)
+is_service_alive() >> measurement     # healthcheck musí prebehnúť pred scrape_data
+```
+
+Zápis `a >> b` znamená „`b` beží až po `a`“. (Opačným smerom `b << a`.)
+
+<Pipeline steps={['is_service_alive', 'scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## Opakovanie pri zlyhaní
+
+Keď task zlyhá, skončí s ním aj beh DAG-u. Task (aj celý DAG) sa však môže **automaticky zopakovať**:
+
+```python
+from datetime import timedelta
+
+
+@task(retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    ...
+```
+
+- `retries=3` neznamená 3 pokusy dokopy, ale **3 opakovania** po prvom neúspešnom spustení — spolu až **4** behy.
+- `retry_delay` je pauza medzi pokusmi. Bez nej platí `default_task_retry_delay` z konfigurácie — **300 s**. Predvolený počet opakovaní je 0.
+
+:::danger[AirflowFailException a retries spolu nefungujú]
+Na slajdoch healthcheck pri chybe vyvoláva `AirflowFailException` a zároveň má `retries=3`. `AirflowFailException` však znamená *„zlyhaj bez opakovania“* — opakovania sa nespustia. Overené na Airflow 3.3: pri `retries=2` obyčajná výnimka spustila task **3×**, `AirflowFailException` iba **1×**.
+
+- **dočasný problém** (služba nedostupná, timeout) → obyčajná výnimka (napr. `AirflowException`), nech sa opakuje,
+- **trvalý problém** (zlý kľúč, neexistujúce mesto, zlá schéma) → `AirflowFailException`, opakovanie by nepomohlo.
+:::
+
+## Celý DAG
+
+Všetko dokopy — healthcheck, sťahovanie, validácia, spracovanie a zápis; spojenie z Connection, mesto z Variable:
+
+```python title="dags/weather_scraper.py"
+"""Weather scraper: healthcheck -> scrape -> validate -> process -> publish."""
+
+import json
+import logging
+from datetime import timedelta
+from http import HTTPStatus
+from pathlib import Path
+
+import httpx
+import jsonschema
+from airflow.sdk import BaseHook, Variable, dag, task
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+from pendulum import datetime, from_timestamp
+
+CONNECTION_NAME = "openweathermap"
+DAG_FOLDER = Path(__file__).parent
+SCHEMA_PATH = DAG_FOLDER / "weather.schema.json"
+DATASET_PATH = DAG_FOLDER / "dataset.csv"
+HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+
+logger = logging.getLogger(__name__)
+
+
+@task(
+    task_display_name="Service Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=30),
+)
+def is_service_alive() -> None:
+    """Fail (and retry) when openweathermap.org does not answer."""
+    conn = BaseHook.get_connection(CONNECTION_NAME)
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    try:
+        response = httpx.head(url, follow_redirects=True, timeout=10)
+    except httpx.RequestError as error:
+        raise AirflowException(f"Service unavailable: {error}") from error
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(
+            f"Service unavailable. HTTP status: {response.status_code}"
+        )
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    """Download the current weather for `query`."""
+    conn = BaseHook.get_connection(CONNECTION_NAME)
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params, timeout=10)
+
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        raise AirflowFailException(
+            "401 Unauthorized: check the API key in the connection."
+        )
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        raise AirflowFailException(f'404 Not Found: city "{query}" does not exist.')
+    response.raise_for_status()  # other errors fail normally, so retries apply
+
+    return response.json()
+
+
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    """Check that the data has the shape we expect."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+
+
+@task(task_display_name="Process Data")
+def process_data(data: dict) -> str:
+    """Turn the dictionary into one CSV line."""
+    values = [
+        from_timestamp(data["dt"]).to_iso8601_string(),
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ",".join(str(value) for value in values)
+
+
+@task(task_display_name="Publish Data")
+def publish_data(entry: str) -> None:
+    """Append the line to the dataset; write the header into an empty file."""
+    with DATASET_PATH.open("a", encoding="utf-8") as file:
+        if file.tell() == 0:
+            print(HEADER, file=file)
+        print(entry, file=file)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops"],
+    catchup=False,
+)
+def main(query: str = Variable.get("weather_city", default="kosice,sk")):
+    measurement = scrape_data(query)
+    is_service_alive() >> measurement
+    valid_data = validate_data(measurement)
+    entry = process_data(valid_data)
+    publish_data(entry)
+
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+Odskúšané na Airflow 3.3.2 cez `python weather_scraper.py` (`dag.test()`) proti lokálnej náhrade OpenWeatherMap: úspešný beh, neexistujúce mesto (404), zlý kľúč (401) aj dáta, ktoré nesedia so schémou — pri chybách sa do datasetu nič nezapíše.
+
+## Otestuj sa
+
+<Question q="Na čo je JSON Schema?">
+Opisuje očakávaný tvar JSON dokumentu (povinné kľúče, typy, rozsahy). Pred spracovaním ňou overíme, že dáta zo služby majú tvar, s ktorým rátame.
+</Question>
+
+<Question q='Prečo `open("weather.schema.json")` v tasku nenájde súbor ležiaci vedľa DAG-u?'>
+Relatívna cesta sa vyhodnocuje voči aktuálnemu priečinku procesu (kde bol spustený Airflow), nie voči priečinku DAG-u. Pomôže `Path(__file__).parent / "weather.schema.json"`.
+</Question>
+
+<Question q="Akú úroveň logu zvolíš, keď sa záznam neuložil pre neplatné dáta, ale aplikácia beží ďalej?">
+`ERROR`. (`CRITICAL` by bolo, keby aplikácia nemohla pokračovať; `WARNING`, keby všetko prebehlo, ale niečo si zaslúžilo pozornosť.)
+</Question>
+
+<Question q="Koľkokrát sa najviac spustí task s `retries=3`?">
+4-krát — prvé spustenie a 3 opakovania.
+</Question>
+
+<Question q="Čo znamená `is_service_alive() >> scrape_data(query)`?">
+`scrape_data` sa spustí až po úspešnom skončení `is_service_alive`. Operátor `>>` určuje poradie taskov, ktoré si neodovzdávajú dáta.
+</Question>
+
+<Question q="Prečo je HEAD na healthcheck vhodnejší ako GET?">
+Server vráti iba hlavičky bez tela odpovede — na zistenie dostupnosti to stačí a prenesie sa menej dát.
+</Question>
+
+## Cvičenia
+
+### 12.1 · Healthcheck cez otvorený port
+
+Napíš variant `is_service_alive()`, ktorý sa iba pokúsi pripojiť na `conn.host` a `conn.port` (TCP) s timeoutom 3 sekundy. Pri neúspechu vyvolá výnimku, aby sa task opakoval.
+
+<Solution variant="hint">
+Modul `socket` zo štandardnej knižnice má funkciu `socket.create_connection((host, port), timeout=3)`. Spojenie otvor cez `with`, nech sa hneď zatvorí.
+</Solution>
+
+<Solution>
+```python
+import socket
+
+
+@task(task_display_name="Port Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    try:
+        with socket.create_connection((conn.host, conn.port), timeout=3):
+            pass
+    except OSError as error:
+        raise AirflowException(f"Cannot connect to {conn.host}:{conn.port}: {error}") from error
+```
+
+`OSError` pokrýva odmietnuté spojenie, timeout aj neznámy host. Vyvolaná je obyčajná `AirflowException`, takže `retries` zaberú.
+</Solution>

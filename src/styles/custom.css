@@ -176,6 +176,24 @@ body {
   text-transform: uppercase;
 }
 
+/* Figures taken from course slides. */
+.sl-markdown-content figure.slide-figure {
+  margin: 1.5rem 0;
+}
+
+.sl-markdown-content figure.slide-figure img {
+  border: 1px solid var(--nb-border);
+  border-radius: 0.6rem;
+  background: #fff;
+  padding: 0.5rem;
+}
+
+.sl-markdown-content figure.slide-figure figcaption {
+  margin-top: 0.4rem;
+  color: var(--sl-color-gray-3);
+  font-size: var(--sl-text-xs);
+}
+
 /* ---------- Cheat sheet: two columns of snippets on wide screens ---------- */
 .sheet-grid {
   display: grid;
