@@ -1,8 +1,6 @@
 ---
 import { courses } from '../courses';
 import { chapterCount, getChapters, getCoursePage, hrefOf, t, toLang } from '../lib/notes';
-import ContinueLink from './ContinueLink.astro';
-import ProgressMeter from './ProgressMeter.astro';
 
 const lang = toLang(Astro.locals.starlightRoute.lang);
 const text = t(lang);
@@ -32,9 +30,10 @@ const cards = await Promise.all(
             </div>
           </header>
           <p class="course__summary">{course.summary[lang]}</p>
-          <ProgressMeter chapters={chapters} />
           <div class="course__actions">
-            <ContinueLink chapters={chapters} doneHref={cheatsheet?.href} />
+            <a class="course__open" href={hrefOf(course.id, lang)}>
+              {text.openCourse} <span aria-hidden="true">→</span>
+            </a>
             {cheatsheet && (
               <a class="course__link" href={cheatsheet.href}>
                 {text.cheatsheet}
@@ -146,6 +145,25 @@ const cards = await Promise.all(
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 1rem;
+  }
+
+  .course__open {
+    border-radius: 0.5rem;
+    background: var(--sl-color-text-accent);
+    padding: 0.45rem 0.85rem;
+    color: var(--sl-color-black);
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .course__open:hover {
+    filter: brightness(1.1);
+  }
+
+  .course__open:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 2px;
   }
 
   .course__link {
