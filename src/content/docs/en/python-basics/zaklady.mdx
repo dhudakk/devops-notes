@@ -1,10 +1,10 @@
 ---
-title: Python Basics
+title: Variables, Types, and Operators
 description: How a program works with values — variables, data types, input, output, and operators.
 kind: chapter
 sidebar:
   order: 1
-  label: 01 · Basics
+  label: 01 · Variables and types
 ---
 
 import KeyPoints from '../../../../components/KeyPoints.astro';
@@ -102,7 +102,7 @@ print(f"{product}: {subtotal:.2f} €")
 An f-string (`f"..."`) inserts values directly into text. `:.2f` shows a decimal number with two decimal places.
 
 :::caution[What if the user types “two”?]
-`int("two")` raises a `ValueError`. You handle it with `try`/`except` — see [Files and errors](/devops-notes/en/python/subory-a-chyby/#safe-numeric-input).
+`int("two")` raises a `ValueError`. You handle it with `try`/`except` — see [Files and errors](/devops-notes/en/python-basics/subory-a-chyby/#safe-numeric-input).
 :::
 
 ## Arithmetic operators
@@ -249,7 +249,7 @@ This solution fits the width to the longest row. It uses a list and a loop, whic
 
 Read a product, a unit price, and a quantity. Calculate the subtotal, 20% VAT, and the total. Show results with two decimal places.
 
-**Bonus** (needs `if` from [chapter 2](/devops-notes/en/python/podmienky/)): for at least five items, subtract a 10% discount before calculating VAT.
+**Bonus** (needs `if` from [chapter 2](/devops-notes/en/python-basics/podmienky/)): for at least five items, subtract a 10% discount before calculating VAT.
 
 <p class="practises">You practise: converting input, constants, arithmetic, the `:.2f` format.</p>
 

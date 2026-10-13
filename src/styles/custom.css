@@ -1,7 +1,7 @@
 /*
  * DevOps Notes — "notebook" theme on top of Starlight.
  * Ink-blue accent for links and actions, highlighter yellow for key points,
- * green for "studied". Dark is the default; light is a warm paper tone.
+ * green for a revealed answer. Dark is the default; light is a warm paper tone.
  */
 
 /* ---------- Tokens: dark ---------- */
@@ -26,7 +26,6 @@
   --nb-highlight-border: rgba(250, 210, 80, 0.3);
   --nb-highlight-text: #f2cf5b;
   --nb-done: #4fc48a;
-  --nb-done-bg: rgba(79, 196, 138, 0.1);
   --nb-border: #363a45;
   --nb-rule: #272a32;
 
@@ -55,7 +54,6 @@
   --nb-highlight-border: #ecd77a;
   --nb-highlight-text: #7a5d00;
   --nb-done: #1f8a55;
-  --nb-done-bg: #e3f4ea;
   --nb-border: #d7d4cb;
   --nb-rule: #e7e4dc;
 }
@@ -168,19 +166,6 @@ body {
   font-size: var(--sl-text-sm);
 }
 
-/* ---------- Sidebar ---------- */
-nav.sidebar a.is-studied::after {
-  content: '✓';
-  margin-inline-start: 0.4rem;
-  color: var(--nb-done);
-  font-size: 0.85em;
-  font-weight: 700;
-}
-
-nav.sidebar a[aria-current='page'].is-studied::after {
-  color: inherit;
-}
-
 /* ---------- Cheat sheet: two columns of snippets on wide screens ---------- */
 .sheet-grid {
   display: grid;
@@ -202,8 +187,8 @@ nav.sidebar a[aria-current='page'].is-studied::after {
 .study-steps {
   counter-reset: step;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+  gap: 0.75rem 1rem;
   margin-top: 1.25rem;
   padding: 0;
   list-style: none;

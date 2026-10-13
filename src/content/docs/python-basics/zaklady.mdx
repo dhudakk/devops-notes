@@ -1,10 +1,10 @@
 ---
-title: Základy Pythonu
+title: Premenné, typy a operátory
 description: Ako program pracuje s hodnotami — premenné, dátové typy, vstup, výstup a operátory.
 kind: chapter
 sidebar:
   order: 1
-  label: 01 · Základy
+  label: 01 · Premenné a typy
 ---
 
 import KeyPoints from '../../../components/KeyPoints.astro';
@@ -102,7 +102,7 @@ print(f"{product}: {subtotal:.2f} €")
 F-string (`f"..."`) vloží hodnoty priamo do textu. Zápis `:.2f` zobrazí desatinné číslo na dve miesta.
 
 :::caution[Čo ak používateľ zadá „dva“?]
-`int("dva")` vyvolá `ValueError`. Ošetríš ho pomocou `try`/`except` — pozri [Súbory a chyby](/devops-notes/python/subory-a-chyby/#bezpečný-číselný-vstup).
+`int("dva")` vyvolá `ValueError`. Ošetríš ho pomocou `try`/`except` — pozri [Súbory a chyby](/devops-notes/python-basics/subory-a-chyby/#bezpečný-číselný-vstup).
 :::
 
 ## Aritmetické operátory
@@ -249,7 +249,7 @@ Toto riešenie prispôsobí šírku najdlhšiemu riadku. Používa zoznam a cykl
 
 Načítaj produkt, cenu za kus a počet kusov. Vypočítaj medzisúčet, 20 % DPH a celkovú cenu. Výsledky zobraz na dve desatinné miesta.
 
-**Bonus** (potrebuje `if` z [kapitoly 2](/devops-notes/python/podmienky/)): pri aspoň piatich kusoch odpočítaj 10 % zľavu ešte pred výpočtom DPH.
+**Bonus** (potrebuje `if` z [kapitoly 2](/devops-notes/python-basics/podmienky/)): pri aspoň piatich kusoch odpočítaj 10 % zľavu ešte pred výpočtom DPH.
 
 <p class="practises">Precvičíš: konverziu vstupu, konštanty, aritmetiku, formát `:.2f`.</p>
 

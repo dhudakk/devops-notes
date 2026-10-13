@@ -15,7 +15,8 @@ const courseGroups = courses
     items: [{ autogenerate: { directory: course.id } }],
   }));
 
-// The Python pages used to live at the site root; keep old links and bookmarks working.
+// The Python pages used to live at the site root, then under /python/;
+// keep old links and bookmarks working.
 const movedPythonPages = [
   'zaklady',
   'podmienky',
@@ -30,9 +31,12 @@ const movedPythonPages = [
 const redirects = {};
 for (const prefix of ['', '/en']) {
   for (const page of movedPythonPages) {
-    redirects[`${prefix}/${page}`] = `${base}${prefix}/python/${page}/`;
+    redirects[`${prefix}/${page}`] = `${base}${prefix}/python-basics/${page}/`;
+    redirects[`${prefix}/python/${page}`] = `${base}${prefix}/python-basics/${page}/`;
   }
-  redirects[`${prefix}/cvicenia`] = `${base}${prefix}/python/`;
+  redirects[`${prefix}/python/tahak`] = `${base}${prefix}/python-basics/tahak/`;
+  redirects[`${prefix}/python`] = `${base}${prefix}/python-basics/`;
+  redirects[`${prefix}/cvicenia`] = `${base}${prefix}/python-basics/`;
 }
 
 export default defineConfig({

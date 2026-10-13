@@ -16,13 +16,23 @@ export interface Course {
 
 export const courses: Course[] = [
   {
-    id: 'python',
+    id: 'python-basics',
     abbr: 'Py',
     status: 'active',
-    label: { sk: 'Python', en: 'Python' },
+    label: { sk: 'Python – základy', en: 'Python Basics' },
     summary: {
       sk: 'Premenné, podmienky, cykly, funkcie, kolekcie, reťazce, súbory a výnimky.',
       en: 'Variables, conditions, loops, functions, collections, strings, files, and exceptions.',
+    },
+  },
+  {
+    id: 'python-advanced',
+    abbr: 'Py+',
+    status: 'planned',
+    label: { sk: 'Python – pokročilé', en: 'Python Advanced' },
+    summary: {
+      sk: 'Pokročilejší Python a orchestrácia dátových pipeline v Apache Airflow.',
+      en: 'More advanced Python and orchestrating data pipelines with Apache Airflow.',
     },
   },
   {
