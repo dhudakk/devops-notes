@@ -10,7 +10,7 @@ sidebar:
 
 <div class="sheet-grid">
 
-```python title="Types and conversions"
+```python title="Types and conversions" wrap
 type(42)          # <class 'int'>
 int("42")         # 42
 float("3.5")      # 3.5
@@ -21,7 +21,7 @@ round(3.567, 2)   # 3.57
 bool("")          # False
 ```
 
-```python title="Input and output"
+```python title="Input and output" wrap
 name = input("Name: ")      # always str
 age = int(input("Age: "))
 
@@ -38,7 +38,7 @@ print(f"{'ab':>5}")         # '   ab'
 
 <div class="sheet-grid">
 
-```python title="Arithmetic"
+```python title="Arithmetic" wrap
 17 / 5    # 3.4  (always float)
 17 // 5   # 3    (rounds down)
 17 % 5    # 2    (remainder)
@@ -47,7 +47,7 @@ print(f"{'ab':>5}")         # '   ab'
 x += 1    # x = x + 1
 ```
 
-```python title="Comparison and logic"
+```python title="Comparison and logic" wrap
 ==  !=  <  >  <=  >=
 18 <= age <= 24          # chained
 a and b   # both True
@@ -65,7 +65,7 @@ x is None    # test for None
 
 <div class="sheet-grid">
 
-```python title="Conditions"
+```python title="Conditions" wrap
 # strictest condition first
 if score >= 90:
     grade = "A"
@@ -75,7 +75,7 @@ else:
     grade = "C"
 ```
 
-```python title="Loops"
+```python title="Loops" wrap
 range(5)           # 0..4
 range(1, 6)        # 1..5
 range(10, 0, -2)   # 10,8,6,4,2
@@ -96,7 +96,7 @@ while True:
 
 <div class="sheet-grid">
 
-```python title="Functions"
+```python title="Functions" wrap
 def total(price, qty, discount=0.0):
     """Default parameters go last."""
     return price * qty * (1 - discount)
@@ -109,7 +109,7 @@ def minmax(xs):
 low, high = minmax([3, 1, 2])
 ```
 
-```python title="Import"
+```python title="Import" wrap
 import math
 math.sqrt(16)
 
@@ -136,7 +136,7 @@ import pandas as pd   # alias
 
 <div class="sheet-grid">
 
-```python title="Lists"
+```python title="Lists" wrap
 xs = ["a", "b", "c", "d"]
 xs[0], xs[-1]       # 'a', 'd'
 xs[1:3]             # ['b', 'c']
@@ -151,7 +151,7 @@ len(xs); sum(ns); min(ns); max(ns)
 copy = xs.copy()    # not: copy = xs
 ```
 
-```python title="Dictionaries and sets"
+```python title="Dictionaries and sets" wrap
 d = {"name": "Eva", "score": 92}
 d["name"]             # KeyError if missing
 d.get("email", "-")   # safe
@@ -173,7 +173,7 @@ max(people, key=lambda p: p["score"])
 
 <div class="sheet-grid">
 
-```python title="Methods"
+```python title="Methods" wrap
 s.strip()          # edges
 s.lower() / s.upper() / s.title()
 s.casefold()       # for comparing
@@ -184,7 +184,7 @@ s.count("x")
 s.isdigit() / s.isalpha()
 ```
 
-```python title="Splitting and joining"
+```python title="Splitting and joining" wrap
 "a,b,c".split(",")     # ['a', 'b', 'c']
 "a  b".split()         # ['a', 'b']
 ", ".join(["a", "b"])  # 'a, b'
@@ -201,7 +201,7 @@ s = "P" + s[1:]        # str is immutable
 
 <div class="sheet-grid">
 
-```python title="Files"
+```python title="Files" wrap
 with open("f.txt", encoding="utf-8") as f:
     text = f.read()     # whole content
     # f.readlines()  → list of lines
@@ -212,7 +212,7 @@ with open("f.txt", "a", encoding="utf-8") as f:
     f.write("line\n")   # add \n yourself
 ```
 
-```python title="Exceptions"
+```python title="Exceptions" wrap
 try:
     n = int(input("Number: "))
 except ValueError:
@@ -225,7 +225,7 @@ finally:
 raise ValueError("Bad value")
 ```
 
-```python title="JSON"
+```python title="JSON" wrap
 import json
 
 # write
@@ -238,7 +238,7 @@ with open("d.json", encoding="utf-8") as f:
     data = json.load(f)
 ```
 
-```text title="Common exceptions"
+```text title="Common exceptions" wrap
 ValueError         int("abc")
 TypeError          "a" + 1
 NameError          undefined variable

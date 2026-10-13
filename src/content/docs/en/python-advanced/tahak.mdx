@@ -10,14 +10,14 @@ sidebar:
 
 <div class="sheet-grid">
 
-```bash title="venv"
+```bash title="venv" wrap
 python3 -m venv venv       # create
 source venv/bin/activate   # activate → (venv) $
 which python               # …/venv/bin/python
 deactivate                 # switch off
 ```
 
-```bash title="pip"
+```bash title="pip" wrap
 pip install httpx ipython ruff
 pip list
 pip freeze > requirements.txt
@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 <div class="sheet-grid">
 
-```bash title="Running a script"
+```bash title="Running a script" wrap
 python3 workflow.py
 # or: line 1 #!/usr/bin/env python3
 chmod +x workflow.py
@@ -38,7 +38,7 @@ chmod +x workflow.py
 echo $?            # exit code (0 = OK)
 ```
 
-```bash title="ruff"
+```bash title="ruff" wrap
 ruff check workflow.py    # linter
 ruff format workflow.py   # formatter
 ```
@@ -49,14 +49,14 @@ ruff format workflow.py   # formatter
 
 <div class="sheet-grid">
 
-```bash title="HTTP from the terminal"
+```bash title="HTTP from the terminal" wrap
 http https://api.openweathermap.org/data/2.5/weather \
     q==kosice,sk appid==$APPID units==metric
 
 curl "https://api.openweathermap.org/data/2.5/weather?q=kosice,sk&appid=$APPID&units=metric"
 ```
 
-```bash title="jq"
+```bash title="jq" wrap
 jq .                    # whole JSON, pretty
 jq .main.temp           # nested key
 jq '.dt, .name'         # several values
@@ -71,7 +71,7 @@ jq -r '.dt | todate'    # timestamp → ISO
 
 <div class="sheet-grid">
 
-```python title="Functions and main"
+```python title="Functions and main" wrap
 def add(a: int, b: int) -> int:
     """Docstring: what the function does."""
     return a + b
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     main()
 ```
 
-```python title="HTTP and JSON"
+```python title="HTTP and JSON" wrap
 import httpx
 
 response = httpx.get(url, params={"q": "kosice"})
@@ -98,7 +98,7 @@ data["weather"][0]["main"]
 data.get("rain", 0)
 ```
 
-```python title="Time"
+```python title="Time" wrap
 import pendulum
 
 dt = pendulum.from_timestamp(1779196038)
@@ -108,7 +108,7 @@ dt.in_timezone("Europe/Bratislava")  # +02:00
 # store in UTC, convert only for display
 ```
 
-```python title="Files"
+```python title="Files" wrap
 with open("dataset.csv", mode="a", encoding="utf-8") as f:
     print(entry, file=f)     # adds \n too
     # f.write(f"{entry}\n")
@@ -116,7 +116,7 @@ with open("dataset.csv", mode="a", encoding="utf-8") as f:
 # ulimit -n → open-file limit
 ```
 
-```python title="click"
+```python title="click" wrap
 import click
 
 @click.command(help="...")
@@ -127,7 +127,7 @@ import click
 def main(query, appid, units): ...
 ```
 
-```python title="Exceptions and exit"
+```python title="Exceptions and exit" wrap
 import logging, sys
 from http import HTTPStatus
 
@@ -146,7 +146,7 @@ if response.status_code == HTTPStatus.NOT_FOUND:
 
 <div class="sheet-grid">
 
-```bash title="Install and run"
+```bash title="Install and run" wrap
 pip install apache-airflow
 airflow info                # creates ~/airflow/airflow.cfg
 export AIRFLOW_HOME=$(pwd)/airflow_home
@@ -155,7 +155,7 @@ tmux attach                 # back to the session
 sudo systemctl status airflow
 ```
 
-```bash title="CLI"
+```bash title="CLI" wrap
 airflow dags list
 airflow tasks list weather_scraper
 airflow dags test weather_scraper
@@ -165,7 +165,7 @@ airflow variables get weather_city
 airflow connections get openweathermap
 ```
 
-```python title="DAG and tasks"
+```python title="DAG and tasks" wrap
 from airflow.sdk import dag, task
 from pendulum import datetime
 
@@ -185,7 +185,7 @@ else:
     main()
 ```
 
-```python title="Connections, Variables, errors"
+```python title="Connections, Variables, errors" wrap
 from airflow.sdk import BaseHook, Variable
 from airflow.sdk.exceptions import (
     AirflowException, AirflowFailException)

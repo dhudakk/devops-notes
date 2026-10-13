@@ -10,7 +10,7 @@ sidebar:
 
 <div class="sheet-grid">
 
-```python title="Typy a konverzie"
+```python title="Typy a konverzie" wrap
 type(42)          # <class 'int'>
 int("42")         # 42
 float("3.5")      # 3.5
@@ -21,7 +21,7 @@ round(3.567, 2)   # 3.57
 bool("")          # False
 ```
 
-```python title="Vstup a výstup"
+```python title="Vstup a výstup" wrap
 name = input("Meno: ")      # vždy str
 age = int(input("Vek: "))
 
@@ -38,7 +38,7 @@ print(f"{'ab':>5}")         # '   ab'
 
 <div class="sheet-grid">
 
-```python title="Aritmetika"
+```python title="Aritmetika" wrap
 17 / 5    # 3.4  (vždy float)
 17 // 5   # 3    (nadol)
 17 % 5    # 2    (zvyšok)
@@ -47,7 +47,7 @@ print(f"{'ab':>5}")         # '   ab'
 x += 1    # x = x + 1
 ```
 
-```python title="Porovnanie a logika"
+```python title="Porovnanie a logika" wrap
 ==  !=  <  >  <=  >=
 18 <= age <= 24          # reťazené
 a and b   # obe True
@@ -65,7 +65,7 @@ x is None    # test na None
 
 <div class="sheet-grid">
 
-```python title="Podmienky"
+```python title="Podmienky" wrap
 # najprísnejšia podmienka navrch
 if score >= 90:
     grade = "A"
@@ -75,7 +75,7 @@ else:
     grade = "C"
 ```
 
-```python title="Cykly"
+```python title="Cykly" wrap
 range(5)           # 0..4
 range(1, 6)        # 1..5
 range(10, 0, -2)   # 10,8,6,4,2
@@ -96,7 +96,7 @@ while True:
 
 <div class="sheet-grid">
 
-```python title="Funkcie"
+```python title="Funkcie" wrap
 def total(price, qty, discount=0.0):
     """Default parametre až na konci."""
     return price * qty * (1 - discount)
@@ -109,7 +109,7 @@ def minmax(xs):
 low, high = minmax([3, 1, 2])
 ```
 
-```python title="Import"
+```python title="Import" wrap
 import math
 math.sqrt(16)
 
@@ -136,7 +136,7 @@ import pandas as pd   # alias
 
 <div class="sheet-grid">
 
-```python title="Zoznamy"
+```python title="Zoznamy" wrap
 xs = ["a", "b", "c", "d"]
 xs[0], xs[-1]       # 'a', 'd'
 xs[1:3]             # ['b', 'c']
@@ -151,7 +151,7 @@ len(xs); sum(ns); min(ns); max(ns)
 copy = xs.copy()    # nie: copy = xs
 ```
 
-```python title="Slovníky a množiny"
+```python title="Slovníky a množiny" wrap
 d = {"name": "Eva", "score": 92}
 d["name"]             # KeyError ak chýba
 d.get("email", "-")   # bezpečne
@@ -173,7 +173,7 @@ max(people, key=lambda p: p["score"])
 
 <div class="sheet-grid">
 
-```python title="Metódy"
+```python title="Metódy" wrap
 s.strip()          # okraje
 s.lower() / s.upper() / s.title()
 s.casefold()       # na porovnávanie
@@ -184,7 +184,7 @@ s.count("x")
 s.isdigit() / s.isalpha()
 ```
 
-```python title="Delenie a spájanie"
+```python title="Delenie a spájanie" wrap
 "a,b,c".split(",")     # ['a', 'b', 'c']
 "a  b".split()         # ['a', 'b']
 ", ".join(["a", "b"])  # 'a, b'
@@ -201,7 +201,7 @@ s = "P" + s[1:]        # str je nemenný
 
 <div class="sheet-grid">
 
-```python title="Súbory"
+```python title="Súbory" wrap
 with open("f.txt", encoding="utf-8") as f:
     text = f.read()     # celý obsah
     # f.readlines()  → zoznam riadkov
@@ -212,7 +212,7 @@ with open("f.txt", "a", encoding="utf-8") as f:
     f.write("riadok\n") # \n pridaj sám
 ```
 
-```python title="Výnimky"
+```python title="Výnimky" wrap
 try:
     n = int(input("Číslo: "))
 except ValueError:
@@ -225,7 +225,7 @@ finally:
 raise ValueError("Zlá hodnota")
 ```
 
-```python title="JSON"
+```python title="JSON" wrap
 import json
 
 # zápis
@@ -238,7 +238,7 @@ with open("d.json", encoding="utf-8") as f:
     data = json.load(f)
 ```
 
-```text title="Časté výnimky"
+```text title="Časté výnimky" wrap
 ValueError         int("abc")
 TypeError          "a" + 1
 NameError          nedefinovaná premenná

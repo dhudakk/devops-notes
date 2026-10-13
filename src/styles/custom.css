@@ -194,21 +194,15 @@ body {
   font-size: var(--sl-text-xs);
 }
 
-/* ---------- Cheat sheet: two columns of snippets on wide screens ---------- */
+/* ---------- Cheat sheet: snippets stacked full width; long lines wrap (see `wrap` in tahak.mdx) ---------- */
 .sheet-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
-  align-items: start;
   gap: 1rem;
 }
 
 .sl-markdown-content .sheet-grid > * {
   min-width: 0;
   margin-top: 0;
-}
-
-.sheet-grid .expressive-code {
-  --ec-codeFontSize: 0.8rem;
 }
 
 /* ---------- Home ---------- */
