@@ -32,6 +32,8 @@ src/
   content/docs/
     index.mdx              ← home page
     python-basics/         ← one folder per course (Slovak)
+    python-advanced/
+      mudrosti/            ← sub-section: Mirek's tips (kind: wisdom)
       index.mdx            ← course overview
       zaklady.mdx …        ← chapters
       tahak.mdx            ← cheat sheet
@@ -67,6 +69,18 @@ src/
 4. Add English versions under `src/content/docs/en/python-advanced/` with the **same file names** (one more `../` in import paths). Missing English pages fall back to Slovak automatically.
 
 The sidebar group, the home-page card, and chapter numbering (“Chapter 3 of 8”) appear automatically. Course order in the sidebar and on the home page follows the order in `courses.ts`.
+
+### Lessons by day
+
+For courses taught day by day, add `day: 1` (2, 3…) to a chapter's frontmatter. The chapter list and the page header then show “Deň 1” / “Day 1”. Chapters are still numbered by `sidebar.order`, so one day can span several chapters.
+
+### Sub-sections inside a course (e.g. Mirekove múdrosti)
+
+A sub-folder inside a course folder becomes a nested sidebar group automatically — `python-advanced/mudrosti/` holds the instructor's tips. Give such pages `kind: wisdom` and a `sidebar.order` (91, 92…) to place the group after the chapters. Register the folder's display name in `sectionLabels` in `src/courses.ts`; otherwise the sidebar shows the raw folder name. To add a new tip, put a `## Heading` section on the matching page and end it with `<p class="wisdom-day">Deň N</p>`.
+
+### Keep secrets out
+
+The site is public. Replace API keys, passwords, IP addresses, and classmates' names from slides or transcripts with placeholders such as `<API_KEY>` and `<IP>`.
 
 ## Chapter template
 

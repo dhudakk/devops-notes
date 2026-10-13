@@ -1,0 +1,64 @@
+---
+title: Terminál a Windows
+description: Ako si na Windows pripraviť terminál, SSH a softvér tak, aby kurz bežal bez problémov.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+Tipy a odporúčania lektora, ktoré nie sú priamo látkou kurzu. Pri každom je deň, kedy zazneli.
+
+## Cmder — asi najlepší terminál na Windows
+
+> „Commander je asi najlepší terminálový klient, ktorý som videl vo Windowse.“
+
+- Pekný terminál, dá sa z neho normálne kopírovať a obrazovka sa dá rozdeliť na viac častí.
+- Verzia **full** má zabudovaný **Git for Windows** — teda Bash, Git aj `ssh` so všetkými nástrojmi, ktoré poznáš z Linuxu.
+- **Netreba inštalovať** — stiahneš zip, rozbalíš a spustíš.
+
+Stránka: [cmder.app](https://cmder.app/)
+
+<p class="wisdom-day">Deň 1</p>
+
+## Chocolatey — balíčkovací systém pre Windows
+
+To, čo poznáš z Linuxu ako `apt`, `dnf` či `yum`, je na Windows **Chocolatey**. Na domácom počítači výrazne zjednoduší inštaláciu aj aktualizácie:
+
+```powershell
+choco install cmder
+choco install vscode
+choco upgrade all        # aktualizuje všetko nainštalované
+```
+
+Balíky hľadáš na [community.chocolatey.org/packages](https://community.chocolatey.org/packages) — pri každom je rovno príkaz na inštaláciu.
+
+<p class="wisdom-day">Deň 1</p>
+
+## SSH od Microsoftu nekamaráti s VS Code
+
+SSH klient, ktorý je súčasťou Windows (od Microsoftu), podľa Mireka **nespolupracuje** s Visual Studio Code (tiež od Microsoftu). Použi `ssh` z **Git Bash** — dostaneš ho s Cmderom alebo s Git for Windows. Vo VS Code ho nastavíš cez `remote.SSH.path`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## SSH kľúč namiesto hesla
+
+VS Code sa pri prihlásení heslom pýta na heslo opakovane — aj dvakrát na jedno pripojenie. Nastav si kľúč a „zapneš a ideš“:
+
+```bash
+ssh-keygen -t ed25519
+ssh-copy-id ubuntu@<IP>
+```
+
+<p class="wisdom-day">Deň 1</p>
+
+## Na kurz si zober vlastný počítač
+
+Na pracovnom notebooku firemný bezpečnostný softvér zablokuje SSH na laboratórne stroje. Skúšalo sa kadečo (dev klient, jump server…) a vždy sa to skončilo rovnako — zbytočné zdržanie. Najistejšie je **vlastný domáci počítač**; pre Docker a Kubernetes to platí dvojnásobne.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Airflow a Windows
+
+Airflow sa s veľkou pravdepodobnosťou, „hraničiacou s istotou“, **nedá nainštalovať na Windows** — niektoré balíky predpokladajú POSIX systém. Preto všetko beží na Ubuntu serveri.
+
+<p class="wisdom-day">Deň 1</p>

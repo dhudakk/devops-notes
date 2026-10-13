@@ -1,0 +1,189 @@
+---
+title: Spracovanie dát a zápis do CSV
+description: Výber hodnôt zo slovníka, Unix timestamp a balík pendulum, štandard ISO 8601 a zápis do CSV súboru — funkcie process_data() a publish_data().
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Spracovanie a CSV
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `process_data()` vyberie zo slovníka iba potrebné hodnoty a vráti **jeden riadok CSV** (reťazec).
+- Čas (`dt`, `sunrise`, `sunset`) je **Unix timestamp** — sekundy od 1. 1. 1970 UTC.
+- **pendulum** prevádza čas pohodlnejšie ako `datetime`: `pendulum.from_timestamp(ts).to_iso8601_string()`.
+- Dátum a čas zapisuj vo formáte **ISO 8601**: `2026-05-19T13:07:18Z` — jednoznačný a so zónou.
+- Súbor otváraj cez `with open("dataset.csv", mode="a") as f:` a riadok zapíš `print(entry, file=f)`.
+</KeyPoints>
+
+## Ktoré hodnoty nás zaujímajú
+
+| Údaj | Kľúč v odpovedi |
+| --- | --- |
+| čas merania | `dt` |
+| mesto | `name` |
+| krajina | `sys.country` |
+| teplota | `main.temp` |
+| vlhkosť | `main.humidity` |
+| tlak | `main.pressure` |
+| počasie (Clear, Rain…) | `weather[0].main` |
+| viditeľnosť | `visibility` |
+| rýchlosť a smer vetra | `wind.speed`, `wind.deg` |
+| východ a západ slnka | `sys.sunrise`, `sys.sunset` |
+
+Pozor: na slajdoch sú niektoré kľúče uvedené zjednodušene (`main.temperature`, `sunrise`, `city`). V skutočnej odpovedi sú to `main.temp`, `sys.sunrise` a `name`.
+
+## Funkcia process_data()
+
+Údaje budeme priebežne pridávať do CSV súboru — `process_data()` vráti **jeden riadok**, ten najnovší. Verzia zo slajdov:
+
+```python
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    return "{};{};{};{};{};{};{};{}".format(
+        data["dt"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["weather"][0]["main"],
+        data["visibility"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    )
+```
+
+Workflow teraz odovzdáva dáta krok za krokom:
+
+```python
+measurement = scrape_data()
+csv_entry = process_data(measurement)
+publish_data(csv_entry)
+```
+
+## Čas: Unix timestamp a pendulum
+
+`dt = 1779196038` je **Unixový čas** — počet sekúnd od začiatku epochy, 1. 1. 1970 00:00 UTC. Na prevod by stačil modul `datetime` zo štandardnej knižnice, ale nepracuje sa s ním príliš pohodlne (najmä s časovými zónami). Použijeme **pendulum** — jeho typ `DateTime` je spätne kompatibilný s `datetime`.
+
+```bash
+(venv) $ pip install pendulum
+```
+
+```python
+>>> import pendulum
+>>> pendulum.from_timestamp(1779196038)
+DateTime(2026, 5, 19, 13, 7, 18, tzinfo=Timezone('UTC'))
+>>> pendulum.from_timestamp(1779196038).to_iso8601_string()
+'2026-05-19T13:07:18Z'
+```
+
+Pre porovnanie, štandardná knižnica: `datetime.fromtimestamp(1779196038, tz=timezone.utc).isoformat()` vráti `'2026-05-19T13:07:18+00:00'`.
+
+### Štandard ISO 8601
+
+Každá krajina zapisuje dátum inak:
+
+| Logika | Formát | 19. máj 2026 |
+| --- | --- | --- |
+| európska | `DD.MM.YYYY` | `19.05.2026` |
+| americká | `MM/DD/YYYY` | `05/19/2026` |
+| japonská / **ISO 8601** | `YYYY-MM-DD` | `2026-05-19` |
+
+Do CSV preto zapisujeme medzinárodný štandard **ISO 8601**: od najväčšej jednotky po najmenšiu, s časom a časovou zónou — `2026-05-19T13:07:18Z` (`T` oddeľuje dátum a čas, `Z` znamená UTC). Taký reťazec sa navyše dá správne zoradiť aj ako obyčajný text.
+
+## Funkcia publish_data()
+
+Posledná úloha pripojí riadok do súboru `dataset.csv`:
+
+```python
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    with open("dataset.csv", mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+        # alternatíva: dataset.write(f"{entry}\n")
+```
+
+| Režim | Význam |
+| --- | --- |
+| `"r"` | čítanie |
+| `"w"` | zápis — **prepíše** obsah |
+| `"a"` | pripojenie na koniec — pre nás ideálne |
+| `"r+"`, `"w+"` | čítanie aj zápis |
+
+- `print(..., file=dataset)` zapíše riadok aj s `\n` na konci. `write()` nový riadok nepridá.
+- **`with`** súbor zatvorí sám, aj keď nastane chyba. Bez `with` musíš volať `file.close()`.
+
+:::caution[Prečo na zatváraní záleží]
+Operačný systém dovolí procesu mať otvorený iba obmedzený počet súborov. Workflow, ktorý beží dlho a súbory nezatvára, raz narazí na limit a zlyhá. Aktuálny limit zistíš príkazom `ulimit -n` (často `1024`).
+:::
+
+## Otestuj sa
+
+<Question q="Čo je Unix timestamp?">
+Počet sekúnd od 1. januára 1970 00:00:00 UTC (začiatok epochy). Napr. `1779196038` je `2026-05-19T13:07:18Z`.
+</Question>
+
+<Question q="Prečo zapisovať dátum vo formáte ISO 8601?">
+Je jednoznačný (žiadne miešanie dňa a mesiaca ako pri `05/06`), obsahuje časovú zónu a dá sa správne zoradiť aj ako text.
+</Question>
+
+<Question q='Aký je rozdiel medzi `open(..., mode="w")` a `mode="a"`?'>
+`"w"` súbor prepíše od začiatku, `"a"` pridáva na koniec. Pri zbieraní meraní chceme `"a"`, inak by sme mali vždy iba posledné meranie.
+</Question>
+
+<Question q="Prečo otvárať súbor cez `with`?">
+`with` súbor automaticky zatvorí aj pri výnimke. Neuzatvorené súbory sa hromadia a proces narazí na limit otvorených súborov (`ulimit -n`).
+</Question>
+
+<Question q='Čo zapíše `print(entry, file=dataset)` navyše oproti `dataset.write(entry)`?'>
+Znak nového riadka `\n` na konci. `write()` zapíše presne zadaný reťazec.
+</Question>
+
+## Cvičenia
+
+### 5.1 · CSV s hlavičkou a časmi slnka
+
+Uprav `process_data()`, aby vracala čas merania, východ a západ slnka v ISO 8601 a k tomu mesto a teplotu. `publish_data()` nech pri prvom zápise (súbor ešte neexistuje) pridá hlavičku `time;sunrise;sunset;city;temp`.
+
+<Solution variant="hint">
+Na prevod si sprav malú pomocnú funkciu (DRY). Existenciu súboru overíš cez `os.path.exists("dataset.csv")` alebo `pathlib.Path("dataset.csv").exists()`.
+</Solution>
+
+<Solution>
+```python
+from pathlib import Path
+
+import pendulum
+
+DATASET = Path("dataset.csv")
+HEADER = "time;sunrise;sunset;city;temp"
+
+
+def iso(timestamp: int) -> str:
+    return pendulum.from_timestamp(timestamp).to_iso8601_string()
+
+
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    values = [
+        iso(data["dt"]),
+        iso(data["sys"]["sunrise"]),
+        iso(data["sys"]["sunset"]),
+        data["name"],
+        data["main"]["temp"],
+    ]
+    return ";".join(str(value) for value in values)
+
+
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    is_new = not DATASET.exists()
+    with DATASET.open(mode="a", encoding="utf-8") as dataset:
+        if is_new:
+            print(HEADER, file=dataset)
+        print(entry, file=dataset)
+```
+</Solution>

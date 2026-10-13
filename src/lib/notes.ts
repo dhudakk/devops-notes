@@ -13,6 +13,8 @@ const strings = {
     overview: 'Prehľad kurzu',
     cheatsheet: 'Ťahák',
     sources: 'Zdroje',
+    wisdoms: 'Mirekove múdrosti',
+    day: 'Deň',
     notebook: 'Študijný zápisník',
     keyPoints: 'Kľúčové body',
     solution: 'Riešenie',
@@ -26,6 +28,8 @@ const strings = {
     overview: 'Course overview',
     cheatsheet: 'Cheat sheet',
     sources: 'Sources',
+    wisdoms: "Mirek's wisdoms",
+    day: 'Day',
     notebook: 'Study notebook',
     keyPoints: 'Key points',
     solution: 'Solution',
@@ -73,6 +77,7 @@ export interface ChapterInfo {
   title: string;
   label: string;
   description: string | undefined;
+  day: number | undefined;
 }
 
 type DocsEntry = CollectionEntry<'docs'>;
@@ -104,6 +109,7 @@ export async function getChapters(courseId: string, lang: Lang): Promise<Chapter
         title: entry.data.title,
         label: entry.data.sidebar.label ?? entry.data.title,
         description: entry.data.description,
+        day: entry.data.day,
       };
     });
 }

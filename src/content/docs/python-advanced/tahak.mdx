@@ -1,0 +1,160 @@
+---
+title: Ťahák
+description: Príkazy a kód z kurzu Python – pokročilé na jednej stránke. Dopĺňa sa po každom dni.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Virtuálne prostredie a pip
+
+<div class="sheet-grid">
+
+```bash title="venv"
+python3 -m venv venv       # vytvor
+source venv/bin/activate   # aktivuj → (venv) $
+deactivate                 # vypni
+```
+
+```bash title="pip"
+pip install httpx ipython ruff
+pip list
+pip freeze > requirements.txt
+pip install -r requirements.txt
+```
+
+</div>
+
+## Spúšťanie a nástroje
+
+<div class="sheet-grid">
+
+```bash title="Spustenie skriptu"
+python3 workflow.py
+# alebo: 1. riadok #!/usr/bin/env python3
+chmod +x workflow.py
+./workflow.py
+echo $?            # exit kód (0 = OK)
+```
+
+```bash title="ruff"
+ruff check workflow.py    # linter
+ruff format workflow.py   # formátovač
+```
+
+</div>
+
+## Bash workflow: httpie + jq
+
+<div class="sheet-grid">
+
+```bash title="HTTP z terminálu"
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric
+
+curl "https://api.openweathermap.org/data/2.5/weather?q=kosice,sk&appid=$APPID&units=metric"
+```
+
+```bash title="jq"
+jq .                    # celý JSON pekne
+jq .main.temp           # vnorený kľúč
+jq '.dt, .name'         # viac hodnôt
+jq -r '[.dt, .name] | @csv'
+jq -r '.dt | todate'    # timestamp → ISO
+... | tee -a dataset.csv  # pripoj + vypíš
+```
+
+</div>
+
+## Python
+
+<div class="sheet-grid">
+
+```python title="Funkcie a main"
+def add(a: int, b: int) -> int:
+    """Docstring: čo funkcia robí."""
+    return a + b
+
+total = add(10, 20)
+
+def main() -> None:
+    ...
+
+if __name__ == "__main__":
+    main()
+```
+
+```python title="HTTP a JSON"
+import httpx
+
+response = httpx.get(url, params={"q": "kosice"})
+response.status_code   # 200
+response.headers
+response.text          # str
+data = response.json() # dict
+data["main"]["temp"]
+data["weather"][0]["main"]
+data.get("rain", 0)
+```
+
+```python title="Čas"
+import pendulum
+
+dt = pendulum.from_timestamp(1779196038)
+dt.to_iso8601_string()  # '2026-05-19T13:07:18Z'
+```
+
+```python title="Súbory"
+with open("dataset.csv", mode="a", encoding="utf-8") as f:
+    print(entry, file=f)     # pridá aj \n
+    # f.write(f"{entry}\n")
+# režimy: r, w (prepíše), a (pripojí), r+, w+
+# ulimit -n → limit otvorených súborov
+```
+
+```python title="click"
+import click
+
+@click.command(help="...")
+@click.argument("query")
+@click.option("--appid", envvar="APPID", required=True)
+@click.option("--units", default="metric",
+              type=click.Choice(["metric", "standard", "imperial"]))
+def main(query, appid, units): ...
+```
+
+```python title="Výnimky a exit"
+import logging, sys
+from http import HTTPStatus
+
+try:
+    ...
+except PermissionError:
+    logging.exception("Cannot write")
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    sys.exit("Error: City not found.")  # stderr, kód 1
+```
+
+</div>
+
+## Užitočné drobnosti
+
+| Čo | Ako |
+| --- | --- |
+| typ premennej | `type(var)` |
+| dĺžka reťazca / zoznamu | `len(var)` |
+| skladanie reťazcov | f-string: `f"{url}?q={query}"` |
+| kľúč nie v kóde ani v argumentoch | `APPID=... ./workflow.py kosice` |
+
+## VS Code
+
+| Skratka | Akcia |
+| --- | --- |
+| `Ctrl+/` | zakomentuje / odkomentuje riadky |
+| `Ctrl+Space` | IntelliSense za bodkou |
+| `Alt+Enter` | rýchla oprava problému |
+| `F5` | spustí aktuálny súbor |
+| `Shift+Alt+F` | naformátuje kód |
+| paleta → *Python: Select Interpreter* | vyber Python z venv |
+| paleta → *Python: Restart Language Server* | keď VS Code „nevidí“ nainštalovaný balík |

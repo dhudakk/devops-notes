@@ -1,0 +1,34 @@
+---
+title: Python Advanced
+description: Python for DevOps with Apache Airflow (taught by Mirek). We build an ETL workflow over weather data — first as a plain Python script, then run and supervised by Airflow.
+kind: overview
+sidebar:
+  order: 0
+  label: Course overview
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../../components/ChapterList.astro';
+
+## Chapters
+
+<ChapterList course="python-advanced" />
+
+## Revision and extras
+
+<CardGrid>
+  <LinkCard title="Cheat sheet" description="Commands and code from the course on one page: venv, pip, httpx, jq, click, exceptions, VS Code." href="/devops-notes/en/python-advanced/tahak/" />
+  <LinkCard title="Mirek's wisdoms" description="Tips, tools, and remarks from the instructor that are not strictly course material." href="/devops-notes/en/python-advanced/mudrosti/terminal-a-windows/" />
+  <LinkCard title="Sources" description="Slides from each day and which chapter came from which material." href="/devops-notes/en/python-advanced/zdroje/" />
+</CardGrid>
+
+## Course project
+
+Throughout the course we build one workflow:
+
+```text
+[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
+```
+
+1. **Day 1** — the workflow as a Python script: functions, HTTP, JSON, CSV, CLI, and exceptions.
+2. **Following days** — the same workflow in Apache Airflow: scheduling, logs, retries, and monitoring.

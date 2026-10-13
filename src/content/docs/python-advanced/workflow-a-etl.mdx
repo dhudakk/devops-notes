@@ -1,0 +1,213 @@
+---
+title: Workflowy a ETL
+description: Čo robia DevOpsáci, čo je workflow a ETL, a ako vyzerá náš počasový workflow — najprv ako jeden riadok v Bashi.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Workflowy a ETL
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Workflow** = postupnosť **úloh (tasks)**. Na poradí úloh záleží a workflow **nesmie obsahovať slučku**.
+- Workflow sa spúšťa **podľa plánu** (každú sobotu o 03:00) alebo **udalosťou** (push do Gitu → build Docker obrazu).
+- **ETL** = **E**xtract (získaj dáta) → **T**ransform (uprav ich) → **L**oad (ulož ich).
+- Náš workflow: `scrape_data` —JSON→ `process_data` —CSV→ `publish_data`. Dáta o počasí berieme z openweathermap.org.
+- V Bashi je to jeden reťazec príkazov: `http … | jq … | tee -a dataset.csv`.
+</KeyPoints>
+
+## Čo robia DevOpsáci
+
+| Oblasť | Príklady nástrojov |
+| --- | --- |
+| **Automatizácia úloh** | Bash skripty, GitLab CI/CD, joby v Docker runneroch |
+| **Plánované spúšťanie úloh** | `crontab`, systemd timery |
+| **Postupnosť úloh = workflow** | CI/CD pipeline, dátové pipeline, Apache Airflow |
+
+Aj CI/CD pipeline je vlastne plánované spúšťanie úloh — len ju nespúšťa čas, ale **udalosť**, napríklad commit alebo push do Gitu.
+
+## Čo je workflow
+
+Workflow je **postupnosť úloh** (*tasks*), ktoré sa majú vykonať, aby sme dosiahli výsledok.
+
+1. **Na poradí úloh záleží.** Ako pri praženici: najprv zapneš platničku, rozbiješ vajcia, až potom miešaš. Keď kroky poprehadzuješ, vznikne niečo, čo praženicu pripomína iba ingredienciami.
+2. **Workflow nesmie obsahovať slučku.** Úlohy idú jasne zľava doprava (alebo zhora nadol), nikdy sa nevracajú späť.
+
+:::caution[Prečo nie slučka]
+Workflow so slučkou sa môže zaseknúť (*deadlock*, „vytuhne to“). Ak sa workflow spúšťa každých 10 minút a jeden beh neskončí, začne ďalší, potom tretí, štvrtý… až kým sa neminie RAM a ostatné systémové prostriedky a všetko spadne.
+
+Opakovanie s pevným počtom krokov (napr. spracuj 10 položiek) je v poriadku — zakázané je točenie sa späť. Preto sa workflowu v Airflow hovorí **DAG** — *directed acyclic graph*, orientovaný graf bez cyklov.
+:::
+
+### Kedy sa workflow spúšťa
+
+| Spúšťač | Príklad |
+| --- | --- |
+| **Plán** (*schedule*) | záloha každú sobotu o 03:00 ráno, zber metrík každých 10 minút |
+| **Udalosť** (*triggered by an event*) | nová verzia aplikácie v Gite → spustí sa build Docker obrazu |
+
+### Na čo sa workflowy používajú
+
+- spracovanie veľkých dát (*data processing pipelines*) — dnes veľmi populárne,
+- zber metrík: každých 10 minút stiahni metriky z HTTP endpointov a nechaj ich vizualizovať (napr. Prometheus),
+- orchestrácia automatického testovania, CI/CD pipeline,
+- aj recept na varenie je workflow.
+
+## ETL
+
+**ETL** je najčastejší tvar workflowu — skladá sa z troch typov úloh:
+
+| Písmeno | Úloha | Čo robí |
+| --- | --- | --- |
+| **E** | Extract | získa („ukradne“) a overí dáta z jedného alebo viacerých zdrojov |
+| **T** | Transform | upraví dáta do tvaru a formátu, ktorý potrebuješ (napr. z HTML vytiahne hodnoty, prepočíta jednotky) |
+| **L** | Load | uloží výsledok — do databázy, CSV súboru, S3, pošle ho e-mailom… |
+
+Tradičný workflow býva rozbitý na viac krokov, napríklad:
+
+```text
+download_data → send_data_to_processing → monitor_processing → generate_report → send_email
+```
+
+Krása workflowov je v tom, že každú „krabičku“ vieš ďalej rozbiť na menšie a nové kroky jednoducho pridávať.
+
+## Náš workflow: počasie
+
+Počas kurzu postavíme jednoduchý ETL nad dátami o počasí:
+
+1. **Scrape Data** — stiahni aktuálne počasie (napr. pre Košice) zo služby [openweathermap.org](https://openweathermap.org/current),
+2. **Process Data** — vyber z odpovede iba hodnoty, ktoré nás zaujímajú, a priprav z nich riadok CSV,
+3. **Publish Data** — ulož riadok do súboru (neskôr report, upload…).
+
+```text
+[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
+```
+
+:::note[Prečo neskôr možno iná služba]
+Airflow vie **spätne dobehnúť** vynechané behy: keď vypadne elektrina na hodinu a workflow beží každých 10 minút, Airflow zistí, že mu chýba 6 meraní, a spustí ich dodatočne. Bezplatná verzia openweathermap však vracia iba **aktuálne** počasie, nie počasie v konkrétnom čase v minulosti — preto môže lektor neskôr prejsť na inú službu.
+:::
+
+## Ten istý workflow v Bashi
+
+Jeden zo základných princípov Unixu: **najlepšie rozhranie medzi procesmi je štandardný vstup a výstup**. Každý krok vypíše výsledok na `stdout`, operátor `|` (pipe) ho pošle na `stdin` ďalšieho kroku:
+
+```bash
+scrape_data | process_data | publish_data
+```
+
+### 1. Scrape: stiahnutie dát
+
+OpenWeatherMap má REST API — komunikuje cez HTTP. Potrebuješ API kľúč (`appid`) z účtu na openweathermap.org.
+
+S **curl** musíš poskladať celú URL sám (a dať ju do úvodzoviek, lebo obsahuje `&`):
+
+```bash
+curl "https://api.openweathermap.org/data/2.5/weather?q=kosice,sk&appid=$APPID&units=metric"
+```
+
+S **httpie** (príkaz `http`, napísaný v Pythone) zapíšeš query parametre samostatne cez `==`. Výsledný JSON aj hlavičky ti pekne naformátuje:
+
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk \
+    appid==$APPID \
+    units==metric
+```
+
+- `q` — mesto; `kosice,sk` upresní krajinu (Košice sú aj inde).
+- `units` — `standard` (predvolené, **Kelviny**), `metric` (°C), `imperial` (°F). Bez `units` dostaneš teplotu napr. `288.95` — to sú Kelviny, nie °C.
+- `dt` v odpovedi je **Unix timestamp** — počet sekúnd od 1. 1. 1970.
+
+### 2. Process: výber hodnôt nástrojom jq
+
+Odpoveď je **JSON**. Na JSON sa **nepoužíva grep** — na to je `jq` (*JSON query*):
+
+| Výraz | Vráti |
+| --- | --- |
+| `jq .` | celý dokument naformátovaný (`.` je koreň, ako `/` v súborovom systéme) |
+| `jq .dt` | hodnotu kľúča `dt` |
+| `jq .main.temp` | vnorenú hodnotu — teplotu z objektu `main` |
+| `jq '.dt, .name'` | viac hodnôt, každú na samostatnom riadku |
+| `jq '[.dt, .name, .main.temp] \| @csv'` | pole hodnôt prevedené na riadok CSV |
+| `jq -r …` (`--raw-output`) | výstup bez JSON úvodzoviek okolo reťazca |
+
+```bash
+$ jq '[.dt, .name, .main.temp] | @csv' weather.json
+"1779196038,\"Košice\",15.8"          # bez -r: CSV riadok zabalený ako JSON reťazec
+$ jq -r '[.dt, .name, .main.temp] | @csv' weather.json
+1779196038,"Košice",15.8               # s -r: čistý riadok CSV
+```
+
+### 3. Publish: pripojenie do súboru
+
+`tee -a` (`--append`) pripojí riadok na koniec súboru **a zároveň** ho vypíše na obrazovku. Pri každom spustení pribudne nový riadok.
+
+### Celý workflow v Bashi
+
+```bash title="Terminál"
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric \
+  | jq -r '[.dt, .name, .main.temp] | @csv' \
+  | tee -a dataset.csv
+```
+
+API kľúč drž v premennej prostredia (`export APPID=...`), nie natvrdo v príkaze. Opakované riadky by sa dali odstrániť napr. cez `sort -u`, ale to teraz neriešime.
+
+:::tip[`tee --append` na Macu]
+GNU `tee` na Ubuntu pozná `--append` aj `-a`. Na macOS funguje iba `-a`.
+:::
+
+V Pythone bude každý z týchto troch krokov **funkcia** — pozri [Prvý workflow v Pythone](/devops-notes/python-advanced/workflow-v-pythone/).
+
+## Otestuj sa
+
+<Question q="Aké dve pravidlá musí spĺňať workflow?">
+Na poradí úloh záleží a workflow nesmie obsahovať slučku (nesmie sa vracať späť).
+</Question>
+
+<Question q="Čo sa môže stať, ak workflow spúšťaný každých 10 minút obsahuje slučku a zasekne sa?">
+Behy sa začnú prekrývať — predchádzajúci neskončil a už štartuje ďalší. Pribúdajú, kým sa neminú systémové prostriedky (RAM) a systém spadne.
+</Question>
+
+<Question q="Čo znamenajú písmená ETL?">
+Extract — získanie dát zo zdroja, Transform — úprava do potrebného tvaru, Load — uloženie výsledku (databáza, súbor, S3, e-mail…).
+</Question>
+
+<Question q="Aké sú dva spôsoby, ako sa workflow spustí?">
+Podľa plánu (*schedule*, napr. každú hodinu) alebo udalosťou (*event*, napr. push do Gitu).
+</Question>
+
+<Question q="Prečo vráti openweathermap teplotu `288.95` a ako dostaneš °C?">
+Predvolené jednotky (`standard`) sú Kelviny. Parameter `units=metric` vráti °C (`imperial` °F).
+</Question>
+
+<Question q="Načo je prepínač `-r` v `jq -r '[.dt, .name] | @csv'`?">
+Bez neho jq vypíše CSV riadok ako JSON reťazec — v úvodzovkách a s escapovanými vnútornými úvodzovkami. `-r` (`--raw-output`) vypíše surový text, teda čistý riadok CSV.
+</Question>
+
+## Cvičenia
+
+### 1.1 · Rozšírený CSV riadok
+
+Uprav Bash workflow tak, aby do `dataset.csv` ukladal aj vlhkosť (`main.humidity`) a krajinu (`sys.country`). Čas merania ulož namiesto Unix timestampu v čitateľnom tvare.
+
+<p class="practises">Precvičíš: `jq` cesty, `@csv`, pipe, `tee -a`.</p>
+
+<Solution variant="hint">
+jq má zabudovaný filter `todate`, ktorý prevedie Unix timestamp na dátum vo formáte ISO 8601: `.dt | todate`. Vo vnútri poľa ho daj do zátvoriek.
+</Solution>
+
+<Solution>
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric \
+  | jq -r '[(.dt | todate), .name, .sys.country, .main.temp, .main.humidity] | @csv' \
+  | tee -a dataset.csv
+```
+
+Výsledok: `"2026-05-19T13:07:18Z","Košice","SK",15.8,67`.
+</Solution>

@@ -1,0 +1,189 @@
+---
+title: Processing Data and Writing CSV
+description: Picking values from a dictionary, Unix timestamps and the pendulum package, the ISO 8601 standard, and writing a CSV file — the process_data() and publish_data() functions.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Processing and CSV
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `process_data()` picks only the needed values from the dictionary and returns **one CSV line** (a string).
+- Times (`dt`, `sunrise`, `sunset`) are **Unix timestamps** — seconds since 1 January 1970 UTC.
+- **pendulum** converts times more comfortably than `datetime`: `pendulum.from_timestamp(ts).to_iso8601_string()`.
+- Write dates and times in **ISO 8601**: `2026-05-19T13:07:18Z` — unambiguous and with a time zone.
+- Open the file with `with open("dataset.csv", mode="a") as f:` and write the line with `print(entry, file=f)`.
+</KeyPoints>
+
+## The values we care about
+
+| Value | Key in the response |
+| --- | --- |
+| measurement time | `dt` |
+| city | `name` |
+| country | `sys.country` |
+| temperature | `main.temp` |
+| humidity | `main.humidity` |
+| pressure | `main.pressure` |
+| weather (Clear, Rain…) | `weather[0].main` |
+| visibility | `visibility` |
+| wind speed and direction | `wind.speed`, `wind.deg` |
+| sunrise and sunset | `sys.sunrise`, `sys.sunset` |
+
+Note: the slides list some keys in simplified form (`main.temperature`, `sunrise`, `city`). In the real response they are `main.temp`, `sys.sunrise`, and `name`.
+
+## The process_data() function
+
+We keep appending measurements to a CSV file — `process_data()` returns **one line**, the newest. The version from the slides:
+
+```python
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    return "{};{};{};{};{};{};{};{}".format(
+        data["dt"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["weather"][0]["main"],
+        data["visibility"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    )
+```
+
+The workflow now passes data step by step:
+
+```python
+measurement = scrape_data()
+csv_entry = process_data(measurement)
+publish_data(csv_entry)
+```
+
+## Time: Unix timestamps and pendulum
+
+`dt = 1779196038` is **Unix time** — the number of seconds since the start of the epoch, 1 January 1970 00:00 UTC. The standard library's `datetime` module could convert it, but it is not very comfortable to work with (especially time zones). We use **pendulum** — its `DateTime` type is backwards compatible with `datetime`.
+
+```bash
+(venv) $ pip install pendulum
+```
+
+```python
+>>> import pendulum
+>>> pendulum.from_timestamp(1779196038)
+DateTime(2026, 5, 19, 13, 7, 18, tzinfo=Timezone('UTC'))
+>>> pendulum.from_timestamp(1779196038).to_iso8601_string()
+'2026-05-19T13:07:18Z'
+```
+
+For comparison, the standard library: `datetime.fromtimestamp(1779196038, tz=timezone.utc).isoformat()` returns `'2026-05-19T13:07:18+00:00'`.
+
+### The ISO 8601 standard
+
+Every country writes dates differently:
+
+| Logic | Format | 19 May 2026 |
+| --- | --- | --- |
+| European | `DD.MM.YYYY` | `19.05.2026` |
+| American | `MM/DD/YYYY` | `05/19/2026` |
+| Japanese / **ISO 8601** | `YYYY-MM-DD` | `2026-05-19` |
+
+So in the CSV we use the international **ISO 8601** standard: from the largest unit to the smallest, with time and time zone — `2026-05-19T13:07:18Z` (`T` separates date and time, `Z` means UTC). Such a string also sorts correctly as plain text.
+
+## The publish_data() function
+
+The last task appends the line to `dataset.csv`:
+
+```python
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    with open("dataset.csv", mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+        # alternative: dataset.write(f"{entry}\n")
+```
+
+| Mode | Meaning |
+| --- | --- |
+| `"r"` | read |
+| `"w"` | write — **overwrites** the content |
+| `"a"` | append to the end — ideal for us |
+| `"r+"`, `"w+"` | read and write |
+
+- `print(..., file=dataset)` writes the line including a trailing `\n`. `write()` does not add a newline.
+- **`with`** closes the file itself, even if an error happens. Without `with` you must call `file.close()`.
+
+:::caution[Why closing matters]
+The operating system lets a process keep only a limited number of files open. A long-running workflow that never closes files eventually hits the limit and fails. Check the current limit with `ulimit -n` (often `1024`).
+:::
+
+## Test yourself
+
+<Question q="What is a Unix timestamp?">
+The number of seconds since 1 January 1970 00:00:00 UTC (the start of the epoch). For example `1779196038` is `2026-05-19T13:07:18Z`.
+</Question>
+
+<Question q="Why write dates in ISO 8601?">
+It is unambiguous (no mixing up day and month as with `05/06`), it carries the time zone, and it sorts correctly even as text.
+</Question>
+
+<Question q='What is the difference between `open(..., mode="w")` and `mode="a"`?'>
+`"w"` overwrites the file from the start, `"a"` appends to the end. When collecting measurements we want `"a"`, otherwise only the last measurement would remain.
+</Question>
+
+<Question q="Why open a file with `with`?">
+`with` closes the file automatically, even on an exception. Unclosed files pile up and the process hits the open-file limit (`ulimit -n`).
+</Question>
+
+<Question q='What does `print(entry, file=dataset)` write that `dataset.write(entry)` does not?'>
+A trailing newline `\n`. `write()` writes exactly the given string.
+</Question>
+
+## Exercises
+
+### 5.1 · CSV with a header and sun times
+
+Change `process_data()` to return the measurement time, sunrise, and sunset in ISO 8601, plus the city and temperature. On the first write (when the file does not exist yet), `publish_data()` should add the header `time;sunrise;sunset;city;temp`.
+
+<Solution variant="hint">
+Write a small helper for the conversion (DRY). Check whether the file exists with `os.path.exists("dataset.csv")` or `pathlib.Path("dataset.csv").exists()`.
+</Solution>
+
+<Solution>
+```python
+from pathlib import Path
+
+import pendulum
+
+DATASET = Path("dataset.csv")
+HEADER = "time;sunrise;sunset;city;temp"
+
+
+def iso(timestamp: int) -> str:
+    return pendulum.from_timestamp(timestamp).to_iso8601_string()
+
+
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    values = [
+        iso(data["dt"]),
+        iso(data["sys"]["sunrise"]),
+        iso(data["sys"]["sunset"]),
+        data["name"],
+        data["main"]["temp"],
+    ]
+    return ";".join(str(value) for value in values)
+
+
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    is_new = not DATASET.exists()
+    with DATASET.open(mode="a", encoding="utf-8") as dataset:
+        if is_new:
+            print(HEADER, file=dataset)
+        print(entry, file=dataset)
+```
+</Solution>

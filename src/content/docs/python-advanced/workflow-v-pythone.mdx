@@ -1,0 +1,210 @@
+---
+title: Prvý workflow v Pythone
+description: Modul workflow.py, tri spôsoby spustenia, úlohy ako funkcie, princíp DRY, main() a odovzdávanie dát medzi funkciami.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Workflow v Pythone
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Skript spustíš cez IDE (`F5`), `python3 workflow.py`, alebo ako program: shebang `#!/usr/bin/env python3` + `chmod +x` + `./workflow.py`.
+- Každá úloha workflowu = **jedna funkcia** (`scrape_data`, `process_data`, `publish_data`).
+- **DRY** — *Don't Repeat Yourself*: každá logika má mať v programe jedno miesto.
+- Definícia funkcie ju nespustí — treba ju **zavolať**. Spúšťací kód daj do `main()` a volaj ho cez `if __name__ == "__main__":`.
+- Dáta medzi úlohami odovzdávaš cez **`return`** a **parametre**; typy popíšeš **type hintmi** (`def f(data: dict) -> str:`).
+</KeyPoints>
+
+## Modul workflow.py
+
+Súbor so zdrojovým kódom Pythonu sa volá **modul**. Vytvor `workflow.py`:
+
+```python title="workflow.py"
+print(">> Scraping Data")
+print(">> Processing Data")
+print(">> Publishing Data")
+```
+
+## Tri spôsoby spustenia
+
+1. **Z vývojového prostredia** — vo VS Code tlačidlo ▶ alebo `F5`.
+2. **Interpreterom** s názvom modulu:
+
+   ```bash
+   python3 workflow.py
+   ```
+
+3. **Ako spustiteľný program.** Prvý riadok bude *shebang* — povie systému, akým interpreterom súbor spustiť:
+
+   ```python
+   #!/usr/bin/env python3
+   ```
+
+   Potom súboru pridáš príznak spustiteľnosti a spustíš ho priamo:
+
+   ```bash
+   chmod +x workflow.py
+   ./workflow.py
+   ```
+
+`/usr/bin/env python3` nájde `python3` podľa `PATH` — takže pri aktivovanom venv použije Python z venv.
+
+## Úlohy ako funkcie
+
+Workflow, ktorý len beží zhora nadol, nie je praktický. Rozdelíme ho na samostatné časti — **funkcie**.
+
+> **Funkcia** je pomenovaná postupnosť príkazov, pomocou ktorej rozšírime slovník jazyka o nový príkaz. Môže mať vstupné parametre a vracať výstupnú hodnotu.
+
+### Princíp DRY
+
+**DRY** — *Don't Repeat Yourself* („neopakuj sa“): každá znalosť alebo logika má mať v programe **jedno** hlavné miesto. Keď je rovnaká logika na viacerých miestach a niečo sa zmení, musíš ju opraviť všade — stačí zabudnúť na jedno miesto a máš bug.
+
+Výhody: menej chýb, jednoduchšie úpravy, prehľadnejší kód, jednoduchšie testovanie.
+
+:::note[Fun fact: WET]
+Existuje aj žartovný opak **WET** — *Write Everything Twice*. Hovorí, že duplicitu je v poriadku tolerovať, kým sa nezopakuje 2–3× a nie je jasné, aká abstrakcia je správna.
+:::
+
+### Funkcie s dokumentáciou
+
+Každá úloha bude samostatná funkcia. Prvý reťazec v tele funkcie je **docstring** — dokumentácia, ktorú zobrazí `help()` aj VS Code:
+
+```python title="workflow.py"
+def scrape_data():
+    """Scrapes the data from openweathermap.org."""
+    print(">> Scraping Data")
+
+
+def process_data():
+    """Processes the downloaded data."""
+    print(">> Processing Data")
+
+
+def publish_data():
+    """Data persistence."""
+    print(">> Publishing Data")
+```
+
+Keď modul spustíš teraz, **neudeje sa nič**: funkcie sú iba definované, žiadnu sme nezavolali. Treba ich zavolať po mene v správnom poradí:
+
+```python
+# scrape_data | process_data | publish_data
+scrape_data()
+process_data()
+publish_data()
+```
+
+### Pomenovanie (PEP 8)
+
+| Čo | Konvencia | Príklad |
+| --- | --- | --- |
+| premenné, funkcie, moduly | `snake_case` — malé písmená, slová oddelené `_` | `scrape_data`, `workflow.py` |
+| konštanty | `UPPER_CASE` | `API_URL` |
+| triedy | `PascalCase` | `WeatherReport` |
+
+## Bod spustenia: main()
+
+Odporúčanie: **všetko zatvor do funkcie** — aj samotnú postupnosť krokov workflowu.
+
+```python
+def main():
+    scrape_data()
+    process_data()
+    publish_data()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Python nemá funkciu `main()` so špeciálnym významom ako jazyky z rodiny C. Mechanizmus však dosiahneme podmienkou:
+
+- `__name__` je `"__main__"`, keď súbor **spúšťaš** (`python3 workflow.py`) → `main()` sa zavolá,
+- pri **importe** (`import workflow`) je `__name__` názov modulu → workflow sa nespustí, iba sa načítajú funkcie.
+
+## Odovzdávanie dát medzi funkciami
+
+V Bashi dáta tiekli cez pipe. V Pythone ich odovzdávame:
+
+- **`return`** — funkcia vráti výsledok volajúcemu. Bez `return` (alebo s `return` bez hodnoty) vráti `None`.
+- **parametre** — ďalšia funkcia dostane výsledok ako argument.
+- **type hinty** — dokumentujú, aké typy funkcia čaká a vracia. Python ich za behu nekontroluje, ale VS Code a linter áno.
+
+```python title="workflow.py"
+def scrape_data() -> dict:
+    print(">> Scraping Data")
+    return {"name": "Košice", "main": {"temp": 15.8}}  # zatiaľ falošné dáta
+
+
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    return f"{data['name']};{data['main']['temp']}"
+
+
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    print(entry)
+
+
+def main() -> None:
+    measurement = scrape_data()
+    csv_entry = process_data(measurement)
+    publish_data(csv_entry)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Skutočné dáta zo služby dostaneme v ďalšej kapitole: [HTTP, JSON a slovníky](/devops-notes/python-advanced/http-a-json/).
+
+## Otestuj sa
+
+<Question q="Aké tri kroky potrebuješ, aby išiel skript spustiť ako `./workflow.py`?">
+Shebang `#!/usr/bin/env python3` na prvom riadku, príznak spustiteľnosti `chmod +x workflow.py` a spustenie cez `./workflow.py`.
+</Question>
+
+<Question q="Prečo sa po spustení modulu s tromi definovanými funkciami nič nevypíše?">
+Funkcie sú iba definované — `def` ich nespustí. Treba ich zavolať: `scrape_data()` atď.
+</Question>
+
+<Question q="Čo hovorí princíp DRY?">
+*Don't Repeat Yourself* — každá logika má mať v programe jedno miesto (funkcia, trieda, modul, konštanta). Pri zmene ju opravuješ iba raz.
+</Question>
+
+<Question q='Načo je `if __name__ == "__main__":`?'>
+Kód pod podmienkou sa vykoná iba pri priamom spustení súboru, nie pri jeho importe z iného modulu.
+</Question>
+
+<Question q="Skontroluje Python za behu type hint `def f(data: dict) -> str`?">
+Nie. Type hinty sú dokumentácia pre ľudí a nástroje (VS Code, linter, mypy). Python za behu typ nekontroluje.
+</Question>
+
+## Cvičenia
+
+### 3.1 · Štvrtá úloha
+
+Pridaj do workflowu úlohu `report_data(entry: str) -> None`, ktorá vypíše `>> Reporting Data` a dĺžku CSV riadku. Zaraď ju za `publish_data` a over, že sa pri importe modulu (`python3 -c "import workflow"`) nič nespustí.
+
+<Solution>
+```python
+def report_data(entry: str) -> None:
+    """Prints a short report about the stored entry."""
+    print(">> Reporting Data")
+    print(f"Stored {len(entry)} characters")
+
+
+def main() -> None:
+    measurement = scrape_data()
+    csv_entry = process_data(measurement)
+    publish_data(csv_entry)
+    report_data(csv_entry)
+```
+
+`python3 -c "import workflow"` nevypíše nič, lebo pri importe `__name__` nie je `"__main__"`.
+</Solution>

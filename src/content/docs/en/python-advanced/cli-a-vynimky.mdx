@@ -1,0 +1,351 @@
+---
+title: CLI Options and Exceptions
+description: Command-line options with click, passing the API key safely, exceptions, logging, stack traces, sys.exit(), and why we need Airflow.
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · CLI and exceptions
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **click** turns a function into a CLI command: `@click.command`, `@click.argument`, `@click.option` — and you get `--help` for free.
+- **Do not pass the API key as an argument** — anyone sees it with `ps aux`. Pass it in an **environment variable**: `APPID=... ./workflow.py kosice`.
+- Catch an exception with `try` / `except SpecificException:` — and handle **every** caught exception. Never `except Exception: pass`.
+- Read a **stack trace** from the bottom: the last line is the error, above it is where it happened.
+- `sys.exit("message")` prints the message to `stderr` and exits with **exit code 1** (success is `0`). Instead of “magic numbers”, use `HTTPStatus.NOT_FOUND`.
+</KeyPoints>
+
+## Command-line options
+
+The workflow will later run in the background, but you often need a tool whose behaviour you change with options when you run it. The standard library has `argparse`; we use the more comfortable **click** package.
+
+```bash
+(venv) $ pip install click
+```
+
+| click term | Meaning | Example |
+| --- | --- | --- |
+| **command** | the command itself (a function) | `./workflow.py` |
+| **argument** | a required positional value | `kosice` |
+| **option** | a named, optional value | `--units metric` |
+| **flag** | an option without a value that switches something on or off | `--verbose` |
+
+```python
+import click
+
+
+@click.command(help="Download current weather conditions in CSV format.")
+@click.argument("query")
+@click.option("--appid", envvar="APPID", required=True, help="API key for openweathermap.org.")
+@click.option(
+    "--units",
+    type=click.Choice(["metric", "standard", "imperial"]),
+    default="metric",
+    show_default=True,
+    help="Units of measurement.",
+)
+def main(query: str, appid: str, units: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+`envvar="APPID"` means: if you omit `--appid`, click takes the value from the `APPID` environment variable. `click.Choice` rejects other units before the workflow even starts.
+
+### Running it
+
+```bash
+./workflow.py --help                          # help generated from the decorators
+./workflow.py kosice --appid <API_KEY>        # works, but the key is visible!
+APPID=<API_KEY> ./workflow.py kosice          # key in an environment variable
+```
+
+:::danger[Secrets do not belong in arguments]
+Every user on the system can see command arguments: `ps aux | grep python` shows the whole command including the key. An environment variable does not appear in the process list — “an environment variable is not a process”. (It is not perfectly secret — the process owner and `root` can read it — but it is much safer.)
+:::
+
+## A wrong query
+
+What if we ask for a city that does not exist? The workflow “runs fine”, but bad data ends up in the dataset — or it crashes only later in `process_data` with an unexpected `KeyError`. We want to report that something went wrong **as soon as** we find out.
+
+## Exceptions
+
+> An **exception** is an anomalous or exceptional condition requiring special processing. **Exception handling** is the process of responding to exceptions while a program runs.
+
+**Error vs exception:** when an error happens, it takes the whole application down with it. You can **prepare** for an exception — that is called defensive programming. C has no exceptions: dividing by zero or writing to a file without permission crashes the program. In Python you get `ZeroDivisionError` or `PermissionError` and can react to them.
+
+```python
+try:
+    with open("/var/log/dataset.csv", mode="a") as dataset:
+        print(entry, file=dataset)
+except FileNotFoundError:
+    print("The folder does not exist.")
+except PermissionError:
+    print("I am not allowed to write to the file.")
+```
+
+Writing to a file can fail because the folder does not exist, the file is not writable, the file exists and cannot be overwritten…
+
+:::caution[The worst case you can come across]
+```python
+except Exception as ex:
+    # this will never happen
+    pass
+```
+It catches absolutely everything and silently throws the error away. **Handle every caught exception** — at least log it.
+:::
+
+### Logging exceptions
+
+Exceptions are logged like any other message, with the `logging` module. `logging.exception()` inside `except` logs the message at `ERROR` level **with the full stack trace**:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+try:
+    publish_data(entry)
+except OSError:
+    logging.exception("Cannot write the dataset")
+```
+
+Levels from least to most severe: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+
+### Stack trace
+
+A *stack trace* is the list of function calls the program was in the middle of when the exception was raised.
+
+```python title="stack.py"
+def f1():
+    print(">> f1()")
+    10 / 0
+
+
+def f2():
+    print(">> f2()")
+    f1()
+
+
+def f3():
+    print(">> f3()")
+    f2()
+
+
+f3()
+```
+
+```text title="Output"
+Traceback (most recent call last):
+  File "stack.py", line 16, in <module>
+    f3()
+  File "stack.py", line 13, in f3
+    f2()
+  File "stack.py", line 8, in f2
+    f1()
+  File "stack.py", line 3, in f1
+    10 / 0
+ZeroDivisionError: division by zero
+```
+
+*Most recent call last* — the newest call is at the **bottom**. Read from the bottom up: the error is a `ZeroDivisionError` in `f1` on line 3, reached via `f3 → f2 → f1`.
+
+## Handling a bad response
+
+For a city that does not exist the API returns status code **404**, for a wrong key **401**. We solve it with a condition and exit the program via `sys.exit()`:
+
+| Call | Result |
+| --- | --- |
+| `sys.exit(0)` or the end of the program | success, exit code `0` |
+| `sys.exit(1)` | failure, exit code `1` (any non-zero number is a failure) |
+| `sys.exit("Error: …")` | prints the text to **stderr** and exits with code `1` |
+
+Check the exit code of the last command in Bash with `echo $?`. Airflow will later use it to tell whether a task succeeded.
+
+To avoid a “Bulgarian constant” (the magic number `404`) in the condition, we use named codes from `http.HTTPStatus`:
+
+```python
+import sys
+from http import HTTPStatus
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    sys.exit("Error: City not found.")
+if response.status_code == HTTPStatus.UNAUTHORIZED:
+    sys.exit("Error: Invalid API key.")
+if response.status_code != HTTPStatus.OK:
+    sys.exit(f"Error: Unexpected response {response.status_code}.")
+```
+
+## The complete workflow.py
+
+```python title="workflow.py"
+#!/usr/bin/env python3
+"""Weather workflow: scrape -> process -> publish."""
+
+import sys
+from http import HTTPStatus
+
+import click
+import httpx
+import pendulum
+
+URL = "https://api.openweathermap.org/data/2.5/weather"
+DATASET = "dataset.csv"
+
+
+def scrape_data(query: str, appid: str, units: str) -> dict:
+    """Download the current weather for `query` from openweathermap.org."""
+    print(">> Scraping Data")
+    params = {"q": query, "appid": appid, "units": units}
+    response = httpx.get(URL, params=params)
+
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        sys.exit("Error: City not found.")
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        sys.exit("Error: Invalid API key.")
+    if response.status_code != HTTPStatus.OK:
+        sys.exit(f"Error: Unexpected response {response.status_code}.")
+
+    return response.json()
+
+
+def process_data(data: dict) -> str:
+    """Pick the values we care about and return them as one CSV line."""
+    print(">> Processing Data")
+    measured_at = pendulum.from_timestamp(data["dt"]).to_iso8601_string()
+    values = [
+        measured_at,
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ";".join(str(value) for value in values)
+
+
+def publish_data(entry: str) -> None:
+    """Append the CSV line to the dataset file."""
+    print(">> Publishing Data")
+    with open(DATASET, mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+
+
+@click.command(help="Download current weather conditions in CSV format.")
+@click.argument("query")
+@click.option(
+    "--appid", envvar="APPID", required=True, help="API key for openweathermap.org."
+)
+@click.option(
+    "--units",
+    type=click.Choice(["metric", "standard", "imperial"]),
+    default="metric",
+    show_default=True,
+    help="Units of measurement.",
+)
+def main(query: str, appid: str, units: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+(venv) $ pip install httpx pendulum click
+(venv) $ chmod +x workflow.py
+(venv) $ APPID=<API_KEY> ./workflow.py kosice,sk
+>> Scraping Data
+>> Processing Data
+>> Publishing Data
+(venv) $ tail -1 dataset.csv
+2026-05-19T13:07:18Z;Košice;SK;15.8;67;1018;2.57;200
+```
+
+## Summary: why Airflow
+
+We have a workflow that downloads the weather and stores it in a CSV. But…
+
+- **who** will run it?
+- **where** will it run?
+- **when** — and what about regular runs?
+- **who** will log it, and **where** will the logs be?
+- if it crashes — **how will I know** something broke, and what?
+
+The answer to every question is **Apache Airflow** — it will run our workflow and watch over it. That is the topic of the next days.
+
+## Test yourself
+
+<Question q="What is the difference between an argument and an option in click?">
+An argument is a required positional value (`kosice`). An option is a named, usually optional value with a default (`--units metric`). A flag is an option without a value.
+</Question>
+
+<Question q="Why not pass the API key as `--appid KEY`?">
+Command arguments are visible in the process list (`ps aux`) to every user. An environment variable does not show up there.
+</Question>
+
+<Question q="Why is `except Exception: pass` a bad idea?">
+It catches every single exception and silently discards it — the program carries on in a broken state and nobody learns what happened. Every caught exception must be handled, at least logged.
+</Question>
+
+<Question q="How do you read a Python stack trace?">
+From the bottom. The last line is the exception type and message, above it is where it happened, and further up the chain of calls that led there (*most recent call last*).
+</Question>
+
+<Question q='What does `sys.exit("Error: City not found.")` do?'>
+It prints the message to standard error (stderr) and ends the program with exit code 1 — i.e. as failed.
+</Question>
+
+<Question q="Why `HTTPStatus.NOT_FOUND` instead of `404`?">
+A named constant says what the number means — the code is more readable and free of “magic numbers”. The value is the same: `HTTPStatus.NOT_FOUND == 404`.
+</Question>
+
+## Exercises
+
+### 6.1 · Network outage
+
+When the server is unreachable, `httpx.get()` raises `httpx.ConnectError` (a subclass of `httpx.RequestError`) and the workflow ends with a long stack trace. Handle it in `scrape_data()` so that the program prints a clear message and exits with code 1.
+
+<Solution>
+```python
+def scrape_data(query: str, appid: str, units: str) -> dict:
+    print(">> Scraping Data")
+    params = {"q": query, "appid": appid, "units": units}
+    try:
+        response = httpx.get(URL, params=params, timeout=10)
+    except httpx.RequestError as error:
+        sys.exit(f"Error: Cannot reach openweathermap.org ({error}).")
+    ...
+```
+
+`httpx.RequestError` catches both connection failures and timeouts. Include the exception text in the message so you know what happened.
+</Solution>
+
+### 6.2 · Optional output file
+
+Add an `--output` option defaulting to `dataset.csv` and pass it to `publish_data()`.
+
+<Solution>
+```python
+@click.option("--output", default="dataset.csv", show_default=True, help="CSV file to append to.")
+def main(query: str, appid: str, units: str, output: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry, output)
+
+
+def publish_data(entry: str, path: str) -> None:
+    print(">> Publishing Data")
+    with open(path, mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+```
+</Solution>

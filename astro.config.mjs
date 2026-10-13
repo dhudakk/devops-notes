@@ -60,6 +60,7 @@ export default defineConfig({
       components: {
         PageTitle: './src/components/PageTitle.astro',
       },
+      routeMiddleware: './src/routeData.ts',
       sidebar: [{ label: 'Domov', translations: { en: 'Home' }, link: '/' }, ...courseGroups],
       lastUpdated: false,
       expressiveCode: {

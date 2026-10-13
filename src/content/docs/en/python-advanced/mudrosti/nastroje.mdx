@@ -1,0 +1,67 @@
+---
+title: Command-Line Tools
+description: Linux and Bash tools and principles the instructor recommends — httpie, jq, tee, the Unix philosophy, and scheduling tasks.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## httpie instead of curl
+
+`http` (the **httpie** package) is a command-line HTTP client written in Python. Compared with `curl`:
+
+- you write query parameters separately with `==` instead of assembling the whole URL,
+- it formats and colours JSON responses automatically and shows the headers too.
+
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric
+```
+
+<p class="wisdom-day">Day 1</p>
+
+## Never process JSON with grep
+
+> “Forget about pulling it out with grep. The biggest nonsense you could do.”
+
+**jq** is the tool for JSON. You will meet JSON all the time — with HTTP, when chaining web services — because it is machine-readable and easy to send around.
+
+```bash
+jq .main.temp weather.json
+jq -r '[.dt, .name, .main.temp] | @csv' weather.json
+```
+
+<p class="wisdom-day">Day 1</p>
+
+## Unix: the best interface between processes is stdin/stdout
+
+One of the Unix design principles: small tools that read standard input and write standard output can be chained with `|`. Do not write intermediate results to files when you can pipe them.
+
+```bash
+scrape_data | process_data | publish_data
+```
+
+<p class="wisdom-day">Day 1</p>
+
+## tee instead of >>
+
+`tee -a file` appends output to a file **and** shows it on screen — you see what is being written. Remove duplicate lines with e.g. `sort -u` (or `sort | uniq`).
+
+<p class="wisdom-day">Day 1</p>
+
+## crontab is legacy
+
+New systems often do not even install `crontab` any more — **systemd timers** replace it (`systemctl list-timers`). And a CI/CD pipeline is scheduled task execution too, only the trigger is an event (a commit, a push), not time.
+
+<p class="wisdom-day">Day 1</p>
+
+## Other automation tools worth knowing
+
+| Tool | Purpose |
+| --- | --- |
+| **Argo CD** | GitOps deployments to Kubernetes |
+| **n8n** | visual workflows and automations |
+| **Node-RED** | IoT workflows — popular on a Raspberry Pi |
+| **Ansible** | remote server management and automation — comes later in the DevOps course |
+
+<p class="wisdom-day">Day 1</p>
