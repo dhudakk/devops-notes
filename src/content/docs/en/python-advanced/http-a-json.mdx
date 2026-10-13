@@ -1,0 +1,190 @@
+---
+title: HTTP, JSON, and Dictionaries
+description: The parts of a URL, the httpx and Requests modules, the response object, JSON as a dictionary, and building strings — the scrape_data() function.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · HTTP, JSON, and dicts
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- URL = **scheme** (`https`) + **domain** (`api.openweathermap.org`) + **path** (`/data/2.5/weather`) + **parameters** (`?q=kosice&units=metric`).
+- For HTTP we use **httpx** or **Requests** (same API); the standard library's `urllib` is clumsy.
+- `response = httpx.get(url, params={...})` → `.status_code`, `.headers`, `.text`, `.json()`.
+- `.json()` turns JSON into a **dictionary**: `data["main"]["temp"]` is the same as `jq .main.temp`.
+- Build strings with **f-strings** — `f"{url}?q={query}"`. Do not concatenate with `+`.
+</KeyPoints>
+
+## The parts of a URL
+
+```text
+https://api.openweathermap.org/data/2.5/weather?q=kosice&appid=<API_KEY>&units=metric
+```
+
+| Part | In our case |
+| --- | --- |
+| protocol / scheme | `https` |
+| domain / base URL | `api.openweathermap.org` |
+| path | `/data/2.5/weather` |
+| request (query) parameters | `q=kosice`, `appid=<API_KEY>`, `units=metric` |
+
+We fetch the data with the HTTP **GET** method. Try it from the command line with httpie — see [Workflows and ETL](/devops-notes/en/python-advanced/workflow-a-etl/#1-scrape-downloading-the-data).
+
+## The httpx and Requests modules
+
+The standard library's `urllib` would work, but it is clumsy. Third-party packages are used instead:
+
+| Package | Characteristics |
+| --- | --- |
+| **Requests** | slogan *“HTTP for humans”* — simple to use, one of the most downloaded packages of all |
+| **HTTPX** | builds on Requests and adds **asynchronous** communication — with many requests it runs them in parallel, so it is faster |
+
+Usage is practically identical. In the course we use httpx:
+
+```bash
+(venv) $ pip install httpx
+```
+
+## The request and the response object
+
+```python
+import httpx
+
+url = "https://api.openweathermap.org/data/2.5/weather?q=kosice&appid=<API_KEY>&units=metric"
+
+httpx.get(url)              # in ipython prints only <Response [200 OK]>
+response = httpx.get(url)   # store the response in a variable
+```
+
+In Python **everything is an object** — a variable holds not just a value but also **methods**. You reach an object's members with a dot: `object.attribute`. In ipython, type `response.` and press `Tab` to see everything the object can do.
+
+| Attribute / method | Returns |
+| --- | --- |
+| `.status_code` | the HTTP response code, e.g. `200` |
+| `.headers` | the response headers |
+| `.text` | the response body as a string |
+| `.json()` | the response body deserialised into a **dictionary** (`dict`) |
+| `.close()` | closes the connection |
+
+```python
+data = response.json()
+type(data)   # <class 'dict'>
+```
+
+## JSON as a dictionary
+
+An OpenWeatherMap response (shortened):
+
+```json
+{
+  "weather": [{ "main": "Clear", "description": "clear sky" }],
+  "main": { "temp": 15.8, "pressure": 1018, "humidity": 67 },
+  "visibility": 10000,
+  "wind": { "speed": 2.57, "deg": 200 },
+  "dt": 1779196038,
+  "sys": { "country": "SK", "sunrise": 1779160000, "sunset": 1779215000 },
+  "name": "Košice"
+}
+```
+
+A dictionary maps **key → value**. Nested objects are nested dictionaries, JSON arrays are lists:
+
+| Python | jq | Result |
+| --- | --- | --- |
+| `data["name"]` | `.name` | `"Košice"` |
+| `data["main"]["temp"]` | `.main.temp` | `15.8` |
+| `data["weather"][0]["main"]` | `.weather[0].main` | `"Clear"` |
+| `data.get("rain", 0)` | `.rain // 0` | `0` — the key is missing, the default is returned |
+
+Writing to a dictionary: `data["source"] = "openweathermap"`. A missing key accessed via `data["x"]` raises `KeyError` — more in the [Python Basics](/devops-notes/en/python-basics/slovniky-a-mnoziny/) course.
+
+## Building strings
+
+| Way | Example | Verdict |
+| --- | --- | --- |
+| the `+` operator | `url + "?q=" + query` | never — at most for two strings, and even then reflect on yourself ;) |
+| `.format()` | `"{}?q={}".format(url, query)` | works, but harder to read |
+| **f-string** | `f"{url}?q={query}"` | **THIS IS THE WAY** |
+
+## The scrape_data() function
+
+The version from the slides — the URL is built with an f-string:
+
+```python title="workflow.py"
+import httpx
+
+
+def scrape_data() -> dict:
+    print(">> Scraping Data")
+    appid = "<API_KEY>"
+    query = "kosice"
+    units = "metric"
+
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = f"appid={appid}&q={query}&units={units}"
+    response = httpx.get(f"{url}?{params}")
+    return response.json()
+```
+
+It is cleaner to pass the parameters as a dictionary — httpx encodes them into the URL itself (including `Košice` with its diacritics or the comma in `kosice,sk`):
+
+```python
+response = httpx.get(url, params={"q": query, "appid": appid, "units": units})
+```
+
+:::caution[An API key does not belong in the code]
+A key written in source code ends up in Git, visible to everyone. In [CLI options and exceptions](/devops-notes/en/python-advanced/cli-a-vynimky/) we read it from an environment variable.
+:::
+
+## Test yourself
+
+<Question q="What parts make up the URL `https://api.openweathermap.org/data/2.5/weather?q=kosice`?">
+The scheme `https`, the domain `api.openweathermap.org`, the path `/data/2.5/weather`, and the query parameter `q=kosice`.
+</Question>
+
+<Question q="What is the difference between Requests and HTTPX?">
+Usage is the same — HTTPX builds on Requests. HTTPX additionally supports asynchronous communication, so it can run several requests in parallel.
+</Question>
+
+<Question q="What do `response.json()` and `response.text` return?">
+`.json()` returns the body deserialised into a Python object (a dictionary for our API). `.text` returns the body as a plain string.
+</Question>
+
+<Question q='How do you write the jq path `.weather[0].main` in Python?'>
+`data["weather"][0]["main"]` — `weather` is a list, `[0]` is its first item (a dictionary), and from it the `main` key.
+</Question>
+
+<Question q="Why is `httpx.get(url, params={...})` better than building the query string by hand?">
+httpx encodes the parameters correctly (diacritics, commas, spaces, `&` inside values) and the code is easier to read.
+</Question>
+
+## Exercises
+
+### 4.1 · Weather for several cities
+
+Write a function `current_temp(city: str, appid: str) -> float` that returns the current temperature in °C. Call it in a loop for Košice, Bratislava, and Prague and print `City: temperature °C`.
+
+<Solution>
+```python
+import os
+
+import httpx
+
+URL = "https://api.openweathermap.org/data/2.5/weather"
+
+
+def current_temp(city: str, appid: str) -> float:
+    response = httpx.get(URL, params={"q": city, "appid": appid, "units": "metric"})
+    return response.json()["main"]["temp"]
+
+
+appid = os.environ["APPID"]
+for city in ["Kosice,sk", "Bratislava,sk", "Praha,cz"]:
+    print(f"{city}: {current_temp(city, appid)} °C")
+```
+</Solution>

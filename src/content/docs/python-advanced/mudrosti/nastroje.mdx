@@ -1,0 +1,67 @@
+---
+title: Nástroje príkazového riadku
+description: Nástroje a princípy z Linuxu a Bashu, ktoré lektor odporúča — httpie, jq, tee, Unix filozofia a plánovanie úloh.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## httpie namiesto curl
+
+`http` (balík **httpie**) je HTTP klient pre príkazový riadok napísaný v Pythone. Oproti `curl`:
+
+- query parametre píšeš samostatne cez `==`, nemusíš skladať celú URL,
+- JSON odpovede automaticky naformátuje a vyfarbí, ukáže aj hlavičky.
+
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric
+```
+
+<p class="wisdom-day">Deň 1</p>
+
+## JSON nikdy nespracúvaj grepom
+
+> „Zabudnite na to, že grepom si to vytiahnete. Najväčšia blbosť, ktorú by ste spravili.“
+
+Na JSON je **jq**. S JSON-om sa budeš stretávať stále — pri HTTP, pri reťazení webových služieb — lebo je strojovo čitateľný a ľahko sa prenáša.
+
+```bash
+jq .main.temp weather.json
+jq -r '[.dt, .name, .main.temp] | @csv' weather.json
+```
+
+<p class="wisdom-day">Deň 1</p>
+
+## Unix: najlepšie rozhranie medzi procesmi je stdin/stdout
+
+Jeden z dizajnových princípov Unixu: malé nástroje, ktoré čítajú zo štandardného vstupu a píšu na štandardný výstup, sa dajú reťaziť cez `|`. Nepíš medzivýsledky do súborov, keď ich môžeš poslať rúrou.
+
+```bash
+scrape_data | process_data | publish_data
+```
+
+<p class="wisdom-day">Deň 1</p>
+
+## tee namiesto >>
+
+`tee -a súbor` pripojí výstup do súboru **a zároveň** ho ukáže na obrazovke — vidíš, čo sa zapisuje. Duplicitné riadky odstrániš napr. cez `sort -u` (alebo `sort | uniq`).
+
+<p class="wisdom-day">Deň 1</p>
+
+## crontab je legacy
+
+`crontab` sa v nových systémoch už často ani neinštaluje — nahrádzajú ho **systemd timery** (`systemctl list-timers`). A aj CI/CD pipeline je plánované spúšťanie úloh, len spúšťačom nie je čas, ale udalosť (commit, push).
+
+<p class="wisdom-day">Deň 1</p>
+
+## Ďalšie nástroje na automatizáciu, o ktorých sa oplatí vedieť
+
+| Nástroj | Na čo |
+| --- | --- |
+| **Argo CD** | GitOps nasadzovanie do Kubernetes |
+| **n8n** | vizuálne workflowy a automatizácie |
+| **Node-RED** | workflowy pre IoT — obľúbený na Raspberry Pi |
+| **Ansible** | vzdialená správa a automatizácia serverov — príde neskôr v DevOps kurze |
+
+<p class="wisdom-day">Deň 1</p>

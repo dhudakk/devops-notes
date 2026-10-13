@@ -1,0 +1,213 @@
+---
+title: Workflows and ETL
+description: What DevOps engineers do, what a workflow and ETL are, and what our weather workflow looks like — first as a single Bash pipeline.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Workflows and ETL
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **workflow** is a sequence of **tasks**. Task order matters, and a workflow **must not contain a loop**.
+- A workflow runs **on a schedule** (every Saturday at 03:00) or **on an event** (a Git push → a Docker image build).
+- **ETL** = **E**xtract (get the data) → **T**ransform (reshape it) → **L**oad (store it).
+- Our workflow: `scrape_data` —JSON→ `process_data` —CSV→ `publish_data`. Weather data comes from openweathermap.org.
+- In Bash it is a single pipeline: `http … | jq … | tee -a dataset.csv`.
+</KeyPoints>
+
+## What DevOps engineers do
+
+| Area | Example tools |
+| --- | --- |
+| **Task automation** | Bash scripts, GitLab CI/CD, jobs in Docker runners |
+| **Scheduled tasks** | `crontab`, systemd timers |
+| **A sequence of tasks = a workflow** | CI/CD pipelines, data pipelines, Apache Airflow |
+
+A CI/CD pipeline is also scheduled task execution — it is just triggered by an **event**, such as a commit or a push to Git, rather than by time.
+
+## What is a workflow
+
+A workflow is a **sequence of tasks** to carry out in order to reach a result.
+
+1. **Task order matters.** Like making scrambled eggs: switch on the hob, crack the eggs, then stir. Shuffle the steps and you get something that resembles scrambled eggs only by its ingredients.
+2. **A workflow must not contain a loop.** Tasks flow clearly left to right (or top to bottom) and never go back.
+
+:::caution[Why no loops]
+A workflow with a loop can get stuck (*deadlock*, “it froze”). If the workflow runs every 10 minutes and one run never finishes, the next one starts, then a third, a fourth… until RAM and other system resources run out and everything crashes.
+
+Repeating a fixed number of steps (e.g. process 10 items) is fine — going back is what is forbidden. That is why an Airflow workflow is called a **DAG** — a *directed acyclic graph*.
+:::
+
+### When a workflow runs
+
+| Trigger | Example |
+| --- | --- |
+| **Schedule** | a backup every Saturday at 03:00, collecting metrics every 10 minutes |
+| **Event** | a new app version in Git → a Docker image build starts |
+
+### What workflows are used for
+
+- big-data processing (*data processing pipelines*) — very popular today,
+- metrics collection: every 10 minutes fetch metrics from HTTP endpoints and visualise them (e.g. Prometheus),
+- orchestrating automated testing, CI/CD pipelines,
+- even a cooking recipe is a workflow.
+
+## ETL
+
+**ETL** is the most common workflow shape — it consists of three kinds of tasks:
+
+| Letter | Task | What it does |
+| --- | --- | --- |
+| **E** | Extract | retrieves (“steals”) and verifies data from one or more sources |
+| **T** | Transform | reshapes the data into the form and format you need (e.g. extract values from HTML, convert units) |
+| **L** | Load | stores the result — in a database, a CSV file, S3, an e-mail… |
+
+A traditional workflow is usually split into more steps, for example:
+
+```text
+download_data → send_data_to_processing → monitor_processing → generate_report → send_email
+```
+
+The beauty of workflows is that every “box” can be split further and new steps are easy to add.
+
+## Our workflow: the weather
+
+During the course we build a simple ETL over weather data:
+
+1. **Scrape Data** — download the current weather (e.g. for Košice) from [openweathermap.org](https://openweathermap.org/current),
+2. **Process Data** — pick only the values we care about and turn them into a CSV line,
+3. **Publish Data** — store the line in a file (later a report, an upload…).
+
+```text
+[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
+```
+
+:::note[Why a different service may come later]
+Airflow can **backfill** missed runs: if the power goes out for an hour and the workflow runs every 10 minutes, Airflow notices 6 missing measurements and runs them afterwards. The free openweathermap tier only returns the **current** weather, not the weather at a given past time — so the instructor may switch to another service later.
+:::
+
+## The same workflow in Bash
+
+One of the Unix design principles: **the best interface between processes is standard input and output**. Each step writes its result to `stdout`, and the `|` (pipe) operator feeds it to the next step's `stdin`:
+
+```bash
+scrape_data | process_data | publish_data
+```
+
+### 1. Scrape: downloading the data
+
+OpenWeatherMap has a REST API — it talks HTTP. You need an API key (`appid`) from an openweathermap.org account.
+
+With **curl** you build the whole URL yourself (and quote it, because it contains `&`):
+
+```bash
+curl "https://api.openweathermap.org/data/2.5/weather?q=kosice,sk&appid=$APPID&units=metric"
+```
+
+With **httpie** (the `http` command, written in Python) you write the query parameters separately using `==`. It pretty-prints the JSON and the headers for you:
+
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk \
+    appid==$APPID \
+    units==metric
+```
+
+- `q` — the city; `kosice,sk` pins the country (there are other places called Košice).
+- `units` — `standard` (default, **Kelvin**), `metric` (°C), `imperial` (°F). Without `units` you get a temperature such as `288.95` — that is Kelvin, not °C.
+- `dt` in the response is a **Unix timestamp** — seconds since 1 January 1970.
+
+### 2. Process: picking values with jq
+
+The response is **JSON**. You do **not use grep** on JSON — that is what `jq` (*JSON query*) is for:
+
+| Expression | Returns |
+| --- | --- |
+| `jq .` | the whole document, formatted (`.` is the root, like `/` in a file system) |
+| `jq .dt` | the value of the `dt` key |
+| `jq .main.temp` | a nested value — the temperature from the `main` object |
+| `jq '.dt, .name'` | several values, each on its own line |
+| `jq '[.dt, .name, .main.temp] \| @csv'` | an array of values turned into a CSV line |
+| `jq -r …` (`--raw-output`) | output without JSON quotes around strings |
+
+```bash
+$ jq '[.dt, .name, .main.temp] | @csv' weather.json
+"1779196038,\"Košice\",15.8"          # without -r: the CSV line wrapped as a JSON string
+$ jq -r '[.dt, .name, .main.temp] | @csv' weather.json
+1779196038,"Košice",15.8               # with -r: a clean CSV line
+```
+
+### 3. Publish: appending to a file
+
+`tee -a` (`--append`) appends the line to the end of a file **and** prints it on screen. Every run adds a new line.
+
+### The whole workflow in Bash
+
+```bash title="Terminal"
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric \
+  | jq -r '[.dt, .name, .main.temp] | @csv' \
+  | tee -a dataset.csv
+```
+
+Keep the API key in an environment variable (`export APPID=...`), not hard-coded in the command. Duplicate lines could be removed with e.g. `sort -u`, but we do not care about that now.
+
+:::tip[`tee --append` on a Mac]
+GNU `tee` on Ubuntu accepts both `--append` and `-a`. On macOS only `-a` works.
+:::
+
+In Python, each of these three steps becomes a **function** — see [First workflow in Python](/devops-notes/en/python-advanced/workflow-v-pythone/).
+
+## Test yourself
+
+<Question q="Which two rules must a workflow follow?">
+Task order matters, and the workflow must not contain a loop (it must never go back).
+</Question>
+
+<Question q="What can happen if a workflow that runs every 10 minutes contains a loop and gets stuck?">
+Runs start to overlap — the previous one has not finished and the next one is already starting. They pile up until system resources (RAM) run out and the system crashes.
+</Question>
+
+<Question q="What do the letters ETL stand for?">
+Extract — getting data from a source, Transform — reshaping it as needed, Load — storing the result (database, file, S3, e-mail…).
+</Question>
+
+<Question q="What are the two ways a workflow can be started?">
+On a schedule (e.g. every hour) or on an event (e.g. a push to Git).
+</Question>
+
+<Question q="Why does openweathermap return a temperature of `288.95`, and how do you get °C?">
+The default units (`standard`) are Kelvin. The `units=metric` parameter returns °C (`imperial` returns °F).
+</Question>
+
+<Question q="What is the `-r` switch for in `jq -r '[.dt, .name] | @csv'`?">
+Without it jq prints the CSV line as a JSON string — in quotes, with the inner quotes escaped. `-r` (`--raw-output`) prints raw text, i.e. a clean CSV line.
+</Question>
+
+## Exercises
+
+### 1.1 · A richer CSV line
+
+Change the Bash workflow so that `dataset.csv` also stores humidity (`main.humidity`) and the country (`sys.country`). Store the measurement time in a readable form instead of a Unix timestamp.
+
+<p class="practises">You practise: jq paths, `@csv`, pipes, `tee -a`.</p>
+
+<Solution variant="hint">
+jq has a built-in `todate` filter that turns a Unix timestamp into an ISO 8601 date: `.dt | todate`. Wrap it in parentheses inside the array.
+</Solution>
+
+<Solution>
+```bash
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric \
+  | jq -r '[(.dt | todate), .name, .sys.country, .main.temp, .main.humidity] | @csv' \
+  | tee -a dataset.csv
+```
+
+Result: `"2026-05-19T13:07:18Z","Košice","SK",15.8,67`.
+</Solution>

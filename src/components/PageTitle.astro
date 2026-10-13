@@ -2,7 +2,7 @@
 import { chapterCount, courseOf, getChapters, slugOf, t, toLang } from '../lib/notes';
 
 const route = Astro.locals.starlightRoute;
-const { title, description, kind } = route.entry.data;
+const { title, description, kind, day } = route.entry.data;
 const lang = toLang(route.lang);
 const text = t(lang);
 const slug = slugOf(route.id);
@@ -15,10 +15,11 @@ if (kind === 'home') {
   const chapters = await getChapters(course.id, lang);
   const number = chapters.find((chapter) => chapter.slug === slug)?.number;
   const detail = {
-    chapter: number && `${text.chapter} ${number} ${text.of} ${chapters.length}`,
+    chapter: number && `${text.chapter} ${number} ${text.of} ${chapters.length}${day ? ` · ${text.day} ${day}` : ''}`,
     overview: `${text.overview} · ${chapterCount(chapters.length, lang)}`,
     cheatsheet: text.cheatsheet,
     sources: text.sources,
+    wisdom: text.wisdoms,
     home: undefined,
   }[kind ?? 'chapter'];
   eyebrow = [course.label[lang], detail].filter(Boolean).join(' · ');

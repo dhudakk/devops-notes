@@ -1,0 +1,210 @@
+---
+title: First Workflow in Python
+description: The workflow.py module, three ways to run it, tasks as functions, the DRY principle, main(), and passing data between functions.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Workflow in Python
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Run a script from the IDE (`F5`), with `python3 workflow.py`, or as a program: shebang `#!/usr/bin/env python3` + `chmod +x` + `./workflow.py`.
+- Each workflow task = **one function** (`scrape_data`, `process_data`, `publish_data`).
+- **DRY** — *Don't Repeat Yourself*: every piece of logic should have one place in the program.
+- Defining a function does not run it — you have to **call** it. Put the start-up code in `main()` and call it via `if __name__ == "__main__":`.
+- Pass data between tasks with **`return`** and **parameters**; describe types with **type hints** (`def f(data: dict) -> str:`).
+</KeyPoints>
+
+## The workflow.py module
+
+A Python source file is called a **module**. Create `workflow.py`:
+
+```python title="workflow.py"
+print(">> Scraping Data")
+print(">> Processing Data")
+print(">> Publishing Data")
+```
+
+## Three ways to run it
+
+1. **From the IDE** — the ▶ button or `F5` in VS Code.
+2. **With the interpreter** and the module name:
+
+   ```bash
+   python3 workflow.py
+   ```
+
+3. **As an executable program.** The first line is a *shebang* — it tells the system which interpreter runs the file:
+
+   ```python
+   #!/usr/bin/env python3
+   ```
+
+   Then mark the file executable and run it directly:
+
+   ```bash
+   chmod +x workflow.py
+   ./workflow.py
+   ```
+
+`/usr/bin/env python3` finds `python3` on the `PATH` — so with an active venv it uses the venv's Python.
+
+## Tasks as functions
+
+A workflow that just runs top to bottom is not practical. We split it into separate parts — **functions**.
+
+> A **function** is a named sequence of statements that extends the language's vocabulary with a new command. It can take input parameters and return an output value.
+
+### The DRY principle
+
+**DRY** — *Don't Repeat Yourself*: every piece of knowledge or logic should have **one** authoritative place in the program. When the same logic lives in several places and something changes, you must fix it everywhere — miss one place and you have a bug.
+
+Benefits: fewer bugs, easier changes, clearer code, easier testing.
+
+:::note[Fun fact: WET]
+There is also a tongue-in-cheek opposite, **WET** — *Write Everything Twice*. It says duplication is fine until it repeats 2–3 times and the right abstraction becomes clear.
+:::
+
+### Functions with documentation
+
+Each task becomes its own function. The first string in a function body is its **docstring** — documentation shown by `help()` and by VS Code:
+
+```python title="workflow.py"
+def scrape_data():
+    """Scrapes the data from openweathermap.org."""
+    print(">> Scraping Data")
+
+
+def process_data():
+    """Processes the downloaded data."""
+    print(">> Processing Data")
+
+
+def publish_data():
+    """Data persistence."""
+    print(">> Publishing Data")
+```
+
+If you run the module now, **nothing happens**: the functions are only defined, none of them is called. Call them by name, in the right order:
+
+```python
+# scrape_data | process_data | publish_data
+scrape_data()
+process_data()
+publish_data()
+```
+
+### Naming (PEP 8)
+
+| What | Convention | Example |
+| --- | --- | --- |
+| variables, functions, modules | `snake_case` — lower case, words separated by `_` | `scrape_data`, `workflow.py` |
+| constants | `UPPER_CASE` | `API_URL` |
+| classes | `PascalCase` | `WeatherReport` |
+
+## The entry point: main()
+
+Recommendation: **put everything in a function** — including the sequence of workflow steps itself.
+
+```python
+def main():
+    scrape_data()
+    process_data()
+    publish_data()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Python has no `main()` function with a special meaning, as C-family languages do. We get the same effect with a condition:
+
+- `__name__` is `"__main__"` when you **run** the file (`python3 workflow.py`) → `main()` is called,
+- on **import** (`import workflow`), `__name__` is the module name → the workflow does not run, only the functions are loaded.
+
+## Passing data between functions
+
+In Bash, data flowed through a pipe. In Python we pass it with:
+
+- **`return`** — the function hands its result back to the caller. Without `return` (or with a bare `return`) it returns `None`.
+- **parameters** — the next function receives the result as an argument.
+- **type hints** — they document which types a function expects and returns. Python does not check them at runtime, but VS Code and linters do.
+
+```python title="workflow.py"
+def scrape_data() -> dict:
+    print(">> Scraping Data")
+    return {"name": "Košice", "main": {"temp": 15.8}}  # fake data for now
+
+
+def process_data(data: dict) -> str:
+    print(">> Processing Data")
+    return f"{data['name']};{data['main']['temp']}"
+
+
+def publish_data(entry: str) -> None:
+    print(">> Publishing Data")
+    print(entry)
+
+
+def main() -> None:
+    measurement = scrape_data()
+    csv_entry = process_data(measurement)
+    publish_data(csv_entry)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+We get real data from the service in the next chapter: [HTTP, JSON, and dictionaries](/devops-notes/en/python-advanced/http-a-json/).
+
+## Test yourself
+
+<Question q="Which three steps do you need to run a script as `./workflow.py`?">
+A `#!/usr/bin/env python3` shebang on the first line, the executable flag via `chmod +x workflow.py`, and running it as `./workflow.py`.
+</Question>
+
+<Question q="Why does running a module with three defined functions print nothing?">
+The functions are only defined — `def` does not run them. You have to call them: `scrape_data()` and so on.
+</Question>
+
+<Question q="What does the DRY principle say?">
+*Don't Repeat Yourself* — every piece of logic should have one place in the program (a function, class, module, or constant). When it changes, you fix it once.
+</Question>
+
+<Question q='What is `if __name__ == "__main__":` for?'>
+The code under the condition runs only when the file is executed directly, not when another module imports it.
+</Question>
+
+<Question q="Does Python check the type hint `def f(data: dict) -> str` at runtime?">
+No. Type hints are documentation for people and tools (VS Code, linters, mypy). Python does not check types at runtime.
+</Question>
+
+## Exercises
+
+### 3.1 · A fourth task
+
+Add a task `report_data(entry: str) -> None` that prints `>> Reporting Data` and the length of the CSV line. Run it after `publish_data` and check that importing the module (`python3 -c "import workflow"`) runs nothing.
+
+<Solution>
+```python
+def report_data(entry: str) -> None:
+    """Prints a short report about the stored entry."""
+    print(">> Reporting Data")
+    print(f"Stored {len(entry)} characters")
+
+
+def main() -> None:
+    measurement = scrape_data()
+    csv_entry = process_data(measurement)
+    publish_data(csv_entry)
+    report_data(csv_entry)
+```
+
+`python3 -c "import workflow"` prints nothing, because on import `__name__` is not `"__main__"`.
+</Solution>

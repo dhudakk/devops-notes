@@ -1,0 +1,160 @@
+---
+title: Cheat Sheet
+description: Commands and code from the Python Advanced course on one page. Extended after every day.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Virtual environment and pip
+
+<div class="sheet-grid">
+
+```bash title="venv"
+python3 -m venv venv       # create
+source venv/bin/activate   # activate → (venv) $
+deactivate                 # switch off
+```
+
+```bash title="pip"
+pip install httpx ipython ruff
+pip list
+pip freeze > requirements.txt
+pip install -r requirements.txt
+```
+
+</div>
+
+## Running and tools
+
+<div class="sheet-grid">
+
+```bash title="Running a script"
+python3 workflow.py
+# or: line 1 #!/usr/bin/env python3
+chmod +x workflow.py
+./workflow.py
+echo $?            # exit code (0 = OK)
+```
+
+```bash title="ruff"
+ruff check workflow.py    # linter
+ruff format workflow.py   # formatter
+```
+
+</div>
+
+## Bash workflow: httpie + jq
+
+<div class="sheet-grid">
+
+```bash title="HTTP from the terminal"
+http https://api.openweathermap.org/data/2.5/weather \
+    q==kosice,sk appid==$APPID units==metric
+
+curl "https://api.openweathermap.org/data/2.5/weather?q=kosice,sk&appid=$APPID&units=metric"
+```
+
+```bash title="jq"
+jq .                    # whole JSON, pretty
+jq .main.temp           # nested key
+jq '.dt, .name'         # several values
+jq -r '[.dt, .name] | @csv'
+jq -r '.dt | todate'    # timestamp → ISO
+... | tee -a dataset.csv  # append + print
+```
+
+</div>
+
+## Python
+
+<div class="sheet-grid">
+
+```python title="Functions and main"
+def add(a: int, b: int) -> int:
+    """Docstring: what the function does."""
+    return a + b
+
+total = add(10, 20)
+
+def main() -> None:
+    ...
+
+if __name__ == "__main__":
+    main()
+```
+
+```python title="HTTP and JSON"
+import httpx
+
+response = httpx.get(url, params={"q": "kosice"})
+response.status_code   # 200
+response.headers
+response.text          # str
+data = response.json() # dict
+data["main"]["temp"]
+data["weather"][0]["main"]
+data.get("rain", 0)
+```
+
+```python title="Time"
+import pendulum
+
+dt = pendulum.from_timestamp(1779196038)
+dt.to_iso8601_string()  # '2026-05-19T13:07:18Z'
+```
+
+```python title="Files"
+with open("dataset.csv", mode="a", encoding="utf-8") as f:
+    print(entry, file=f)     # adds \n too
+    # f.write(f"{entry}\n")
+# modes: r, w (overwrite), a (append), r+, w+
+# ulimit -n → open-file limit
+```
+
+```python title="click"
+import click
+
+@click.command(help="...")
+@click.argument("query")
+@click.option("--appid", envvar="APPID", required=True)
+@click.option("--units", default="metric",
+              type=click.Choice(["metric", "standard", "imperial"]))
+def main(query, appid, units): ...
+```
+
+```python title="Exceptions and exit"
+import logging, sys
+from http import HTTPStatus
+
+try:
+    ...
+except PermissionError:
+    logging.exception("Cannot write")
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    sys.exit("Error: City not found.")  # stderr, code 1
+```
+
+</div>
+
+## Handy bits
+
+| What | How |
+| --- | --- |
+| type of a variable | `type(var)` |
+| length of a string / list | `len(var)` |
+| building strings | f-string: `f"{url}?q={query}"` |
+| key neither in code nor in arguments | `APPID=... ./workflow.py kosice` |
+
+## VS Code
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+/` | comment / uncomment lines |
+| `Ctrl+Space` | IntelliSense after a dot |
+| `Alt+Enter` | quick fix for a problem |
+| `F5` | run the current file |
+| `Shift+Alt+F` | format the code |
+| palette → *Python: Select Interpreter* | pick the venv's Python |
+| palette → *Python: Restart Language Server* | when VS Code “does not see” an installed package |

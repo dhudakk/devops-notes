@@ -166,6 +166,16 @@ body {
   font-size: var(--sl-text-sm);
 }
 
+/* Day tag under each of Mirek's wisdoms. */
+.sl-markdown-content .wisdom-day {
+  margin-top: 0.5rem;
+  color: var(--sl-color-gray-3);
+  font-size: var(--sl-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* ---------- Cheat sheet: two columns of snippets on wide screens ---------- */
 .sheet-grid {
   display: grid;

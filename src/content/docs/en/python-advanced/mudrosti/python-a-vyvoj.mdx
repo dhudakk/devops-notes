@@ -1,0 +1,81 @@
+---
+title: Python and Development
+description: The instructor's opinions and recommendations on writing Python — tools, style, and bad habits to avoid.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## PyCharm is the best IDE…
+
+> “PyCharm is the best environment you can use, which is why we will not use it.”
+
+The course uses **VS Code** throughout — because we work on a remote server over SSH and everyone gets the same setup.
+
+<p class="wisdom-day">Day 1</p>
+
+## Ruff pushed out Black
+
+Until recently **Black** was the most popular formatter; **Ruff** has taken the lead — it is a formatter **and** a linter in one, and extremely fast.
+
+<p class="wisdom-day">Day 1</p>
+
+## ipython — a “much sexier” interpreter
+
+Instead of the plain `python` REPL, use **ipython**: colours, history, and above all `object.` + `Tab` lists every attribute and method. The fastest way to explore an unfamiliar object (such as an HTTP response).
+
+<p class="wisdom-day">Day 1</p>
+
+## f-strings: THIS IS THE WAY
+
+Do not join strings with `+` — “at most if there are two strings, and even then, reflect on yourself”. Use an f-string: `f"{url}?q={query}"`.
+
+<p class="wisdom-day">Day 1</p>
+
+## “This will never happen”
+
+The worst code you can come across:
+
+```python
+except Exception as ex:
+    # this will never happen
+    pass
+```
+
+Handle every caught exception — at least log it with `logging.exception()`.
+
+<p class="wisdom-day">Day 1</p>
+
+## No Bulgarian constants
+
+Unexplained numbers (`if status == 404`) are “Bulgarian constants”. Name them: `HTTPStatus.NOT_FOUND`, your own constants in `UPPER_CASE`.
+
+<p class="wisdom-day">Day 1</p>
+
+## Put everything in a function
+
+Even the workflow's sequence of steps belongs in `main()`, started via `if __name__ == "__main__":`. And DRY — repeated logic belongs in a function. (But mind WET too: wait with the abstraction until the code repeats 2–3 times.)
+
+<p class="wisdom-day">Day 1</p>
+
+## Secrets in environment variables
+
+Anyone can see an API key passed as an argument with `ps aux`. An environment variable does not show up in the process list — “an environment variable is not a process”.
+
+```bash
+APPID=<API_KEY> ./workflow.py kosice
+```
+
+<p class="wisdom-day">Day 1</p>
+
+## pendulum instead of datetime, dates in ISO 8601
+
+`datetime` is not comfortable to work with, especially time zones — **pendulum** is backwards compatible and nicer. And write dates in ISO 8601 (`2026-05-19T13:07:18Z`), not the European way or with the “American logic” of `MM/DD/YYYY`.
+
+<p class="wisdom-day">Day 1</p>
+
+## Close your files
+
+A process has a limit on open files (`ulimit -n`). A workflow that never closes them will eventually crash — hence `with open(...)`.
+
+<p class="wisdom-day">Day 1</p>

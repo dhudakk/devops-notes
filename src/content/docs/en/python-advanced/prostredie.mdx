@@ -1,0 +1,168 @@
+---
+title: Setting Up the Environment
+description: An Ubuntu machine over SSH, VS Code, a virtual environment (venv), pip, and the ipython and ruff tools.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Environment setup
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- We work on an **Ubuntu server** (one per participant) over **SSH** from **VS Code** — everyone has the same environment.
+- Set up an **SSH key** instead of a password: `ssh-keygen` + `ssh-copy-id ubuntu@IP`.
+- Never install packages into the system Python — use a **virtual environment**: `python3 -m venv venv` → `source venv/bin/activate`.
+- `pip install package` installs from **PyPI**; `pip freeze > requirements.txt` records exact versions.
+- **ruff** is a formatter and a linter (it replaced Black); **ipython** is a friendlier interactive interpreter.
+</KeyPoints>
+
+## The lab environment
+
+Every participant gets their own virtual server (**Ubuntu** on AWS EC2). The benefit: everyone has the same environment, so when something does not work, it fails the same way for everyone.
+
+```bash
+ssh ubuntu@<IP-of-your-machine>
+```
+
+- The user is `ubuntu`; the instructor provides the IP address and password (the machine list is on the shared “wall”).
+- On a **work laptop**, corporate security software blocks SSH to these machines — even a separate “dev client” does not help. Use a **home computer**. This applies even more to Docker and Kubernetes.
+- **Apache Airflow cannot be installed natively on Windows** (it needs a POSIX system) — another reason to work on a Linux server.
+
+## VS Code over SSH
+
+VS Code connects to the server through the **Remote - SSH** extension: you edit files in the editor, but everything runs on the server.
+
+After you create your first `.py` file, VS Code offers the **Python** extension — install it. **EditorConfig for VS Code** is also recommended. Real Python has a good overview of other useful extensions.
+
+### An SSH key instead of a password
+
+With password login, VS Code asks for the password on every connection (sometimes more than once). With a key you connect without one:
+
+```bash title="On your computer"
+ssh-keygen -t ed25519            # creates ~/.ssh/id_ed25519 and id_ed25519.pub
+ssh-copy-id ubuntu@<IP>          # uploads the public key (you type the password once)
+ssh ubuntu@<IP>                  # from now on, no password
+```
+
+To let VS Code find the server by name, add an entry to `~/.ssh/config`:
+
+```text title="~/.ssh/config"
+Host airflow-lab
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+### Windows
+
+- According to the instructor, Microsoft's SSH client (built into Windows) **does not cooperate** with VS Code. Use `ssh` from **Git Bash** (Git for Windows).
+- The easiest way to get it is the **Cmder** terminal (the *full* version includes Git for Windows; just unzip it). If you have Git for Windows installed, you can point VS Code at its `ssh.exe` with the `remote.SSH.path` setting.
+- On a home PC the **Chocolatey** package manager is worth it: `choco install cmder`, `choco install vscode`, `choco upgrade all`. More in [Mirek's wisdoms](/devops-notes/en/python-advanced/mudrosti/terminal-a-windows/).
+
+## Python on Ubuntu
+
+On Ubuntu the interpreter is called `python3`. The `pip` package manager is not part of the default installation:
+
+```bash
+sudo apt install python3-pip python3-venv
+```
+
+If you try `pip install httpx` directly, it fails — pip wants to install the package **into the system**. That is a bad idea and impossible without `root` (newer Ubuntu reports `externally-managed-environment`). The solution is a virtual environment.
+
+## Virtual environment (venv)
+
+> You have an older project on Django 3.2 and a new one that needs Django 5.0. If you installed everything globally into one Python, they would conflict.
+
+A **virtual environment** is a separate space (a “sandbox”) for one project with its own packages:
+
+1. **Project isolation** — each project has its own dependencies.
+2. **Simple package management** — `requirements.txt` reproduces the environment exactly.
+3. **Portability** — a colleague can rebuild the environment just like yours.
+4. **A clean system** — you do not touch the system Python.
+
+```bash
+python3 -m venv venv              # creates the environment in venv/
+source venv/bin/activate          # activates it — the prompt changes to (venv) $
+pip install httpx ipython ruff    # packages go into venv/ only
+pip list                          # what is installed
+pip freeze > requirements.txt     # records exact versions
+pip install -r requirements.txt   # rebuilds the environment elsewhere
+deactivate                        # switches it off
+```
+
+The first `venv` in the command is a Python module, the second is the folder name — it can be anything; `venv` or `.venv` is the convention.
+
+### The interpreter in VS Code
+
+VS Code usually detects the new environment and offers to activate it. If not:
+
+1. click the Python version in the bottom right (e.g. `3.14.4`), or open the command palette and choose **Python: Select Interpreter**,
+2. enter the path to the environment's interpreter, e.g. `/home/ubuntu/project/venv/bin/python3`.
+
+If VS Code still underlines `import httpx` although the package is installed, restart the language server: palette → **Python: Restart Language Server**.
+
+## Useful packages
+
+| Package | Purpose |
+| --- | --- |
+| **pip** | installs packages from the [PyPI](https://pypi.org) repository |
+| **ipython** | an interactive interpreter with colours and completion — type `object.` and press `Tab` to see every attribute and method |
+| **ruff** | a formatter **and** a linter in one; it took over from Black. Has a VS Code extension |
+
+```bash
+ruff check workflow.py     # finds bugs and problems (linter)
+ruff format workflow.py    # formats the code
+```
+
+### VS Code shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+/` | comment / uncomment lines |
+| `Ctrl+Space` | after a dot, shows available options (IntelliSense) |
+| `Alt+Enter` | quick-fix menu for a problem |
+| `F5` | runs the current file |
+| `Shift+Alt+F` | formats the code (if a formatter is set up) |
+
+## Test yourself
+
+<Question q="Why does `pip install httpx` fail on Ubuntu without a venv?">
+pip would install the package into the system Python. That needs `root` and, more importantly, can break system tools — newer Ubuntu blocks it outright (`externally-managed-environment`). The solution is a virtual environment.
+</Question>
+
+<Question q="How do you create, activate, and switch off a virtual environment?">
+`python3 -m venv venv`, then `source venv/bin/activate`, and finally `deactivate`.
+</Question>
+
+<Question q="How do you move exact package versions to another machine?">
+`pip freeze > requirements.txt` on the original machine and `pip install -r requirements.txt` in a new virtual environment.
+</Question>
+
+<Question q="Why set up an SSH key instead of a password?">
+With password login, VS Code keeps asking for the password. A key connects without one and is also more secure.
+</Question>
+
+<Question q="What is the difference between `ruff check` and `ruff format`?">
+`ruff check` is a linter — it looks for bugs and rule violations. `ruff format` is a formatter — it changes how the code looks.
+</Question>
+
+## Exercises
+
+### 2.1 · A project with its own environment
+
+On the server, create a `weather/` folder with a virtual environment and install `httpx`, `ipython`, and `ruff`. Record the dependencies in `requirements.txt` and check that `ipython` runs from the environment.
+
+<Solution>
+```bash
+mkdir weather && cd weather
+python3 -m venv venv
+source venv/bin/activate
+pip install httpx ipython ruff
+pip freeze > requirements.txt
+which ipython        # /home/ubuntu/weather/venv/bin/ipython
+```
+</Solution>

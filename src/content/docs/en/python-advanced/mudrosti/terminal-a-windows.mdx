@@ -1,0 +1,64 @@
+---
+title: Terminal and Windows
+description: How to set up a terminal, SSH, and software on Windows so the course runs without trouble.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+Tips and recommendations from the instructor that are not strictly course material. Each one shows the day it came up.
+
+## Cmder — probably the best terminal on Windows
+
+> “Cmder is probably the best terminal client I have seen on Windows.”
+
+- A nice terminal, you can copy from it normally, and the screen can be split into several panes.
+- The **full** version bundles **Git for Windows** — so Bash, Git, and `ssh` with all the tools you know from Linux.
+- **No installation needed** — download the zip, unpack it, and run it.
+
+Website: [cmder.app](https://cmder.app/)
+
+<p class="wisdom-day">Day 1</p>
+
+## Chocolatey — a package manager for Windows
+
+What you know from Linux as `apt`, `dnf`, or `yum` is **Chocolatey** on Windows. On a home computer it makes installing and updating much simpler:
+
+```powershell
+choco install cmder
+choco install vscode
+choco upgrade all        # updates everything installed
+```
+
+Find packages at [community.chocolatey.org/packages](https://community.chocolatey.org/packages) — each one shows its install command.
+
+<p class="wisdom-day">Day 1</p>
+
+## Microsoft's SSH does not get along with VS Code
+
+According to Mirek, the SSH client that ships with Windows (from Microsoft) **does not cooperate** with Visual Studio Code (also from Microsoft). Use `ssh` from **Git Bash** — you get it with Cmder or Git for Windows. Point VS Code at it with `remote.SSH.path`.
+
+<p class="wisdom-day">Day 1</p>
+
+## An SSH key instead of a password
+
+With password login, VS Code asks for the password again and again — even twice per connection. Set up a key and you just “switch on and go”:
+
+```bash
+ssh-keygen -t ed25519
+ssh-copy-id ubuntu@<IP>
+```
+
+<p class="wisdom-day">Day 1</p>
+
+## Bring your own computer to the course
+
+On a work laptop, corporate security software blocks SSH to the lab machines. People have tried all sorts (a dev client, a jump server…) and it always ended the same way — wasted time. The safest option is **your own home computer**; for Docker and Kubernetes this applies twice over.
+
+<p class="wisdom-day">Day 1</p>
+
+## Airflow and Windows
+
+Airflow almost certainly — “bordering on certainty” — **cannot be installed on Windows**; some packages assume a POSIX system. That is why everything runs on the Ubuntu server.
+
+<p class="wisdom-day">Day 1</p>

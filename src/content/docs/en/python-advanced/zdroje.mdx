@@ -1,0 +1,37 @@
+---
+title: Sources
+description: The instructor's slides and recordings from each day of the Python for DevOps with Apache Airflow course.
+kind: sources
+sidebar:
+  order: 99
+---
+
+The **Python for DevOps with Apache Airflow** course is taught by Mirek. The notes are based on the slides and on a transcript of the recording, organised by topic, corrected, and extended with questions and exercises.
+
+:::note[What is deliberately left out]
+The API key from the slides and the lab machines' password and IP addresses are replaced with placeholders (`<API_KEY>`, `<IP>`). This site is public — create your own key at openweathermap.org.
+:::
+
+## Slides
+
+| Day | Material |
+| --- | --- |
+| 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
+
+## Which chapter comes from where
+
+| Chapter | Source |
+| --- | --- |
+| [01 · Workflows and ETL](/devops-notes/en/python-advanced/workflow-a-etl/) | day 1 — slides pp. 1–2, transcript (intro, Bash workflow, httpie, jq) |
+| [02 · Environment setup](/devops-notes/en/python-advanced/prostredie/) | day 1 — slides pp. 2–3, 9–12, transcript (SSH, VS Code, Windows) |
+| [03 · Workflow in Python](/devops-notes/en/python-advanced/workflow-v-pythone/) | day 1 — slides pp. 2–7, 14–15 |
+| [04 · HTTP, JSON, and dicts](/devops-notes/en/python-advanced/http-a-json/) | day 1 — slides pp. 7–9, 12–15 |
+| [05 · Processing and CSV](/devops-notes/en/python-advanced/spracovanie-a-csv/) | day 1 — slides pp. 15–18 |
+| [06 · CLI and exceptions](/devops-notes/en/python-advanced/cli-a-vynimky/) | day 1 — slides pp. 19–24 |
+| [Cheat sheet](/devops-notes/en/python-advanced/tahak/) | day 1 — “Daily Cheat Sheet”, pp. 25–26 |
+
+## Corrections to the slides
+
+- OpenWeatherMap response keys: `main.temp` (not `main.temperature`), `sys.sunrise`, `sys.sunset`, `sys.country`, and the city in `name`.
+- The slides' cheat sheet has `add(10 + 20)` — it should be `add(10, 20)`.
+- The click example calls a `validate_schema()` function that the slides never define; the notes contain a complete, tested `workflow.py`.

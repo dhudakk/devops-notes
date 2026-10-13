@@ -14,6 +14,14 @@ export interface Course {
   summary: { sk: string; en: string };
 }
 
+/**
+ * Sidebar labels for sub-folders inside a course folder, keyed by folder name.
+ * Starlight would otherwise show the raw folder name (e.g. "mudrosti").
+ */
+export const sectionLabels: Record<string, { sk: string; en: string }> = {
+  mudrosti: { sk: 'Mirekove múdrosti', en: "Mirek's wisdoms" },
+};
+
 export const courses: Course[] = [
   {
     id: 'python-basics',
@@ -28,11 +36,11 @@ export const courses: Course[] = [
   {
     id: 'python-advanced',
     abbr: 'Py+',
-    status: 'planned',
+    status: 'active',
     label: { sk: 'Python – pokročilé', en: 'Python Advanced' },
     summary: {
-      sk: 'Pokročilejší Python a orchestrácia dátových pipeline v Apache Airflow.',
-      en: 'More advanced Python and orchestrating data pipelines with Apache Airflow.',
+      sk: 'Python pre DevOps: workflowy a ETL, HTTP a JSON, venv, CLI, výnimky a orchestrácia v Apache Airflow.',
+      en: 'Python for DevOps: workflows and ETL, HTTP and JSON, venv, CLIs, exceptions, and orchestration with Apache Airflow.',
     },
   },
   {

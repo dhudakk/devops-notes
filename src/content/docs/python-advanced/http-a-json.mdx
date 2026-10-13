@@ -1,0 +1,190 @@
+---
+title: HTTP, JSON a slovníky
+description: Časti URL adresy, moduly httpx a Requests, objekt odpovede, JSON ako slovník a skladanie reťazcov — funkcia scrape_data().
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · HTTP, JSON a slovníky
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- URL = **schéma** (`https`) + **doména** (`api.openweathermap.org`) + **cesta** (`/data/2.5/weather`) + **parametre** (`?q=kosice&units=metric`).
+- Na HTTP používame **httpx** alebo **Requests** (rovnaké API); `urllib` zo štandardnej knižnice je ťažkopádny.
+- `response = httpx.get(url, params={...})` → `.status_code`, `.headers`, `.text`, `.json()`.
+- `.json()` prevedie JSON na **slovník**: `data["main"]["temp"]` je to isté ako `jq .main.temp`.
+- Reťazce skladaj **f-stringami** — `f"{url}?q={query}"`. Spájanie cez `+` nepoužívaj.
+</KeyPoints>
+
+## Časti URL adresy
+
+```text
+https://api.openweathermap.org/data/2.5/weather?q=kosice&appid=<API_KEY>&units=metric
+```
+
+| Časť | V našom prípade |
+| --- | --- |
+| protokol / schéma | `https` |
+| doména / base URL | `api.openweathermap.org` |
+| cesta / path | `/data/2.5/weather` |
+| parametre požiadavky (*query*) | `q=kosice`, `appid=<API_KEY>`, `units=metric` |
+
+Údaje sťahujeme HTTP metódou **GET**. Z príkazového riadku to vyskúšaš cez httpie — pozri [Workflowy a ETL](/devops-notes/python-advanced/workflow-a-etl/#1-scrape-stiahnutie-dát).
+
+## Moduly httpx a Requests
+
+`urllib` zo štandardnej knižnice by fungoval, ale je ťažkopádny. Používajú sa rozširujúce balíky:
+
+| Balík | Charakteristika |
+| --- | --- |
+| **Requests** | slogan *„HTTP for humans“* — jednoduché použitie, jeden z najsťahovanejších balíkov vôbec |
+| **HTTPX** | vychádza z Requests a pridáva **asynchrónnu** komunikáciu — pri mnohých dopytoch naraz ich spustí paralelne, takže je rýchlejší |
+
+Použitie je prakticky rovnaké. Na kurze používame httpx:
+
+```bash
+(venv) $ pip install httpx
+```
+
+## Požiadavka a objekt odpovede
+
+```python
+import httpx
+
+url = "https://api.openweathermap.org/data/2.5/weather?q=kosice&appid=<API_KEY>&units=metric"
+
+httpx.get(url)              # v ipythone vypíše iba <Response [200 OK]>
+response = httpx.get(url)   # odpoveď si ulož do premennej
+```
+
+V Pythone je **všetko objekt** — premenná neobsahuje iba hodnotu, ale aj **metódy**. K položkám objektu sa dostaneš bodkou: `objekt.vlastnosť`. V ipythone napíš `response.` a stlač `Tab` — uvidíš všetko, čo objekt vie.
+
+| Vlastnosť / metóda | Vráti |
+| --- | --- |
+| `.status_code` | HTTP kód odpovede, napr. `200` |
+| `.headers` | hlavičky odpovede |
+| `.text` | telo odpovede ako reťazec |
+| `.json()` | telo odpovede deserializované na **slovník** (`dict`) |
+| `.close()` | zatvorí spojenie |
+
+```python
+data = response.json()
+type(data)   # <class 'dict'>
+```
+
+## JSON ako slovník
+
+Odpoveď OpenWeatherMap (skrátená):
+
+```json
+{
+  "weather": [{ "main": "Clear", "description": "clear sky" }],
+  "main": { "temp": 15.8, "pressure": 1018, "humidity": 67 },
+  "visibility": 10000,
+  "wind": { "speed": 2.57, "deg": 200 },
+  "dt": 1779196038,
+  "sys": { "country": "SK", "sunrise": 1779160000, "sunset": 1779215000 },
+  "name": "Košice"
+}
+```
+
+Slovník mapuje **kľúč → hodnota**. Vnorené objekty sú vnorené slovníky, JSON polia sú zoznamy:
+
+| Python | jq | Výsledok |
+| --- | --- | --- |
+| `data["name"]` | `.name` | `"Košice"` |
+| `data["main"]["temp"]` | `.main.temp` | `15.8` |
+| `data["weather"][0]["main"]` | `.weather[0].main` | `"Clear"` |
+| `data.get("rain", 0)` | `.rain // 0` | `0` — kľúč chýba, vráti predvolenú hodnotu |
+
+Zápis do slovníka: `data["source"] = "openweathermap"`. Chýbajúci kľúč cez `data["x"]` vyvolá `KeyError` — viac v kurze [Python – základy](/devops-notes/python-basics/slovniky-a-mnoziny/).
+
+## Skladanie reťazcov
+
+| Spôsob | Príklad | Verdikt |
+| --- | --- | --- |
+| operátor `+` | `url + "?q=" + query` | nikdy — nanajvýš pri dvoch reťazcoch, aj vtedy sa zamysli nad sebou ;) |
+| `.format()` | `"{}?q={}".format(url, query)` | funguje, ale ťažšie sa číta |
+| **f-string** | `f"{url}?q={query}"` | **THIS IS THE WAY** |
+
+## Funkcia scrape_data()
+
+Verzia zo slajdov — URL poskladaná f-stringom:
+
+```python title="workflow.py"
+import httpx
+
+
+def scrape_data() -> dict:
+    print(">> Scraping Data")
+    appid = "<API_KEY>"
+    query = "kosice"
+    units = "metric"
+
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = f"appid={appid}&q={query}&units={units}"
+    response = httpx.get(f"{url}?{params}")
+    return response.json()
+```
+
+Čistejšie je odovzdať parametre ako slovník — httpx ich sám zakóduje do URL (aj `Košice` s diakritikou či čiarku v `kosice,sk`):
+
+```python
+response = httpx.get(url, params={"q": query, "appid": appid, "units": units})
+```
+
+:::caution[API kľúč nepatrí do kódu]
+Kľúč napísaný v zdrojovom kóde skončí v Gite a uvidí ho každý. V kapitole [CLI parametre a výnimky](/devops-notes/python-advanced/cli-a-vynimky/) ho budeme čítať z premennej prostredia.
+:::
+
+## Otestuj sa
+
+<Question q="Z akých častí sa skladá URL `https://api.openweathermap.org/data/2.5/weather?q=kosice`?">
+Schéma `https`, doména `api.openweathermap.org`, cesta `/data/2.5/weather` a parameter požiadavky `q=kosice`.
+</Question>
+
+<Question q="Aký je rozdiel medzi Requests a HTTPX?">
+Použitie je rovnaké — HTTPX vychádza z Requests. HTTPX navyše podporuje asynchrónnu komunikáciu, takže viac dopytov vie spustiť paralelne.
+</Question>
+
+<Question q="Čo vráti `response.json()` a čo `response.text`?">
+`.json()` vráti telo odpovede deserializované na Python objekt (pri našom API slovník). `.text` vráti telo ako obyčajný reťazec.
+</Question>
+
+<Question q='Ako v Pythone zapíšeš jq cestu `.weather[0].main`?'>
+`data["weather"][0]["main"]` — `weather` je zoznam, `[0]` je jeho prvý prvok (slovník) a z neho kľúč `main`.
+</Question>
+
+<Question q="Prečo je lepšie `httpx.get(url, params={...})` ako skladať query string ručne?">
+httpx parametre správne zakóduje (diakritika, čiarky, medzery, `&` v hodnotách) a kód sa ľahšie číta.
+</Question>
+
+## Cvičenia
+
+### 4.1 · Počasie pre viac miest
+
+Napíš funkciu `current_temp(city: str, appid: str) -> float`, ktorá vráti aktuálnu teplotu v °C. V cykle ju zavolaj pre Košice, Bratislavu a Prahu a vypíš `Mesto: teplota °C`.
+
+<Solution>
+```python
+import os
+
+import httpx
+
+URL = "https://api.openweathermap.org/data/2.5/weather"
+
+
+def current_temp(city: str, appid: str) -> float:
+    response = httpx.get(URL, params={"q": city, "appid": appid, "units": "metric"})
+    return response.json()["main"]["temp"]
+
+
+appid = os.environ["APPID"]
+for city in ["Kosice,sk", "Bratislava,sk", "Praha,cz"]:
+    print(f"{city}: {current_temp(city, appid)} °C")
+```
+</Solution>

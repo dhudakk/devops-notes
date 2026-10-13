@@ -1,0 +1,34 @@
+---
+title: Python – pokročilé
+description: Python pre DevOps s Apache Airflow (lektor Mirek). Postavíme ETL workflow nad dátami o počasí — najprv ako obyčajný Python skript, potom ho bude spúšťať a strážiť Airflow.
+kind: overview
+sidebar:
+  order: 0
+  label: Prehľad kurzu
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../components/ChapterList.astro';
+
+## Kapitoly
+
+<ChapterList course="python-advanced" />
+
+## Na opakovanie a mimo osnovy
+
+<CardGrid>
+  <LinkCard title="Ťahák" description="Príkazy a kód z kurzu na jednej stránke: venv, pip, httpx, jq, click, výnimky, VS Code." href="/devops-notes/python-advanced/tahak/" />
+  <LinkCard title="Mirekove múdrosti" description="Tipy, nástroje a postrehy lektora, ktoré nie sú priamo látkou kurzu." href="/devops-notes/python-advanced/mudrosti/terminal-a-windows/" />
+  <LinkCard title="Zdroje" description="Slajdy z jednotlivých dní a z čoho vznikla ktorá kapitola." href="/devops-notes/python-advanced/zdroje/" />
+</CardGrid>
+
+## Projekt kurzu
+
+Počas celého kurzu staviame jeden workflow:
+
+```text
+[ Scrape Data ] -- json --> [ Process Data ] -- csv --> [ Publish Data ]
+```
+
+1. **Deň 1** — workflow ako Python skript: funkcie, HTTP, JSON, CSV, CLI a výnimky.
+2. **Ďalšie dni** — ten istý workflow v Apache Airflow: plánovanie, logy, opakovanie a dohľad.

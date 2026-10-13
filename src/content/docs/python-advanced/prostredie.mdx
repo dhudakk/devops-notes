@@ -1,0 +1,168 @@
+---
+title: Príprava prostredia
+description: Ubuntu stroj cez SSH, VS Code, virtuálne prostredie (venv), pip a nástroje ipython a ruff.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Príprava prostredia
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Pracujeme na **Ubuntu serveri** (každý účastník má vlastný) cez **SSH** z **VS Code** — všetci máme rovnaké prostredie.
+- Namiesto hesla si nastav **SSH kľúč**: `ssh-keygen` + `ssh-copy-id ubuntu@IP`.
+- Balíky nikdy neinštaluj do systémového Pythonu — použi **virtuálne prostredie**: `python3 -m venv venv` → `source venv/bin/activate`.
+- `pip install balík` inštaluje z **PyPI**; `pip freeze > requirements.txt` zapíše presné verzie.
+- **ruff** je formátovač aj linter (nahradil Black), **ipython** je pohodlnejší interaktívny interpreter.
+</KeyPoints>
+
+## Laboratórne prostredie
+
+Každý účastník dostal vlastný virtuálny server (**Ubuntu** na AWS EC2). Výhoda: všetci máme rovnaké prostredie, takže keď niečo nefunguje, nefunguje to všetkým rovnako.
+
+```bash
+ssh ubuntu@<IP-adresa-tvojho-stroja>
+```
+
+- Používateľ je `ubuntu`, IP adresu a heslo dá lektor (zoznam strojov je na zdieľanom „walle“).
+- Na **pracovnom notebooku** firemný bezpečnostný softvér SSH na tieto stroje zablokuje — ani vlastný „dev klient“ nepomôže. Použi **domáci počítač**. Pre Docker a Kubernetes to platí o to viac.
+- **Apache Airflow nejde nainštalovať priamo na Windows** (potrebuje POSIX systém) — ďalší dôvod pracovať na Linux serveri.
+
+## VS Code cez SSH
+
+VS Code sa na server pripojí cez rozšírenie **Remote - SSH**: súbory upravuješ v editore, ale všetko beží na serveri.
+
+Po vytvorení prvého `.py` súboru ti VS Code ponúkne rozšírenie pre **Python** — nainštaluj ho. Odporúčané je aj **EditorConfig for VS Code**. Prehľad ďalších užitočných rozšírení má Real Python.
+
+### SSH kľúč namiesto hesla
+
+Pri prihlasovaní heslom sa ťa VS Code pýta na heslo pri každom pripojení (aj viackrát). S kľúčom sa pripojíš bez hesla:
+
+```bash title="Na tvojom počítači"
+ssh-keygen -t ed25519            # vytvorí ~/.ssh/id_ed25519 a id_ed25519.pub
+ssh-copy-id ubuntu@<IP>          # nahrá verejný kľúč na server (raz zadáš heslo)
+ssh ubuntu@<IP>                  # odteraz bez hesla
+```
+
+Aby VS Code našiel server podľa mena, pridaj záznam do `~/.ssh/config`:
+
+```text title="~/.ssh/config"
+Host airflow-lab
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+### Windows
+
+- SSH klient od Microsoftu (súčasť Windows) podľa lektora **nespolupracuje** s VS Code. Použi `ssh` z **Git Bash** (Git for Windows).
+- Najjednoduchšie ho získaš ako súčasť terminálu **Cmder** (verzia *full* obsahuje Git for Windows; stačí rozbaliť zip). Ak máš Git for Windows nainštalovaný, môžeš VS Code nasmerovať na jeho `ssh.exe` nastavením `remote.SSH.path`.
+- Na domácom PC sa oplatí správca balíkov **Chocolatey**: `choco install cmder`, `choco install vscode`, `choco upgrade all`. Viac v [Mirekových múdrostiach](/devops-notes/python-advanced/mudrosti/terminal-a-windows/).
+
+## Python na Ubuntu
+
+Na Ubuntu sa interpreter volá `python3`. Správca balíkov `pip` nie je súčasťou štandardnej inštalácie:
+
+```bash
+sudo apt install python3-pip python3-venv
+```
+
+Keď skúsiš `pip install httpx` priamo, skončí to chybou — pip chce balík nainštalovať **do systému**. To nie je dobrý nápad a bez práv `root` to ani nejde (novšie Ubuntu hlási `externally-managed-environment`). Riešením je virtuálne prostredie.
+
+## Virtuálne prostredie (venv)
+
+> Máš starší projekt s Django 3.2 a nový, ktorý potrebuje Django 5.0. Keby si všetko inštaloval globálne do jedného Pythonu, vznikne konflikt.
+
+**Virtuálne prostredie** je oddelený priestor („sandbox“) pre jeden projekt s vlastnými balíkmi:
+
+1. **Izolácia projektov** — každý projekt má svoje závislosti.
+2. **Jednoduchá správa balíkov** — `requirements.txt` presne zopakuje prostredie.
+3. **Prenositeľnosť** — kolega si prostredie obnoví rovnako ako ty.
+4. **Čistý systém** — nezasahuješ do systémového Pythonu.
+
+```bash
+python3 -m venv venv              # vytvorí prostredie v priečinku venv/
+source venv/bin/activate          # aktivuje ho — prompt sa zmení na (venv) $
+pip install httpx ipython ruff    # balíky idú iba do venv/
+pip list                          # čo je nainštalované
+pip freeze > requirements.txt     # zapíše presné verzie
+pip install -r requirements.txt   # obnoví prostredie inde
+deactivate                        # vypne prostredie
+```
+
+Prvé `venv` v príkaze je modul Pythonu, druhé je názov priečinka — môže byť ľubovoľný, `venv` alebo `.venv` je konvencia.
+
+### Interpreter vo VS Code
+
+VS Code zvyčajne nové prostredie zistí sám a ponúkne jeho aktiváciu. Ak nie:
+
+1. klikni vpravo dole na verziu Pythonu (napr. `3.14.4`), alebo otvor paletu príkazov a zvoľ **Python: Select Interpreter**,
+2. zadaj cestu k interpreteru v prostredí, napr. `/home/ubuntu/project/venv/bin/python3`.
+
+Ak VS Code stále podčiarkuje `import httpx`, hoci je balík nainštalovaný, reštartuj jazykový server: paleta → **Python: Restart Language Server**.
+
+## Užitočné balíky
+
+| Balík | Na čo |
+| --- | --- |
+| **pip** | inštaluje balíky z repozitára [PyPI](https://pypi.org) |
+| **ipython** | interaktívny interpreter s farbami a dopĺňaním — za `objekt.` stlač `Tab` a uvidíš všetky vlastnosti a metódy |
+| **ruff** | formátovač **aj** linter v jednom; prevzal prvenstvo po nástroji Black. Má rozšírenie pre VS Code |
+
+```bash
+ruff check workflow.py     # nájde chyby a problémy (linter)
+ruff format workflow.py    # naformátuje kód
+```
+
+### Klávesové skratky VS Code
+
+| Skratka | Akcia |
+| --- | --- |
+| `Ctrl+/` | zakomentuje / odkomentuje riadky |
+| `Ctrl+Space` | za bodkou ponúkne dostupné možnosti (IntelliSense) |
+| `Alt+Enter` | rýchle menu na opravu problému |
+| `F5` | spustí aktuálny súbor |
+| `Shift+Alt+F` | naformátuje kód (ak je nastavený formátovač) |
+
+## Otestuj sa
+
+<Question q="Prečo `pip install httpx` na Ubuntu bez venv zlyhá?">
+pip by inštaloval balík do systémového Pythonu. Na to treba práva `root` a hlavne to môže rozbiť systémové nástroje — novšie Ubuntu to priamo blokuje (`externally-managed-environment`). Riešením je virtuálne prostredie.
+</Question>
+
+<Question q="Ako vytvoríš, aktivuješ a vypneš virtuálne prostredie?">
+`python3 -m venv venv`, potom `source venv/bin/activate` a na konci `deactivate`.
+</Question>
+
+<Question q="Ako preneseš presné verzie balíkov na iný stroj?">
+`pip freeze > requirements.txt` na pôvodnom stroji a `pip install -r requirements.txt` v novom virtuálnom prostredí.
+</Question>
+
+<Question q="Prečo nastaviť SSH kľúč namiesto hesla?">
+VS Code sa pri pripojení heslom pýta na heslo opakovane. S kľúčom je pripojenie bez hesla a zároveň bezpečnejšie.
+</Question>
+
+<Question q="Aký je rozdiel medzi `ruff check` a `ruff format`?">
+`ruff check` je linter — hľadá chyby a porušenia pravidiel. `ruff format` je formátovač — upraví vzhľad kódu.
+</Question>
+
+## Cvičenia
+
+### 2.1 · Projekt s vlastným prostredím
+
+Na serveri vytvor priečinok `weather/`, v ňom virtuálne prostredie a nainštaluj `httpx`, `ipython` a `ruff`. Zapíš závislosti do `requirements.txt` a over, že `ipython` beží z prostredia.
+
+<Solution>
+```bash
+mkdir weather && cd weather
+python3 -m venv venv
+source venv/bin/activate
+pip install httpx ipython ruff
+pip freeze > requirements.txt
+which ipython        # /home/ubuntu/weather/venv/bin/ipython
+```
+</Solution>

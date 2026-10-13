@@ -1,11 +1,12 @@
 ---
-import { getChapters, toLang } from '../lib/notes';
+import { getChapters, t, toLang } from '../lib/notes';
 
 interface Props {
   course: string;
 }
 
 const lang = toLang(Astro.locals.starlightRoute.lang);
+const text = t(lang);
 const chapters = await getChapters(Astro.props.course, lang);
 ---
 
@@ -19,6 +20,11 @@ const chapters = await getChapters(Astro.props.course, lang);
           </span>
           <div>
             <a href={chapter.href}>{chapter.title}</a>
+            {chapter.day && (
+              <span class="chapters__day">
+                {text.day} {chapter.day}
+              </span>
+            )}
             {chapter.description && <p>{chapter.description}</p>}
           </div>
         </li>
@@ -76,6 +82,17 @@ const chapters = await getChapters(Astro.props.course, lang);
   a:hover {
     color: var(--sl-color-text-accent);
     text-decoration: underline;
+  }
+
+  .chapters__day {
+    margin-inline-start: 0.5rem;
+    border-radius: 999px;
+    background: var(--sl-color-accent-low);
+    padding: 0.05rem 0.5rem;
+    color: var(--sl-color-text-accent);
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   p {

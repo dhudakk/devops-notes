@@ -1,0 +1,351 @@
+---
+title: CLI parametre a výnimky
+description: Parametre príkazového riadku s balíkom click, bezpečné odovzdanie API kľúča, výnimky, logovanie, stack trace, sys.exit() a prečo potrebujeme Airflow.
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · CLI a výnimky
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **click** robí z funkcie CLI príkaz: `@click.command`, `@click.argument`, `@click.option` — `--help` dostaneš zadarmo.
+- API kľúč **nedávaj ako argument** — uvidí ho každý cez `ps aux`. Odovzdaj ho cez **premennú prostredia**: `APPID=... ./workflow.py kosice`.
+- Výnimku zachytíš cez `try` / `except KonkrétnaVýnimka:` — a **každú** zachytenú výnimku ošetri. Nikdy `except Exception: pass`.
+- **Stack trace** čítaj odspodu: posledný riadok je chyba, nad ním miesto, kde vznikla.
+- `sys.exit("správa")` vypíše správu na `stderr` a skončí s **exit kódom 1** (úspech je `0`). Namiesto „magických čísel“ použi `HTTPStatus.NOT_FOUND`.
+</KeyPoints>
+
+## Parametre príkazového riadku
+
+Workflow bude neskôr bežať na pozadí, ale často potrebuješ aj nástroj, ktorému pri spustení zmeníš správanie parametrami. Štandardná knižnica má `argparse`; my použijeme pohodlnejší balík **click**.
+
+```bash
+(venv) $ pip install click
+```
+
+| Pojem v click | Význam | Príklad |
+| --- | --- | --- |
+| **command** | samotný príkaz (funkcia) | `./workflow.py` |
+| **argument** | povinná pozičná hodnota | `kosice` |
+| **option** | pomenovaná voliteľná hodnota | `--units metric` |
+| **flag** | option bez hodnoty, zapína/vypína niečo | `--verbose` |
+
+```python
+import click
+
+
+@click.command(help="Download current weather conditions in CSV format.")
+@click.argument("query")
+@click.option("--appid", envvar="APPID", required=True, help="API key for openweathermap.org.")
+@click.option(
+    "--units",
+    type=click.Choice(["metric", "standard", "imperial"]),
+    default="metric",
+    show_default=True,
+    help="Units of measurement.",
+)
+def main(query: str, appid: str, units: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry)
+```
+
+`envvar="APPID"` znamená: ak `--appid` nezadáš, click hodnotu vezme z premennej prostredia `APPID`. `click.Choice` odmietne iné jednotky ešte pred spustením workflowu.
+
+### Spustenie
+
+```bash
+./workflow.py --help                          # pomocník vygenerovaný z dekorátorov
+./workflow.py kosice --appid <API_KEY>        # funguje, ale kľúč je viditeľný!
+APPID=<API_KEY> ./workflow.py kosice          # kľúč cez premennú prostredia
+```
+
+:::danger[Citlivé údaje nepatria do argumentov]
+Argumenty príkazu vidí každý používateľ systému: `ps aux | grep python` ukáže celý príkaz aj s kľúčom. Premenná prostredia sa v zozname procesov nezobrazí — „premenná prostredia nie je proces“. (Úplne tajná nie je — vlastník procesu a `root` si ju vedia prečítať, ale je to výrazne bezpečnejšie.)
+:::
+
+## Nesprávny dopyt
+
+Čo ak sa opýtame na mesto, ktoré neexistuje? Workflow „v pohode zbehne“, ale do datasetu sa dostanú zlé údaje — alebo spadne až v `process_data` na nečakanom `KeyError`. Chceme dať vedieť, že niečo dopadlo zle, **hneď**, keď to zistíme.
+
+## Výnimky
+
+> **Výnimka** (*exception*) je nezvyčajný stav, ktorý si vyžaduje špeciálne spracovanie. **Ošetrenie výnimiek** (*exception handling*) je reakcia na výnimku počas behu programu.
+
+**Chyba vs. výnimka:** keď nastane chyba, zoberie so sebou celú aplikáciu. Na výnimku sa dá **pripraviť** — tomu sa hovorí defenzívne programovanie. Jazyk C výnimky nemá: delenie nulou alebo zápis do súboru bez oprávnenia program zhodí. V Pythone dostaneš `ZeroDivisionError` či `PermissionError` a môžeš na ne zareagovať.
+
+```python
+try:
+    with open("/var/log/dataset.csv", mode="a") as dataset:
+        print(entry, file=dataset)
+except FileNotFoundError:
+    print("Priečinok neexistuje.")
+except PermissionError:
+    print("Do súboru nemám oprávnenie zapisovať.")
+```
+
+Pri zápise do súboru môže nastať: priečinok neexistuje, do súboru sa nedá zapisovať, súbor existuje a nedá sa prepísať…
+
+:::caution[Najhorší prípad, aký môžeš stretnúť]
+```python
+except Exception as ex:
+    # this will never happen
+    pass
+```
+Zachytí úplne všetko a chybu ticho zahodí. **Každú zachytenú výnimku ošetri** — aspoň ju zaloguj.
+:::
+
+### Logovanie výnimiek
+
+Výnimky sa logujú ako ostatné správy, cez modul `logging`. `logging.exception()` vo vnútri `except` zapíše správu na úrovni `ERROR` **aj s celým stack trace**:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+try:
+    publish_data(entry)
+except OSError:
+    logging.exception("Cannot write the dataset")
+```
+
+Úrovne od najmenej závažnej: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+
+### Stack trace
+
+*Stack trace* je zoznam volaní funkcií, v ktorých bol program uprostred, keď vznikla výnimka.
+
+```python title="stack.py"
+def f1():
+    print(">> f1()")
+    10 / 0
+
+
+def f2():
+    print(">> f2()")
+    f1()
+
+
+def f3():
+    print(">> f3()")
+    f2()
+
+
+f3()
+```
+
+```text title="Výstup"
+Traceback (most recent call last):
+  File "stack.py", line 16, in <module>
+    f3()
+  File "stack.py", line 13, in f3
+    f2()
+  File "stack.py", line 8, in f2
+    f1()
+  File "stack.py", line 3, in f1
+    10 / 0
+ZeroDivisionError: division by zero
+```
+
+*Most recent call last* — najnovšie volanie je **dole**. Čítaj odspodu: chyba je `ZeroDivisionError` v `f1` na riadku 3, kam sa program dostal cez `f3 → f2 → f1`.
+
+## Ošetrenie chybnej odpovede
+
+Pri neexistujúcom meste vráti API stavový kód **404**, pri zlom kľúči **401**. Vyriešime to podmienkou a ukončením programu cez `sys.exit()`:
+
+| Volanie | Výsledok |
+| --- | --- |
+| `sys.exit(0)` alebo koniec programu | úspech, exit kód `0` |
+| `sys.exit(1)` | neúspech, exit kód `1` (každé nenulové číslo je neúspech) |
+| `sys.exit("Error: …")` | vypíše text na **stderr** a skončí s kódom `1` |
+
+Exit kód posledného príkazu zistíš v Bashi cez `echo $?`. Podľa neho neskôr aj Airflow pozná, či úloha uspela.
+
+Aby v podmienke nebola „bulharská konštanta“ (magické číslo `404`), použijeme pomenované kódy z `http.HTTPStatus`:
+
+```python
+import sys
+from http import HTTPStatus
+
+if response.status_code == HTTPStatus.NOT_FOUND:
+    sys.exit("Error: City not found.")
+if response.status_code == HTTPStatus.UNAUTHORIZED:
+    sys.exit("Error: Invalid API key.")
+if response.status_code != HTTPStatus.OK:
+    sys.exit(f"Error: Unexpected response {response.status_code}.")
+```
+
+## Celý workflow.py
+
+```python title="workflow.py"
+#!/usr/bin/env python3
+"""Weather workflow: scrape -> process -> publish."""
+
+import sys
+from http import HTTPStatus
+
+import click
+import httpx
+import pendulum
+
+URL = "https://api.openweathermap.org/data/2.5/weather"
+DATASET = "dataset.csv"
+
+
+def scrape_data(query: str, appid: str, units: str) -> dict:
+    """Download the current weather for `query` from openweathermap.org."""
+    print(">> Scraping Data")
+    params = {"q": query, "appid": appid, "units": units}
+    response = httpx.get(URL, params=params)
+
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        sys.exit("Error: City not found.")
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        sys.exit("Error: Invalid API key.")
+    if response.status_code != HTTPStatus.OK:
+        sys.exit(f"Error: Unexpected response {response.status_code}.")
+
+    return response.json()
+
+
+def process_data(data: dict) -> str:
+    """Pick the values we care about and return them as one CSV line."""
+    print(">> Processing Data")
+    measured_at = pendulum.from_timestamp(data["dt"]).to_iso8601_string()
+    values = [
+        measured_at,
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ";".join(str(value) for value in values)
+
+
+def publish_data(entry: str) -> None:
+    """Append the CSV line to the dataset file."""
+    print(">> Publishing Data")
+    with open(DATASET, mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+
+
+@click.command(help="Download current weather conditions in CSV format.")
+@click.argument("query")
+@click.option(
+    "--appid", envvar="APPID", required=True, help="API key for openweathermap.org."
+)
+@click.option(
+    "--units",
+    type=click.Choice(["metric", "standard", "imperial"]),
+    default="metric",
+    show_default=True,
+    help="Units of measurement.",
+)
+def main(query: str, appid: str, units: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+(venv) $ pip install httpx pendulum click
+(venv) $ chmod +x workflow.py
+(venv) $ APPID=<API_KEY> ./workflow.py kosice,sk
+>> Scraping Data
+>> Processing Data
+>> Publishing Data
+(venv) $ tail -1 dataset.csv
+2026-05-19T13:07:18Z;Košice;SK;15.8;67;1018;2.57;200
+```
+
+## Zhodnotenie: prečo Airflow
+
+Máme workflow, ktorý stiahne počasie a uloží ho do CSV. Ale…
+
+- **kto** ho bude spúšťať?
+- **kde** sa bude spúšťať?
+- **kedy** — a čo pravidelné spúšťanie?
+- **kto** ho bude logovať a **kde** budú logy?
+- ak sa zrúti — **ako zistím**, že sa niečo pokazilo, a čo?
+
+Odpoveďou na každú otázku je **Apache Airflow** — bude náš workflow spúšťať aj nad ním dohliadať. To je téma ďalších dní.
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi argumentom a option v click?">
+Argument je povinná pozičná hodnota (`kosice`). Option je pomenovaná, zvyčajne voliteľná hodnota s predvolenou hodnotou (`--units metric`). Flag je option bez hodnoty.
+</Question>
+
+<Question q="Prečo neodovzdávať API kľúč ako `--appid KĽÚČ`?">
+Argumenty príkazu sú viditeľné v zozname procesov (`ps aux`) pre všetkých používateľov. Premenná prostredia sa tam nezobrazí.
+</Question>
+
+<Question q="Prečo je `except Exception: pass` zlý nápad?">
+Zachytí úplne každú výnimku a ticho ju zahodí — program pokračuje s chybným stavom a nikto sa nedozvie, čo sa stalo. Každú zachytenú výnimku treba ošetriť, aspoň zalogovať.
+</Question>
+
+<Question q="Ako čítaš stack trace v Pythone?">
+Odspodu. Posledný riadok je typ a správa výnimky, nad ním je miesto, kde vznikla, a vyššie postupnosť volaní, ktorá k nemu viedla (*most recent call last*).
+</Question>
+
+<Question q='Čo urobí `sys.exit("Error: City not found.")`?'>
+Vypíše správu na štandardný chybový výstup (stderr) a ukončí program s exit kódom 1 — teda ako neúspešný.
+</Question>
+
+<Question q="Načo je `HTTPStatus.NOT_FOUND` namiesto `404`?">
+Pomenovaná konštanta hovorí, čo číslo znamená — kód je čitateľnejší a bez „magických čísel“ (bulharských konštánt). Hodnota je rovnaká: `HTTPStatus.NOT_FOUND == 404`.
+</Question>
+
+## Cvičenia
+
+### 6.1 · Výpadok siete
+
+Keď server nie je dostupný, `httpx.get()` vyvolá výnimku `httpx.ConnectError` (podtrieda `httpx.RequestError`) a workflow skončí dlhým stack trace. Ošetri ju v `scrape_data()` tak, aby program vypísal zrozumiteľnú správu a skončil s exit kódom 1.
+
+<Solution>
+```python
+def scrape_data(query: str, appid: str, units: str) -> dict:
+    print(">> Scraping Data")
+    params = {"q": query, "appid": appid, "units": units}
+    try:
+        response = httpx.get(URL, params=params, timeout=10)
+    except httpx.RequestError as error:
+        sys.exit(f"Error: Cannot reach openweathermap.org ({error}).")
+    ...
+```
+
+`httpx.RequestError` zachytí výpadok spojenia aj timeout. Do správy pridaj text výnimky, nech vieš, čo sa stalo.
+</Solution>
+
+### 6.2 · Voliteľný výstupný súbor
+
+Pridaj option `--output` s predvolenou hodnotou `dataset.csv` a odovzdaj ju do `publish_data()`.
+
+<Solution>
+```python
+@click.option("--output", default="dataset.csv", show_default=True, help="CSV file to append to.")
+def main(query: str, appid: str, units: str, output: str) -> None:
+    data = scrape_data(query, appid, units)
+    entry = process_data(data)
+    publish_data(entry, output)
+
+
+def publish_data(entry: str, path: str) -> None:
+    print(">> Publishing Data")
+    with open(path, mode="a", encoding="utf-8") as dataset:
+        print(entry, file=dataset)
+```
+</Solution>

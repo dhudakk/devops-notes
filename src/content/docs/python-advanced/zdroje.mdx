@@ -1,0 +1,37 @@
+---
+title: Zdroje
+description: Slajdy lektora a záznamy z jednotlivých dní kurzu Python for DevOps with Apache Airflow.
+kind: sources
+sidebar:
+  order: 99
+---
+
+Kurz **Python for DevOps with Apache Airflow** vedie Mirek. Poznámky vznikli zo slajdov a z prepisu záznamu, sú usporiadané podľa tém, opravené a doplnené o otázky a cvičenia.
+
+:::note[Čo v poznámkach zámerne chýba]
+API kľúč zo slajdov, heslo a IP adresy laboratórnych strojov sú nahradené zástupnými textami (`<API_KEY>`, `<IP>`). Stránka je verejná — vlastný kľúč si vytvor na openweathermap.org.
+:::
+
+## Slajdy
+
+| Deň | Materiál |
+| --- | --- |
+| 1 | [Day 1: First Workflow in Python (PDF) ↗](http://mirek.s.cnl.sk/download/airflow.101-day.1.pdf) |
+
+## Z čoho je ktorá kapitola
+
+| Kapitola | Zdroj |
+| --- | --- |
+| [01 · Workflowy a ETL](/devops-notes/python-advanced/workflow-a-etl/) | deň 1 — slajdy s. 1–2, prepis (úvod, Bash workflow, httpie, jq) |
+| [02 · Príprava prostredia](/devops-notes/python-advanced/prostredie/) | deň 1 — slajdy s. 2–3, 9–12, prepis (SSH, VS Code, Windows) |
+| [03 · Workflow v Pythone](/devops-notes/python-advanced/workflow-v-pythone/) | deň 1 — slajdy s. 2–7, 14–15 |
+| [04 · HTTP, JSON a slovníky](/devops-notes/python-advanced/http-a-json/) | deň 1 — slajdy s. 7–9, 12–15 |
+| [05 · Spracovanie a CSV](/devops-notes/python-advanced/spracovanie-a-csv/) | deň 1 — slajdy s. 15–18 |
+| [06 · CLI a výnimky](/devops-notes/python-advanced/cli-a-vynimky/) | deň 1 — slajdy s. 19–24 |
+| [Ťahák](/devops-notes/python-advanced/tahak/) | deň 1 — „Daily Cheat Sheet“, s. 25–26 |
+
+## Opravy oproti slajdom
+
+- Kľúče v odpovedi OpenWeatherMap: `main.temp` (nie `main.temperature`), `sys.sunrise`, `sys.sunset`, `sys.country` a mesto v `name`.
+- V ťaháku na slajdoch je `add(10 + 20)` — správne `add(10, 20)`.
+- Ukážka s click volá funkciu `validate_schema()`, ktorá na slajdoch nie je definovaná; v poznámkach je kompletný, odskúšaný `workflow.py`.

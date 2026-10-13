@@ -1,0 +1,81 @@
+---
+title: Python a vývoj
+description: Lektorove názory a odporúčania k písaniu kódu v Pythone — nástroje, štýl a zlozvyky, ktorým sa vyhnúť.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## PyCharm je najlepšie IDE…
+
+> „PyCharm je to najlepšie prostredie, ktoré viete použiť, preto ho nebudeme používať.“
+
+Na kurze ide všetko cez **VS Code** — kvôli práci na vzdialenom serveri cez SSH a jednotnému prostrediu pre všetkých.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Ruff vytlačil Black
+
+Donedávna bol najobľúbenejší formátovač **Black**, prvenstvo prevzal **Ruff** — je formátovač **aj** linter v jednom a je extrémne rýchly.
+
+<p class="wisdom-day">Deň 1</p>
+
+## ipython — „výrazne viac sexy“ interpreter
+
+Namiesto obyčajného `python` REPL použi **ipython**: farby, história, a hlavne `objekt.` + `Tab` ukáže všetky vlastnosti a metódy. Najrýchlejší spôsob, ako preskúmať neznámy objekt (napr. HTTP odpoveď).
+
+<p class="wisdom-day">Deň 1</p>
+
+## f-stringy: THIS IS THE WAY
+
+Reťazce nespájaj cez `+` — „nanajvýš ak sú to dva reťazce, a aj vtedy sa zamyslite nad sebou“. Použi f-string: `f"{url}?q={query}"`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## „This will never happen“
+
+Najhorší kód, aký môžeš stretnúť:
+
+```python
+except Exception as ex:
+    # this will never happen
+    pass
+```
+
+Každú zachytenú výnimku ošetri — aspoň ju zaloguj cez `logging.exception()`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Žiadne bulharské konštanty
+
+Čísla bez vysvetlenia (`if status == 404`) sú „bulharské konštanty“. Pomenuj ich: `HTTPStatus.NOT_FOUND`, vlastné konštanty `UPPER_CASE`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Všetko zatvor do funkcie
+
+Aj samotný postup workflowu patrí do `main()`, spúšťaný cez `if __name__ == "__main__":`. A DRY — ak sa logika opakuje, patrí do funkcie. (Ale pozor aj na WET: s abstrakciou počkaj, kým sa kód zopakuje 2–3×.)
+
+<p class="wisdom-day">Deň 1</p>
+
+## Tajomstvá cez premenné prostredia
+
+API kľúč v argumente vidí každý cez `ps aux`. Premenná prostredia sa v zozname procesov nezobrazí — „premenná prostredia nie je proces“.
+
+```bash
+APPID=<API_KEY> ./workflow.py kosice
+```
+
+<p class="wisdom-day">Deň 1</p>
+
+## pendulum namiesto datetime, dátumy v ISO 8601
+
+S `datetime` sa nepracuje pohodlne, najmä s časovými zónami — **pendulum** je spätne kompatibilný a príjemnejší. A dátumy zapisuj v ISO 8601 (`2026-05-19T13:07:18Z`), nie po európsky ani „americkou logikou“ `MM/DD/YYYY`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Zatváraj súbory
+
+Proces má limit otvorených súborov (`ulimit -n`). Workflow, ktorý ich nezatvára, raz spadne — preto `with open(...)`.
+
+<p class="wisdom-day">Deň 1</p>
