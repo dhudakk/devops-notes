@@ -94,29 +94,77 @@ pip install -r requirements.txt   # obnoví prostredie inde
 deactivate                        # vypne prostredie
 ```
 
-Prvé `venv` v príkaze je modul Pythonu, druhé je názov priečinka — môže byť ľubovoľný, `venv` alebo `.venv` je konvencia.
+Prvé `venv` v príkaze je modul Pythonu, druhé je názov priečinka — môže byť ľubovoľný. Často sa používa `.venv`: súbory a priečinky, ktorých názov začína bodkou, sú v Linuxe skryté (`ls` ich neukáže, `ls -a` áno). Na kurze necháme viditeľné `venv`.
+
+:::note[`python` alebo `python3`?]
+Na laboratórnom stroji je `python` iba odkaz (symlink) na `python3` — over si to cez `ls -lh /usr/bin/python`. Je teda jedno, ktorý napíšeš. Na čistom Ubuntu príkaz `python` nemusí existovať (pridá ho balík `python-is-python3`); `python3` funguje vždy.
+:::
+
+### Čo je vo venv
+
+Priečinok prostredia vyzerá ako malý strom linuxového systému:
+
+```text
+venv/
+├── bin/                         # python, pip, activate a príkazy z nainštalovaných balíkov
+│   ├── activate
+│   ├── pip3
+│   └── python3
+└── lib/
+    └── python3.14/
+        └── site-packages/       # sem pip inštaluje balíky
+```
+
+### Ako zistíš, ktorý Python beží
+
+```bash
+$ which python
+/usr/bin/python                  # systémový Python
+$ pip list | wc -l               # v systéme stovky balíkov (na stroji lektora 329)
+
+$ source venv/bin/activate
+(venv) $ which python
+/home/ubuntu/venv/bin/python     # Python z prostredia
+(venv) $ pip list                # iba pip — prostredie je prázdne
+```
+
+Po aktivácii ti prompt ukáže `(venv)`. Od tej chvíle `python` aj `pip` pracujú s prostredím, nie so systémom.
 
 ### Interpreter vo VS Code
 
 VS Code zvyčajne nové prostredie zistí sám a ponúkne jeho aktiváciu. Ak nie:
 
-1. klikni vpravo dole na verziu Pythonu (napr. `3.14.4`), alebo otvor paletu príkazov a zvoľ **Python: Select Interpreter**,
-2. zadaj cestu k interpreteru v prostredí, napr. `/home/ubuntu/project/venv/bin/python3`.
+1. klikni vpravo dole na verziu Pythonu (napr. `3.14.4`), alebo otvor paletu príkazov (**View → Command Palette**) a zvoľ **Python: Select Interpreter**,
+2. zvoľ **Browse** a nalistuj interpreter v prostredí, napr. `/home/ubuntu/project/venv/bin/python3`.
 
-Ak VS Code stále podčiarkuje `import httpx`, hoci je balík nainštalovaný, reštartuj jazykový server: paleta → **Python: Restart Language Server**.
+Vďaka tomu funguje **IntelliSense** — dopĺňanie kódu: napíšeš `httpx.` a VS Code ponúkne `get` a ďalšie funkcie balíka. Editor ti navyše priebežne ukazuje problémy: nepoužitý import alebo premennú vypíše šedou a podčiarkne.
+
+Ak VS Code stále podčiarkuje `import httpx`, hoci je balík nainštalovaný:
+
+1. reštartuj jazykový server (komponent editora, ktorý „rozumie“ Pythonu): paleta → **Python: Restart Language Server**,
+2. ak nepomôže ani to, odpoj sa od servera a pripoj znova — lektorovi pomohlo až toto.
 
 ## Užitočné balíky
 
 | Balík | Na čo |
 | --- | --- |
 | **pip** | inštaluje balíky z repozitára [PyPI](https://pypi.org) |
-| **ipython** | interaktívny interpreter s farbami a dopĺňaním — za `objekt.` stlač `Tab` a uvidíš všetky vlastnosti a metódy |
-| **ruff** | formátovač **aj** linter v jednom; prevzal prvenstvo po nástroji Black. Má rozšírenie pre VS Code |
+| **ipython** | interaktívny interpreter s farbami a dopĺňaním — za `objekt.` stlač `Tab` a uvidíš všetky vlastnosti a metódy. Inštaluje sa ako `pip install ipython` (bez trojky) |
+| **ruff** | formátovač **aj** linter v jednom. Je napísaný v Ruste, preto je násobne rýchlejší ako Black či Flake8 — dnes jednotka v tejto kategórii |
+
+- **Formátovač** upraví vzhľad kódu podľa pravidiel, **linter** kód navyše skontroluje a upozorní na chyby.
+- Pravidlá formátovania Pythonu popisuje **PEP 8**. PEP (*Python Enhancement Proposal*) sú dokumenty s návrhmi a pravidlami pre jazyk. Vďaka formátovaču vyzerá kód rovnako, nech ho píše ktokoľvek.
 
 ```bash
 ruff check workflow.py     # nájde chyby a problémy (linter)
 ruff format workflow.py    # naformátuje kód
 ```
+
+Aby Ruff formátoval priamo vo VS Code, nestačí balík v prostredí — treba aj rozšírenie:
+
+1. stlač **Shift+Alt+F** (*Format Document*); VS Code ohlási, že nemá nainštalovaný formátovač,
+2. zvoľ inštaláciu, vyhľadaj **Ruff** a nainštaluj ho na SSH server,
+3. odteraz **Shift+Alt+F** naformátuje celý súbor podľa PEP 8.
 
 ### Klávesové skratky VS Code
 

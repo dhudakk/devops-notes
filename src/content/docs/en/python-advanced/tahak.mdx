@@ -13,6 +13,7 @@ sidebar:
 ```bash title="venv"
 python3 -m venv venv       # create
 source venv/bin/activate   # activate → (venv) $
+which python               # …/venv/bin/python
 deactivate                 # switch off
 ```
 
@@ -102,6 +103,9 @@ import pendulum
 
 dt = pendulum.from_timestamp(1779196038)
 dt.to_iso8601_string()  # '2026-05-19T13:07:18Z'
+pendulum.now("Europe/Moscow")  # now in Moscow
+dt.in_timezone("Europe/Bratislava")  # +02:00
+# store in UTC, convert only for display
 ```
 
 ```python title="Files"
@@ -143,6 +147,9 @@ if response.status_code == HTTPStatus.NOT_FOUND:
 | What | How |
 | --- | --- |
 | type of a variable | `type(var)` |
+| info about a variable in ipython | `var?` |
+| HTTP status codes | `2xx` OK · `3xx` redirect · `4xx` client error · `5xx` server error |
+| exit status in Bash | `echo $?` — `0` OK, anything else an error |
 | length of a string / list | `len(var)` |
 | building strings | f-string: `f"{url}?q={query}"` |
 | key neither in code nor in arguments | `APPID=... ./workflow.py kosice` |

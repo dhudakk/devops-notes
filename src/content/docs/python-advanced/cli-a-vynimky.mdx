@@ -20,6 +20,10 @@ import Solution from '../../../components/Solution.astro';
 - `sys.exit("správa")` vypíše správu na `stderr` a skončí s **exit kódom 1** (úspech je `0`). Namiesto „magických čísel“ použi `HTTPStatus.NOT_FOUND`.
 </KeyPoints>
 
+:::note[Kedy sa to preberá]
+Táto kapitola je zo slajdov 1. dňa, ale na prednáške sa parametre príkazového riadku dokončujú až na začiatku ďalšieho stretnutia. Plán lektora: `query` je jediný povinný argument, `units` má predvolenú hodnotu a `appid` sa číta z premennej prostredia.
+:::
+
 ## Parametre príkazového riadku
 
 Workflow bude neskôr bežať na pozadí, ale často potrebuješ aj nástroj, ktorému pri spustení zmeníš správanie parametrami. Štandardná knižnica má `argparse`; my použijeme pohodlnejší balík **click**.

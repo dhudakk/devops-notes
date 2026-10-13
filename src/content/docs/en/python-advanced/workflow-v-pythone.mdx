@@ -161,6 +161,55 @@ if __name__ == "__main__":
     main()
 ```
 
+### Parameters vs arguments in a call
+
+- The parameter name in the definition does **not** have to match the variable name in the call. `process_data(measurement)` happily passes the value into the `data` (or `json_data`) parameter.
+- If you pass an argument to a function whose definition has no parameter, Python fails:
+
+  ```text
+  TypeError: process_data() takes 0 positional arguments but 1 was given
+  ```
+
+### Trying functions out in ipython
+
+You do not have to run the whole script every time to try a function. Import it into ipython and play with it:
+
+```python
+In [1]: from workflow import scrape_data
+In [2]: scrape_data()            # ipython prints the returned value
+Out[2]: {'name': 'Košice', 'main': {'temp': 15.8}}
+In [3]: data = scrape_data()     # stored in a variable — nothing is printed
+In [4]: data?                    # type, value, length, and documentation
+```
+
+The interactive interpreter echoes the result of any expression you did **not** store in a variable — that is not a `print()` in the function, but the REPL echo. After changing the file, restart ipython (`exit` and `ipython` again), otherwise the old version of the module stays loaded.
+
+### Dynamic typing and type hints
+
+Python is a **dynamically typed** language — a variable can change type at runtime:
+
+```python
+a = 10        # int
+a = "Jano"    # str
+a = True      # bool
+type(a)       # <class 'bool'> — the last assignment wins
+```
+
+In statically typed languages (C, Java, C#) the compiler rejects such code: once `a` is an `int`, you cannot put a string in it. People coming from those languages need a while to get used to it.
+
+Type hints partly bridge the gap — they **have no effect on execution or performance**; they are help for the editor:
+
+```python
+def process_data(json_data: dict) -> str:   # json_data is a dict, the function returns a string
+    ...
+
+
+def scrape_data() -> dict:                   # the result will be a dict
+    ...
+```
+
+Without a hint VS Code does not know what `json_data` is and offers nothing after `json_data.`. With the `dict` hint it offers dictionary methods (`get`, `keys`, `items`…). A return hint (`-> dict`) tells the editor the type of the variable you store the result in.
+
 We get real data from the service in the next chapter: [HTTP, JSON, and dictionaries](/devops-notes/en/python-advanced/http-a-json/).
 
 ## Test yourself
@@ -179,6 +228,14 @@ The functions are only defined — `def` does not run them. You have to call the
 
 <Question q='What is `if __name__ == "__main__":` for?'>
 The code under the condition runs only when the file is executed directly, not when another module imports it.
+</Question>
+
+<Question q='What type is `a` after `a = 10`, `a = "Jano"`, `a = True`?'>
+`bool`. Python is dynamically typed — the last assignment wins. In languages like C or Java such code would not get past the compiler.
+</Question>
+
+<Question q="What does `TypeError: process_data() takes 0 positional arguments but 1 was given` mean?">
+You call the function with an argument, but its definition has no parameter. Add one: `def process_data(data: dict):`.
 </Question>
 
 <Question q="Does Python check the type hint `def f(data: dict) -> str` at runtime?">

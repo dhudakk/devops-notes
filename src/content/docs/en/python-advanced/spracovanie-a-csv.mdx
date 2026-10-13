@@ -16,11 +16,14 @@ import Solution from '../../../../components/Solution.astro';
 - `process_data()` picks only the needed values from the dictionary and returns **one CSV line** (a string).
 - Times (`dt`, `sunrise`, `sunset`) are **Unix timestamps** — seconds since 1 January 1970 UTC.
 - **pendulum** converts times more comfortably than `datetime`: `pendulum.from_timestamp(ts).to_iso8601_string()`.
-- Write dates and times in **ISO 8601**: `2026-05-19T13:07:18Z` — unambiguous and with a time zone.
+- **Store times in UTC** and convert to local time only for display.
+- Write dates and times in **ISO 8601**: `2026-05-19T13:07:18Z` — unambiguous and with a time zone (`Z` = UTC).
 - Open the file with `with open("dataset.csv", mode="a") as f:` and write the line with `print(entry, file=f)`.
 </KeyPoints>
 
 ## The values we care about
+
+**CSV** (*comma-separated values*) is text where each line is one record and the values are separated by commas — or semicolons; the separator is a matter of agreement. **Column order matters**, so we decide it up front. In the lecture we chose the order *when → where → what*: time, city, country, temperature, humidity, pressure, wind speed and direction. Without the time the data would be meaningless — you could not, for example, plot it.
 
 | Value | Key in the response |
 | --- | --- |
@@ -39,22 +42,38 @@ Note: the slides list some keys in simplified form (`main.temperature`, `sunrise
 
 ## The process_data() function
 
-We keep appending measurements to a CSV file — `process_data()` returns **one line**, the newest. The version from the slides:
+We keep appending measurements to a CSV file — `process_data()` returns **one line**, the newest. The version from the lecture:
 
 ```python
-def process_data(data: dict) -> str:
+def process_data(json_data: dict) -> str:
     print(">> Processing Data")
     return "{};{};{};{};{};{};{};{}".format(
-        data["dt"],
-        data["main"]["temp"],
-        data["main"]["humidity"],
-        data["main"]["pressure"],
-        data["weather"][0]["main"],
-        data["visibility"],
-        data["wind"]["speed"],
-        data["wind"]["deg"],
+        json_data["dt"],
+        json_data["name"],
+        json_data["sys"]["country"],      # a dict inside a dict: first sys, then country
+        json_data["main"]["temp"],
+        json_data["main"]["humidity"],
+        json_data["main"]["pressure"],
+        json_data["wind"]["speed"],
+        json_data["wind"]["deg"],
     )
 ```
+
+The slides show a variant with `weather[0].main` and `visibility` instead of the city and country.
+
+### f-string vs `.format()`
+
+Both do the same thing. `.format()` is a string method that already existed in Python 2 — you can use it where f-strings are not available yet. Empty `{}` placeholders are filled by the arguments in order:
+
+```python
+name, surname, age = "Sherlock", "Holmes", 33
+
+f"{name} {surname} is {age} years old"
+"{} {} is {} years old".format(name, surname, age)
+# both: 'Sherlock Holmes is 33 years old'
+```
+
+With eight values `.format()` is easier to read — the template sits on one line and the values below it. You can `return` the result directly; an intermediate variable (`output = ...`) is only useful if you also want to log or print it.
 
 The workflow now passes data step by step:
 
@@ -66,7 +85,21 @@ publish_data(csv_entry)
 
 ## Time: Unix timestamps and pendulum
 
-`dt = 1779196038` is **Unix time** — the number of seconds since the start of the epoch, 1 January 1970 00:00 UTC. The standard library's `datetime` module could convert it, but it is not very comfortable to work with (especially time zones). We use **pendulum** — its `DateTime` type is backwards compatible with `datetime`.
+`dt = 1779196038` is **Unix time** — the number of seconds since the start of the *epoch*, 1 January 1970 00:00 UTC. Just as our calendar counts years from the birth of Christ, computers count time from this epoch. For a quick conversion to a readable date, use e.g. [epochconverter.com](https://www.epochconverter.com/).
+
+### Time zones and UTC
+
+**UTC** is the time at the prime meridian (Greenwich). Slovakia is UTC+1, UTC+2 in summer — that is why the converter shows the measurement two hours earlier than our clocks. OpenWeatherMap returns times in UTC.
+
+:::tip[Store time in UTC]
+When you store times or calculate with them, keep them in **UTC**. Convert to local time only when you show them to a user. Otherwise every record saved in a different country (Slovakia +2, Moscow +3…) would need its own conversion.
+:::
+
+A timestamp is also practical: it is a plain integer, needs no parsing, and arithmetic is easy — an hour later is `dt + 3600`.
+
+### The pendulum package
+
+The standard library's `datetime` module could convert it, but working with time and time zones there is clumsy. We use **pendulum** — its `DateTime` type is a subclass of `datetime`, so it is backwards compatible.
 
 ```bash
 (venv) $ pip install pendulum
@@ -80,7 +113,27 @@ DateTime(2026, 5, 19, 13, 7, 18, tzinfo=Timezone('UTC'))
 '2026-05-19T13:07:18Z'
 ```
 
+More useful calls:
+
+```python
+pendulum.now()                       # now, in the local zone (pendulum detects it)
+pendulum.now("Europe/Moscow")        # now in Moscow
+pendulum.now("UTC").to_iso8601_string()   # '…Z' — UTC
+
+local = pendulum.from_timestamp(1779196038, tz="Europe/Bratislava")
+local.to_iso8601_string()                       # '2026-05-19T15:07:18+02:00'
+local.in_timezone("UTC").to_iso8601_string()    # '2026-05-19T13:07:18Z'
+local.in_timezone("Europe/Moscow").to_iso8601_string()  # '2026-05-19T16:07:18+03:00'
+```
+
 For comparison, the standard library: `datetime.fromtimestamp(1779196038, tz=timezone.utc).isoformat()` returns `'2026-05-19T13:07:18+00:00'`.
+
+In `process_data()`, just convert the time before building the line:
+
+```python
+dt = pendulum.from_timestamp(json_data["dt"]).to_iso8601_string()
+return "{};{};{};{};{};{};{};{}".format(dt, json_data["name"], ...)
+```
 
 ### The ISO 8601 standard
 
@@ -92,7 +145,14 @@ Every country writes dates differently:
 | American | `MM/DD/YYYY` | `05/19/2026` |
 | Japanese / **ISO 8601** | `YYYY-MM-DD` | `2026-05-19` |
 
-So in the CSV we use the international **ISO 8601** standard: from the largest unit to the smallest, with time and time zone — `2026-05-19T13:07:18Z` (`T` separates date and time, `Z` means UTC). Such a string also sorts correctly as plain text.
+So in the CSV we use the international **ISO 8601** standard: from the largest unit to the smallest, with time and time zone. Such a string also sorts correctly as plain text.
+
+| Part | `2026-05-19T13:07:18Z` |
+| --- | --- |
+| date `YYYY-MM-DD` | `2026-05-19` |
+| date/time separator | `T` |
+| time `HH:MM:SS` | `13:07:18` |
+| time zone | `Z` = *Zulu* = UTC+0; otherwise an offset, e.g. `+02:00` |
 
 ## The publish_data() function
 
@@ -114,7 +174,8 @@ def publish_data(entry: str) -> None:
 | `"r+"`, `"w+"` | read and write |
 
 - `print(..., file=dataset)` writes the line including a trailing `\n`. `write()` does not add a newline.
-- **`with`** closes the file itself, even if an error happens. Without `with` you must call `file.close()`.
+- **`with`** (a context manager) closes the file itself, even if an error happens. The *context* is the indented block under `with` — while you are in it, the file is open; when the block ends, it is closed. Without `with` you must call `file.close()`. VS Code itself suggests *use context manager* when it sees `open()` without `with`.
+- Mode `"w"` is treacherous: if `dataset.csv` has 10,000 records and you open it with `"w"`, it is suddenly empty.
 
 :::caution[Why closing matters]
 The operating system lets a process keep only a limited number of files open. A long-running workflow that never closes files eventually hits the limit and fails. Check the current limit with `ulimit -n` (often `1024`).
@@ -124,6 +185,14 @@ The operating system lets a process keep only a limited number of files open. A 
 
 <Question q="What is a Unix timestamp?">
 The number of seconds since 1 January 1970 00:00:00 UTC (the start of the epoch). For example `1779196038` is `2026-05-19T13:07:18Z`.
+</Question>
+
+<Question q="Which time zone should you store times in, and when should you convert to local time?">
+Store and calculate in UTC. Convert to local time only when showing it to a user.
+</Question>
+
+<Question q="What does the `Z` at the end of `2026-05-19T13:07:18Z` mean?">
+*Zulu* — the UTC time zone (offset +00:00). With another zone the string ends with an offset, e.g. `+02:00`.
 </Question>
 
 <Question q="Why write dates in ISO 8601?">

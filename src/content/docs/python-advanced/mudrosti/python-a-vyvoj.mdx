@@ -16,19 +16,21 @@ Na kurze ide všetko cez **VS Code** — kvôli práci na vzdialenom serveri cez
 
 ## Ruff vytlačil Black
 
-Donedávna bol najobľúbenejší formátovač **Black**, prvenstvo prevzal **Ruff** — je formátovač **aj** linter v jednom a je extrémne rýchly.
+Donedávna bol najobľúbenejší formátovač **Black**, prvenstvo prevzal **Ruff** — je formátovač **aj** linter v jednom. Je napísaný v Ruste, takže je násobne rýchlejší ako Black či Flake8. Vo VS Code ho treba doinštalovať aj ako rozšírenie — inak *Format Document* hlási, že nemá formátovač.
 
 <p class="wisdom-day">Deň 1</p>
 
 ## ipython — „výrazne viac sexy“ interpreter
 
-Namiesto obyčajného `python` REPL použi **ipython**: farby, história, a hlavne `objekt.` + `Tab` ukáže všetky vlastnosti a metódy. Najrýchlejší spôsob, ako preskúmať neznámy objekt (napr. HTTP odpoveď).
+Namiesto obyčajného `python` REPL použi **ipython**: farby, história, a hlavne `objekt.` + `Tab` ukáže všetky vlastnosti a metódy a `premenná?` jej typ a dokumentáciu. Najrýchlejší spôsob, ako preskúmať neznámy objekt (napr. HTTP odpoveď).
+
+V tom je podľa Mireka sila Pythonu: v Jave je to stále dookola *uprav → skompiluj → spusti → pozeraj*. V Pythone si kód „vypipláš“ naživo v ipythone a keď si spokojný, prepíšeš ho do súboru a raz otestuješ.
 
 <p class="wisdom-day">Deň 1</p>
 
 ## f-stringy: THIS IS THE WAY
 
-Reťazce nespájaj cez `+` — „nanajvýš ak sú to dva reťazce, a aj vtedy sa zamyslite nad sebou“. Použi f-string: `f"{url}?q={query}"`.
+Reťazce nespájaj cez `+` — „nanajvýš ak sú to dva reťazce, a aj vtedy sa zamyslite nad sebou“. Pri dlhšom texte (napr. webová stránka) by si kurzorom hľadal, kde reťazec roztrhnúť a kde spojiť — „to sa ošediviete“. Použi f-string: `f"{url}?q={query}"`.
 
 <p class="wisdom-day">Deň 1</p>
 
@@ -71,6 +73,30 @@ APPID=<API_KEY> ./workflow.py kosice
 ## pendulum namiesto datetime, dátumy v ISO 8601
 
 S `datetime` sa nepracuje pohodlne, najmä s časovými zónami — **pendulum** je spätne kompatibilný a príjemnejší. A dátumy zapisuj v ISO 8601 (`2026-05-19T13:07:18Z`), nie po európsky ani „americkou logikou“ `MM/DD/YYYY`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Čas ukladaj v UTC
+
+Časy ukladaj a počítaj vždy v **UTC** a na lokálny čas ich preveď až pri zobrazení používateľovi. Inak každý záznam z inej krajiny potrebuje vlastný prepočet. Unix timestamp je navyše len celé číslo — „o hodinu neskôr“ je `+ 3600`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Keď VS Code nevidí nainštalované balíky
+
+Mirek priznáva, že VS Code je v tomto „nevyspytateľné“. Postup: vyber interpreter z venv (*Python: Select Interpreter*), potom *Python: Restart Language Server* — a keď nepomôže ani to, odpoj sa od servera a pripoj znova.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Klávesové skratky z IntelliJ
+
+Mirek používa vo VS Code klávesové skratky z IntelliJ (naformátovanie kódu je u neho `Ctrl+Alt+L`). Ak prechádzaš z PyCharmu či IntelliJ, VS Code má na to rozšírenie *IntelliJ IDEA Keybindings*. Predvolené formátovanie vo VS Code je `Shift+Alt+F`.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Dynamické typovanie
+
+V Pythone prejde `a = 10`, potom `a = "Jano"`, potom `a = True`. V C, Jave či C# by ťa prekladač „poslal kade ľahšie“. Programátori zo staticky typovaných jazykov si na to chvíľu zvykajú — type hinty im (aj editoru) pomôžu, ale za behu nič nekontrolujú.
 
 <p class="wisdom-day">Deň 1</p>
 

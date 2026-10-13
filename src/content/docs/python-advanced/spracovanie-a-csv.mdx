@@ -16,11 +16,14 @@ import Solution from '../../../components/Solution.astro';
 - `process_data()` vyberie zo slovníka iba potrebné hodnoty a vráti **jeden riadok CSV** (reťazec).
 - Čas (`dt`, `sunrise`, `sunset`) je **Unix timestamp** — sekundy od 1. 1. 1970 UTC.
 - **pendulum** prevádza čas pohodlnejšie ako `datetime`: `pendulum.from_timestamp(ts).to_iso8601_string()`.
-- Dátum a čas zapisuj vo formáte **ISO 8601**: `2026-05-19T13:07:18Z` — jednoznačný a so zónou.
+- Čas **ukladaj v UTC** a na lokálny čas ho preveď až pri zobrazení.
+- Dátum a čas zapisuj vo formáte **ISO 8601**: `2026-05-19T13:07:18Z` — jednoznačný a so zónou (`Z` = UTC).
 - Súbor otváraj cez `with open("dataset.csv", mode="a") as f:` a riadok zapíš `print(entry, file=f)`.
 </KeyPoints>
 
 ## Ktoré hodnoty nás zaujímajú
+
+**CSV** (*comma-separated values*) je text, v ktorom je každý riadok jeden záznam a hodnoty sú oddelené čiarkou — alebo bodkočiarkou, oddeľovač je vec dohody. Na **poradí stĺpcov záleží**, preto si ho určíme vopred. Na prednáške sme zvolili poradie *kedy → kde → čo*: čas, mesto, krajina, teplota, vlhkosť, tlak, rýchlosť a smer vetra. Bez času by údaje nemali zmysel — nedali by sa napríklad vyniesť do grafu.
 
 | Údaj | Kľúč v odpovedi |
 | --- | --- |
@@ -39,22 +42,38 @@ Pozor: na slajdoch sú niektoré kľúče uvedené zjednodušene (`main.temperat
 
 ## Funkcia process_data()
 
-Údaje budeme priebežne pridávať do CSV súboru — `process_data()` vráti **jeden riadok**, ten najnovší. Verzia zo slajdov:
+Údaje budeme priebežne pridávať do CSV súboru — `process_data()` vráti **jeden riadok**, ten najnovší. Verzia z prednášky:
 
 ```python
-def process_data(data: dict) -> str:
+def process_data(json_data: dict) -> str:
     print(">> Processing Data")
     return "{};{};{};{};{};{};{};{}".format(
-        data["dt"],
-        data["main"]["temp"],
-        data["main"]["humidity"],
-        data["main"]["pressure"],
-        data["weather"][0]["main"],
-        data["visibility"],
-        data["wind"]["speed"],
-        data["wind"]["deg"],
+        json_data["dt"],
+        json_data["name"],
+        json_data["sys"]["country"],      # slovník v slovníku: najprv sys, potom country
+        json_data["main"]["temp"],
+        json_data["main"]["humidity"],
+        json_data["main"]["pressure"],
+        json_data["wind"]["speed"],
+        json_data["wind"]["deg"],
     )
 ```
+
+Na slajdoch je variant s `weather[0].main` a `visibility` namiesto mesta a krajiny.
+
+### f-string vs. `.format()`
+
+Oba zápisy robia to isté. `.format()` je metóda reťazca, ktorá existovala už v Pythone 2 — použiješ ju aj tam, kde f-stringy ešte nie sú. Prázdne `{}` sa plnia argumentmi postupne, v poradí:
+
+```python
+name, surname, age = "Sherlock", "Holmes", 33
+
+f"{name} {surname} is {age} years old"
+"{} {} is {} years old".format(name, surname, age)
+# oba: 'Sherlock Holmes is 33 years old'
+```
+
+Pri ôsmich hodnotách je `.format()` prehľadnejší — šablóna je na jednom riadku a hodnoty pod ňou. Výsledok môžeš rovno vrátiť cez `return`; medzipremenná (`output = ...`) sa hodí, iba keď ju chceš ešte zalogovať alebo vypísať.
 
 Workflow teraz odovzdáva dáta krok za krokom:
 
@@ -66,7 +85,21 @@ publish_data(csv_entry)
 
 ## Čas: Unix timestamp a pendulum
 
-`dt = 1779196038` je **Unixový čas** — počet sekúnd od začiatku epochy, 1. 1. 1970 00:00 UTC. Na prevod by stačil modul `datetime` zo štandardnej knižnice, ale nepracuje sa s ním príliš pohodlne (najmä s časovými zónami). Použijeme **pendulum** — jeho typ `DateTime` je spätne kompatibilný s `datetime`.
+`dt = 1779196038` je **Unixový čas** — počet sekúnd od začiatku *epochy*, 1. 1. 1970 00:00 UTC. Tak ako náš letopočet počíta roky od narodenia Krista, počítače počítajú čas od tejto epochy. Rýchly prevod na čitateľný dátum nájdeš napr. na [epochconverter.com](https://www.epochconverter.com/).
+
+### Časové zóny a UTC
+
+**UTC** je čas na nultom poludníku (Greenwich). Slovensko má UTC+1, v lete UTC+2 — preto prevodník ukáže čas merania o dve hodiny skôr, než je na našich hodinkách. OpenWeatherMap vracia časy v UTC.
+
+:::tip[Čas ukladaj v UTC]
+Keď časy ukladáš alebo s nimi počítaš, drž ich v **UTC**. Na lokálny čas ich preveď až vtedy, keď ich ukazuješ používateľovi. Inak by každý záznam uložený v inej krajine (Slovensko +2, Moskva +3…) potreboval vlastný prepočet.
+:::
+
+Timestamp je navyše praktický: je to obyčajné celé číslo, netreba ho parsovať a počítať s ním je jednoduché — o hodinu neskôr je `dt + 3600`.
+
+### Balík pendulum
+
+Na prevod by stačil modul `datetime` zo štandardnej knižnice, ale s časom a časovými zónami sa v ňom pracuje ťažkopádne. Použijeme **pendulum** — jeho typ `DateTime` je podtrieda `datetime`, takže je s ním spätne kompatibilný.
 
 ```bash
 (venv) $ pip install pendulum
@@ -80,7 +113,27 @@ DateTime(2026, 5, 19, 13, 7, 18, tzinfo=Timezone('UTC'))
 '2026-05-19T13:07:18Z'
 ```
 
+Ďalšie užitočné volania:
+
+```python
+pendulum.now()                       # teraz, v lokálnej zóne (pendulum ju zistí sám)
+pendulum.now("Europe/Moscow")        # teraz v Moskve
+pendulum.now("UTC").to_iso8601_string()   # '…Z' — UTC
+
+local = pendulum.from_timestamp(1779196038, tz="Europe/Bratislava")
+local.to_iso8601_string()                       # '2026-05-19T15:07:18+02:00'
+local.in_timezone("UTC").to_iso8601_string()    # '2026-05-19T13:07:18Z'
+local.in_timezone("Europe/Moscow").to_iso8601_string()  # '2026-05-19T16:07:18+03:00'
+```
+
 Pre porovnanie, štandardná knižnica: `datetime.fromtimestamp(1779196038, tz=timezone.utc).isoformat()` vráti `'2026-05-19T13:07:18+00:00'`.
+
+V `process_data()` stačí čas previesť pred zložením riadku:
+
+```python
+dt = pendulum.from_timestamp(json_data["dt"]).to_iso8601_string()
+return "{};{};{};{};{};{};{};{}".format(dt, json_data["name"], ...)
+```
 
 ### Štandard ISO 8601
 
@@ -92,7 +145,14 @@ Každá krajina zapisuje dátum inak:
 | americká | `MM/DD/YYYY` | `05/19/2026` |
 | japonská / **ISO 8601** | `YYYY-MM-DD` | `2026-05-19` |
 
-Do CSV preto zapisujeme medzinárodný štandard **ISO 8601**: od najväčšej jednotky po najmenšiu, s časom a časovou zónou — `2026-05-19T13:07:18Z` (`T` oddeľuje dátum a čas, `Z` znamená UTC). Taký reťazec sa navyše dá správne zoradiť aj ako obyčajný text.
+Do CSV preto zapisujeme medzinárodný štandard **ISO 8601**: od najväčšej jednotky po najmenšiu, s časom a časovou zónou. Taký reťazec sa navyše dá správne zoradiť aj ako obyčajný text.
+
+| Časť | `2026-05-19T13:07:18Z` |
+| --- | --- |
+| dátum `YYYY-MM-DD` | `2026-05-19` |
+| oddeľovač dátumu a času | `T` |
+| čas `HH:MM:SS` | `13:07:18` |
+| časová zóna | `Z` = *Zulu* = UTC+0; inak posun, napr. `+02:00` |
 
 ## Funkcia publish_data()
 
@@ -114,7 +174,8 @@ def publish_data(entry: str) -> None:
 | `"r+"`, `"w+"` | čítanie aj zápis |
 
 - `print(..., file=dataset)` zapíše riadok aj s `\n` na konci. `write()` nový riadok nepridá.
-- **`with`** súbor zatvorí sám, aj keď nastane chyba. Bez `with` musíš volať `file.close()`.
+- **`with`** (kontextový manažér) súbor zatvorí sám, aj keď nastane chyba. *Kontext* je odsadený blok pod `with` — kým si v ňom, súbor je otvorený; keď blok skončí, zatvorí sa. Bez `with` musíš volať `file.close()`. VS Code ti pri `open()` bez `with` samo odporučí *use context manager*.
+- Režim `"w"` je zradný: ak má `dataset.csv` 10 000 záznamov a otvoríš ho s `"w"`, má zrazu nulovú veľkosť.
 
 :::caution[Prečo na zatváraní záleží]
 Operačný systém dovolí procesu mať otvorený iba obmedzený počet súborov. Workflow, ktorý beží dlho a súbory nezatvára, raz narazí na limit a zlyhá. Aktuálny limit zistíš príkazom `ulimit -n` (často `1024`).
@@ -124,6 +185,14 @@ Operačný systém dovolí procesu mať otvorený iba obmedzený počet súborov
 
 <Question q="Čo je Unix timestamp?">
 Počet sekúnd od 1. januára 1970 00:00:00 UTC (začiatok epochy). Napr. `1779196038` je `2026-05-19T13:07:18Z`.
+</Question>
+
+<Question q="V akej časovej zóne ukladať časy a kedy ich prevádzať na lokálny čas?">
+Ukladať a počítať v UTC. Na lokálny čas prevádzať až pri zobrazení používateľovi.
+</Question>
+
+<Question q="Čo znamená `Z` na konci `2026-05-19T13:07:18Z`?">
+*Zulu* — časová zóna UTC (posun +00:00). Pri inej zóne je na konci posun, napr. `+02:00`.
 </Question>
 
 <Question q="Prečo zapisovať dátum vo formáte ISO 8601?">

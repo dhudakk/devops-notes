@@ -20,6 +20,10 @@ import Solution from '../../../../components/Solution.astro';
 - `sys.exit("message")` prints the message to `stderr` and exits with **exit code 1** (success is `0`). Instead of “magic numbers”, use `HTTPStatus.NOT_FOUND`.
 </KeyPoints>
 
+:::note[When this is covered]
+This chapter comes from the day 1 slides, but in the lecture the command-line options are finished only at the start of the next session. The instructor's plan: `query` is the only required argument, `units` has a default, and `appid` is read from an environment variable.
+:::
+
 ## Command-line options
 
 The workflow will later run in the background, but you often need a tool whose behaviour you change with options when you run it. The standard library has `argparse`; we use the more comfortable **click** package.

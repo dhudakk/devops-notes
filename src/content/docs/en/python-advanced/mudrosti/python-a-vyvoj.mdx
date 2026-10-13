@@ -16,19 +16,21 @@ The course uses **VS Code** throughout — because we work on a remote server ov
 
 ## Ruff pushed out Black
 
-Until recently **Black** was the most popular formatter; **Ruff** has taken the lead — it is a formatter **and** a linter in one, and extremely fast.
+Until recently **Black** was the most popular formatter; **Ruff** has taken the lead — it is a formatter **and** a linter in one. It is written in Rust, so it is many times faster than Black or Flake8. In VS Code you also need to install it as an extension — otherwise *Format Document* reports that no formatter is installed.
 
 <p class="wisdom-day">Day 1</p>
 
 ## ipython — a “much sexier” interpreter
 
-Instead of the plain `python` REPL, use **ipython**: colours, history, and above all `object.` + `Tab` lists every attribute and method. The fastest way to explore an unfamiliar object (such as an HTTP response).
+Instead of the plain `python` REPL, use **ipython**: colours, history, and above all `object.` + `Tab` lists every attribute and method, and `variable?` shows its type and documentation. The fastest way to explore an unfamiliar object (such as an HTTP response).
+
+According to Mirek this is Python's strength: in Java it is always *edit → compile → run → look*. In Python you polish the code live in ipython, and once you are happy you copy it into the file and test it once.
 
 <p class="wisdom-day">Day 1</p>
 
 ## f-strings: THIS IS THE WAY
 
-Do not join strings with `+` — “at most if there are two strings, and even then, reflect on yourself”. Use an f-string: `f"{url}?q={query}"`.
+Do not join strings with `+` — “at most if there are two strings, and even then, reflect on yourself”. With longer text (say, a web page) you would be moving the cursor around looking for where to split and where to join — “you will go grey”. Use an f-string: `f"{url}?q={query}"`.
 
 <p class="wisdom-day">Day 1</p>
 
@@ -71,6 +73,30 @@ APPID=<API_KEY> ./workflow.py kosice
 ## pendulum instead of datetime, dates in ISO 8601
 
 `datetime` is not comfortable to work with, especially time zones — **pendulum** is backwards compatible and nicer. And write dates in ISO 8601 (`2026-05-19T13:07:18Z`), not the European way or with the “American logic” of `MM/DD/YYYY`.
+
+<p class="wisdom-day">Day 1</p>
+
+## Store time in UTC
+
+Always store and calculate times in **UTC**, and convert to local time only when showing it to a user. Otherwise every record from a different country needs its own conversion. A Unix timestamp is also just an integer — “an hour later” is `+ 3600`.
+
+<p class="wisdom-day">Day 1</p>
+
+## When VS Code does not see installed packages
+
+Mirek admits VS Code is “unpredictable” here. The routine: select the venv interpreter (*Python: Select Interpreter*), then *Python: Restart Language Server* — and if even that does not help, disconnect from the server and reconnect.
+
+<p class="wisdom-day">Day 1</p>
+
+## IntelliJ keyboard shortcuts
+
+Mirek uses IntelliJ keyboard shortcuts in VS Code (formatting code is `Ctrl+Alt+L` for him). If you are coming from PyCharm or IntelliJ, VS Code has the *IntelliJ IDEA Keybindings* extension. The default format shortcut in VS Code is `Shift+Alt+F`.
+
+<p class="wisdom-day">Day 1</p>
+
+## Dynamic typing
+
+In Python, `a = 10`, then `a = "Jano"`, then `a = True` is fine. In C, Java, or C# the compiler would tell you exactly what it thinks of you. Programmers from statically typed languages need a while to get used to it — type hints help them (and the editor), but check nothing at runtime.
 
 <p class="wisdom-day">Day 1</p>
 

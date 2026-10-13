@@ -13,6 +13,7 @@ sidebar:
 ```bash title="venv"
 python3 -m venv venv       # vytvor
 source venv/bin/activate   # aktivuj → (venv) $
+which python               # …/venv/bin/python
 deactivate                 # vypni
 ```
 
@@ -102,6 +103,9 @@ import pendulum
 
 dt = pendulum.from_timestamp(1779196038)
 dt.to_iso8601_string()  # '2026-05-19T13:07:18Z'
+pendulum.now("Europe/Moscow")  # teraz v Moskve
+dt.in_timezone("Europe/Bratislava")  # +02:00
+# ukladaj v UTC, prevádzaj až pri zobrazení
 ```
 
 ```python title="Súbory"
@@ -143,6 +147,9 @@ if response.status_code == HTTPStatus.NOT_FOUND:
 | Čo | Ako |
 | --- | --- |
 | typ premennej | `type(var)` |
+| info o premennej v ipythone | `var?` |
+| HTTP stavové kódy | `2xx` OK · `3xx` presmerovanie · `4xx` chyba klienta · `5xx` chyba servera |
+| exit status v Bashi | `echo $?` — `0` OK, inak chyba |
 | dĺžka reťazca / zoznamu | `len(var)` |
 | skladanie reťazcov | f-string: `f"{url}?q={query}"` |
 | kľúč nie v kóde ani v argumentoch | `APPID=... ./workflow.py kosice` |

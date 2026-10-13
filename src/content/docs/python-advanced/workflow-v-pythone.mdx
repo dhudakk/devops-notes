@@ -161,6 +161,55 @@ if __name__ == "__main__":
     main()
 ```
 
+### Parametre vs. argumenty pri volaní
+
+- Názov parametra v definícii **nemusí** byť rovnaký ako názov premennej pri volaní. `process_data(measurement)` pokojne odovzdá hodnotu do parametra `data` (alebo `json_data`).
+- Keď funkcii pošleš argument, ale v definícii parameter nemá, Python sa zrúti:
+
+  ```text
+  TypeError: process_data() takes 0 positional arguments but 1 was given
+  ```
+
+### Skúšanie funkcií v ipythone
+
+Funkciu nemusíš zakaždým skúšať spustením celého skriptu. V ipythone si ju naimportuješ a hráš sa s ňou:
+
+```python
+In [1]: from workflow import scrape_data
+In [2]: scrape_data()            # ipython vypíše vrátenú hodnotu
+Out[2]: {'name': 'Košice', 'main': {'temp': 15.8}}
+In [3]: data = scrape_data()     # uložené do premennej — nevypíše sa nič
+In [4]: data?                    # typ, hodnota, dĺžka a dokumentácia
+```
+
+Interaktívny interpreter vypíše výsledok výrazu, ktorý si **neuložil** do premennej — to nie je `print()` vo funkcii, ale ozvena REPL. Po zmene súboru ipython reštartuj (`exit` a znova `ipython`), inak ostane načítaná stará verzia modulu.
+
+### Dynamické typovanie a type hinty
+
+Python je **dynamicky typovaný** jazyk — premenná môže počas behu meniť typ:
+
+```python
+a = 10        # int
+a = "Jano"    # str
+a = True      # bool
+type(a)       # <class 'bool'> — platí posledné priradenie
+```
+
+V staticky typovaných jazykoch (C, Java, C#) prekladač takýto kód odmietne: keď je `a` typu `int`, reťazec doň nevložíš. Kto prichádza z týchto jazykov, chvíľu si zvyká.
+
+Type hinty tento rozdiel čiastočne preklenú — **nemajú vplyv na beh ani výkon**, sú to pomôcky pre editor:
+
+```python
+def process_data(json_data: dict) -> str:   # json_data je slovník, funkcia vráti reťazec
+    ...
+
+
+def scrape_data() -> dict:                   # výsledok bude slovník
+    ...
+```
+
+Bez hintu VS Code nevie, čo je `json_data`, a po napísaní `json_data.` neponúkne nič. S hintom `dict` ponúkne metódy slovníka (`get`, `keys`, `items`…). Hint pri návratovej hodnote (`-> dict`) zas povie editoru, akého typu bude premenná, do ktorej výsledok uložíš.
+
 Skutočné dáta zo služby dostaneme v ďalšej kapitole: [HTTP, JSON a slovníky](/devops-notes/python-advanced/http-a-json/).
 
 ## Otestuj sa
@@ -179,6 +228,14 @@ Funkcie sú iba definované — `def` ich nespustí. Treba ich zavolať: `scrape
 
 <Question q='Načo je `if __name__ == "__main__":`?'>
 Kód pod podmienkou sa vykoná iba pri priamom spustení súboru, nie pri jeho importe z iného modulu.
+</Question>
+
+<Question q='Akého typu je `a` po `a = 10`, `a = "Jano"`, `a = True`?'>
+`bool`. Python je dynamicky typovaný — platí posledné priradenie. V jazykoch ako C alebo Java by taký kód neprešiel cez prekladač.
+</Question>
+
+<Question q="Čo znamená chyba `TypeError: process_data() takes 0 positional arguments but 1 was given`?">
+Funkciu voláš s argumentom, ale v jej definícii chýba parameter. Doplň ho: `def process_data(data: dict):`.
 </Question>
 
 <Question q="Skontroluje Python za behu type hint `def f(data: dict) -> str`?">
