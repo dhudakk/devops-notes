@@ -77,3 +77,35 @@ On a machine with 4 GB of RAM, Airflow easily runs out of memory — the machine
 VS Code stores a new version in `~/.vscode-server` on the server with every update, and the disk slowly fills up. Mirek has a script that keeps only the two newest versions and runs it from crontab every midnight — see [Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/#cleaning-up-the-vs-code-server).
 
 <p class="wisdom-day">Day 2</p>
+
+## Airflow as a systemd service
+
+Mirek's experiment on day 3: running Airflow as a **systemd unit** instead of in tmux. What appeals to him most is `KillMode=control-group` — on stop, systemd kills everything the service started, and `Restart=on-failure` restarts it by itself after a crash. “I haven't done this before, but I see potential in it.” The steps are in [Installing Airflow](/devops-notes/en/python-advanced/airflow-instalacia/#a-systemd-service).
+
+<p class="wisdom-day">Day 3</p>
+
+## Swap disappears after a reboot
+
+On day 3 Mirek's machine froze again — after a reboot his swap was zero. `swapon` lasts only until a reboot; to enable it permanently, add a line to `/etc/fstab`:
+
+```text
+/swapfile none swap sw 0 0
+```
+
+<p class="wisdom-day">Day 3</p>
+
+## sh — commands as Python functions
+
+There is `os.system`, `subprocess`… for running commands from Python, but the **sh** module is “extremely user friendly”: `from sh import ping` and `ping("-c", 1, host)`. It has perks like `_timeout=3`. “When you work with the shell and don't need anything massive, this module is just great.” More in [Healthcheck](/devops-notes/en/python-advanced/healthcheck/#way-2-the-sh-module).
+
+<p class="wisdom-day">Day 3</p>
+
+## Let a JSON Schema be generated
+
+You do not need to write a schema from scratch:
+
+- [jsonschemavalidator.net](https://www.jsonschemavalidator.net/) — schema on the left, document on the right, errors show up immediately,
+- online generators (*JSON schema from document*) build a skeleton from a sample JSON,
+- Claude or ChatGPT also add ranges and descriptions — just say it is a response from openweathermap.org.
+
+<p class="wisdom-day">Day 3</p>

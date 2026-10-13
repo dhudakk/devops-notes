@@ -77,3 +77,35 @@ Na stroji so 4 GB RAM Airflow ľahko minie pamäť — stroj zamrzne a padá SSH
 VS Code si pri každej aktualizácii uloží na server novú verziu do `~/.vscode-server` a disk sa pomaly plní. Mirek má na to skript, ktorý ponechá iba dve najnovšie verzie, a spúšťa ho z crontabu každú polnoc — pozri [Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/#upratanie-vs-code-servera).
 
 <p class="wisdom-day">Deň 2</p>
+
+## Airflow ako systemd služba
+
+Mirekov pokus z 3. dňa: namiesto tmux-u spúšťať Airflow ako **systemd unit**. Najviac ho láka `KillMode=control-group` — pri zastavení systemd zabije všetko, čo služba naspúšťala, a `Restart=on-failure` ju po páde sám znova spustí. „Toto som ešte nerobil, ale vidím v tom potenciál.“ Postup je v [Inštalácia Airflow](/devops-notes/python-advanced/airflow-instalacia/#systemd-služba).
+
+<p class="wisdom-day">Deň 3</p>
+
+## Swap po reštarte zmizne
+
+Mirekovi na 3. deň opäť zamŕzal stroj — swap mal po reštarte nulový. `swapon` platí iba do reštartu; natrvalo ho zapneš riadkom v `/etc/fstab`:
+
+```text
+/swapfile none swap sw 0 0
+```
+
+<p class="wisdom-day">Deň 3</p>
+
+## sh — príkazy ako Python funkcie
+
+Na spúšťanie príkazov z Pythonu je `os.system`, `subprocess`… ale modul **sh** je „extrémne user friendly“: `from sh import ping` a `ping("-c", 1, host)`. Má aj vychytávky ako `_timeout=3`. „Keď budete robiť so shellom a nebudete špekulovať nad masakrálnymi vecami, tento modul je úplne šupa.“ Viac v [Healthcheck](/devops-notes/python-advanced/healthcheck/#spôsob-2-modul-sh).
+
+<p class="wisdom-day">Deň 3</p>
+
+## JSON schému si nechaj vygenerovať
+
+Schému netreba písať od nuly:
+
+- [jsonschemavalidator.net](https://www.jsonschemavalidator.net/) — vľavo schéma, vpravo dokument, chyby vidíš hneď,
+- online generátory (*JSON schema from document*) vytvoria kostru zo vzorového JSON-u,
+- Claude či ChatGPT pridajú aj rozsahy a popisy — stačí povedať, že ide o odpoveď z openweathermap.org.
+
+<p class="wisdom-day">Deň 3</p>

@@ -60,7 +60,7 @@ export AIRFLOW_HOME=$(pwd)/airflow_home
 | `[core] max_active_runs_per_dag` | `1` (default 16) | how many runs of one DAG at once |
 | `[api] expose_config` | `True` | the configuration is also shown in the web UI |
 
-The lower parallelism values come from the slides — the lab machines have only **2 cores, 4 GB RAM, and a 20 GB disk**.
+The lower parallelism values come from the slides — the lab machines have only **2 cores, 4 GB RAM, and a 20 GB disk**. On day 3 the instructor advised everyone to lower them (`parallelism = 4`): SQLite is a bottleneck anyway, and tasks practically run one after another. Restart Airflow after the change.
 
 Airflow reaches its database through **SQLAlchemy**, the most popular Python ORM; `sql_alchemy_conn` is its *connection string*. **SQLite** (everything in one file) is enough for the course, but it is slower and does not support parallelism — **not for production**, where PostgreSQL belongs.
 
@@ -150,13 +150,22 @@ TimeoutStopSec=30
 WantedBy=multi-user.target
 ```
 
+You can write the unit anywhere, e.g. in `~/airflow` in VS Code, and copy it afterwards — only root can write to `/etc/systemd/system/`:
+
 ```bash
-sudo systemctl daemon-reload
+sudo cp airflow.service /etc/systemd/system/
+sudo systemctl daemon-reload            # systemd loads the new unit
 sudo systemctl enable --now airflow     # start now and after every reboot
 sudo systemctl status airflow           # state and the latest logs
 sudo journalctl -u airflow -f           # live log
 sudo systemctl restart airflow          # clean restart without orphaned processes
 ```
+
+- `WantedBy=multi-user.target` — the service starts after the system boots (after the network subsystem).
+- `Restart=on-failure` — when Airflow crashes, systemd starts it again by itself.
+- Before the first start, **stop the `airflow standalone`** running in a terminal (`Ctrl+C`) — otherwise port 8080 is taken. In the course a `sudo reboot` also helped by clearing leftover processes.
+- After changing `airflow.cfg`, run `sudo systemctl restart airflow`.
+- There are also user units (`systemctl --user`, files in `~/.config/systemd/user/`) that need no `sudo` — we did not use them in the course.
 
 ## PostgreSQL in Docker (optional)
 
@@ -250,6 +259,8 @@ Adding it to crontab (every midnight; an existing entry is replaced):
 | the UI runs but there are no DAGs | you started only `airflow api-server` → run `airflow standalone` |
 | tasks fail, state *queued* / *state mismatch*, JWT in the logs | a trimmed `airflow.cfg` without `jwt_secret` → restore the generated config |
 | the machine freezes, SSH / VS Code drops | out of RAM → enable swap, watch `free -h` |
+| the systemd service runs, but the UI does not work / the port is taken | `airflow standalone` is still running in a terminal → `Ctrl+C`, or `sudo reboot` |
+| `ModuleNotFoundError` for your own module | the module is not directly in `dags/` (e.g. saved into `__pycache__` by mistake) — see [Project structure](/devops-notes/en/python-advanced/struktura-projektu/#imports) |
 | VS Code underlines `from airflow.sdk import dag` | select the venv interpreter and *Python: Restart Language Server* |
 
 After loading, a `__pycache__` folder appears in `dags/` — the module's precompiled bytecode. It is a side effect of Python loading the file.

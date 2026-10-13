@@ -159,3 +159,33 @@ From a Kiwi.com talk: they put the run frequency into the DAG name too (e.g. “
 Mirek replaced the generated `airflow.cfg` with a short version holding “only what is needed” — and tasks started failing mysteriously. It was missing the random `jwt_secret`. Lesson: keep a generated config whole and change only what you need.
 
 <p class="wisdom-day">Day 2</p>
+
+## pathlib — “you want to use it”
+
+Whenever you do anything with paths — joining them, separating a name from its suffix, finding the parent — use `pathlib.Path`. Forget strings and `os.path`: “It's a really great thing, I have nothing more to add.” See [Project structure](/devops-notes/en/python-advanced/struktura-projektu/#the-pathlib-module).
+
+<p class="wisdom-day">Day 3</p>
+
+## print is DEBUG — and DEBUG never in production
+
+The simplest rule of thumb: anything you would `print()` as a check print is the **DEBUG** level. And never enable that in production — developers print even credentials there, which in production belong to real people.
+
+<p class="wisdom-day">Day 3</p>
+
+## loguru for your own tools
+
+For scripts and CLI tools he recommends the **loguru** library: `from loguru import logger` and you log straight away in a nice coloured format, nothing to configure. A pity it is not compatible with Airflow — stick with `logging` there.
+
+<p class="wisdom-day">Day 3</p>
+
+## sys.exit is a headshot
+
+`sys.exit(1)` in the middle of a program is like a headshot in Quake — the whole game closes and you have to start it again. Report an error in an Airflow task with an **exception**.
+
+<p class="wisdom-day">Day 3</p>
+
+## PyCharm remotely needs a strong machine
+
+PyCharm is still the best environment for Python, but remote development (as in the course) needs a much better machine: it once took 2 GB of disk straight away and kept complaining about low resources. The VS Code server is more modest, although it grows too (1.1 GB on Mirek's machine). Remote development in PyCharm may need a paid licence.
+
+<p class="wisdom-day">Day 3</p>

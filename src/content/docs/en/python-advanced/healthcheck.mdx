@@ -1,0 +1,347 @@
+---
+title: Healthchecks, Parallel Tasks, and Retries
+description: Checking that a service is up before downloading — ping via @task.bash and the sh module, HTTP /health; chaining with >>, parallel tasks in a list, retries (retries, retry_delay), task_display_name, and task groups.
+kind: chapter
+day: 3
+sidebar:
+  order: 15
+  label: 15 · Healthcheck and retries
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+import Pipeline from '../../../../components/Pipeline.astro';
+
+<KeyPoints>
+- A **healthcheck** checks that the service is alive before downloading. If it fails, the rest of the DAG does not run.
+- Put a task that returns nothing before another one with the **`>>`** operator: `is_service_alive() >> scrape_data(query)`.
+- Independent tasks run **in parallel** when you put them in a list: `[a(), b(), c()] >> scrape_data(query)`. The next task runs only if **all** of them succeed.
+- `@task.bash` — the task returns a string and Airflow runs it as a Bash command. The **`sh`** module turns a command into a Python function: `from sh import ping`.
+- `retries=3, retry_delay=timedelta(seconds=10)` → up to **4** attempts with a 10 s pause. `task_display_name="…"` = a readable name in the UI.
+- RustFS has a **`/health`** endpoint — 200 = a healthy service.
+</KeyPoints>
+
+## What a healthcheck is
+
+Scraping works only if the service on the other side is alive. A **healthcheck** is a mechanism to verify that in some public or available way. You know it from other tools too:
+
+- **Kubernetes** — probes: *liveness*, *readiness*, *startup*,
+- **Docker** — the `HEALTHCHECK` instruction in a Dockerfile; Docker then reports by itself whether the container is healthy.
+
+| The service has… | Healthcheck | Healthy when… |
+| --- | --- | --- |
+| an HTTP interface | a request to an endpoint (`/health`, `/healthz`, `/livez`…) | it returns **200**; `5xx` = a server-side error |
+| only an open port | connecting to the port (e.g. FTP on 21) | the connection succeeds |
+| only a process | running a check command | the command exits with code **0** |
+
+`/health` is the most common; `/healthz` comes from the so-called *z-pages* (Kubernetes and Google). OpenWeatherMap has no such endpoint.
+
+## Step 1: an empty task at the start
+
+First just a task that does nothing — and placing it before `scrape_data`:
+
+```python
+@task
+def is_service_alive() -> None:
+    logger.info("Checking status of the service")
+```
+
+If you only called it in `main()`, it would hang alone in the graph, connected to nothing. It returns nothing, so you cannot pass it as an argument. For ordering tasks that **do not pass data**, there is the **bit-shift operator `>>`**:
+
+```python
+@dag(...)
+def main(query: str = "kosice,sk"):
+    data = is_service_alive() >> scrape_data(query)    # healthcheck first, then scrape
+    valid_data = validate_data(data)
+    entry = process_data(valid_data)
+    publish_data(entry)
+```
+
+`a >> b` = “`b` runs only after `a` succeeds” (the other way, `b << a`). The expression returns the right-hand side, so `data` is the result of `scrape_data`.
+
+<Pipeline steps={['is_service_alive', 'scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+**Why, if it would fail in `scrape_data` anyway?** The healthcheck stops the whole run right at the start and says clearly why. Without it, downloading from an unavailable service can hang and retry (depending on timeouts and `retries`) for several minutes — and meanwhile the schedule starts another run.
+
+## Step 2: ping — the most naive healthcheck
+
+We only check whether the **machine** is reachable — not whether the service runs on it:
+
+```bash
+ping -c 1 -w 2 api.openweathermap.org
+```
+
+| Option (Linux) | Meaning |
+| --- | --- |
+| `-c 1` | *count* — send one packet (otherwise ping runs forever) |
+| `-w 2` | *deadline* — at most 2 seconds in total, then exit |
+| `-W 2` | *timeout* — how long to wait for one reply |
+
+Timeouts matter a lot in healthchecks — nothing may be left hanging and waiting. (macOS has no `-w`; the deadline there is `-t`.)
+
+### Way 1: `@task.bash`
+
+```python
+@task.bash(task_display_name="Ping OpenWeatherMap")
+def is_service_alive_in_bash() -> str:
+    conn = BaseHook.get_connection("openweathermap")
+    return f"ping -c 1 -w 2 {conn.host}"      # Airflow runs the returned string in Bash
+```
+
+`@task.bash` is a different kind of operator: the function's return value is a **Bash command** that Airflow runs. The task succeeds if the command exits with 0. The log shows *Running command: ping …* and the command's output. (Another, most direct way in plain Python would be `os.system(...)`.)
+
+### Way 2: the `sh` module
+
+```bash
+(venv) $ pip install sh
+```
+
+The **sh** module (from *shell*) is extremely user-friendly. A mechanism the documentation calls the *bakery* “bakes” any command on the system into a Python function:
+
+```python
+>>> from sh import ls, ip, docker
+>>> ls()                                # $ ls
+>>> ls("-l", "/home/ubuntu")             # $ ls -l /home/ubuntu
+>>> ip("addr")                          # $ ip addr
+>>> docker("container", "ls")           # $ docker container ls
+```
+
+- The function returns the command's output as a string.
+- A non-zero exit code raises `sh.ErrorReturnCode_<code>` — so in a task, just calling the command is enough.
+- Special arguments start with an underscore, e.g. **`_timeout=3`**: if the command does not finish within 3 s, it is killed and `sh.TimeoutException` is raised.
+- Other keyword arguments become options: `w=2` → `-w 2`, `timeout=2` → `--timeout=2`.
+
+```python
+from sh import ping
+
+
+@task(task_display_name="Ping OpenWeatherMap (sh)")
+def is_service_alive_sh() -> None:
+    logger.info("Checking status of the service with sh module")
+    conn = BaseHook.get_connection("openweathermap")
+    ping("-c", 1, "-w", 2, conn.host)        # failure → ErrorReturnCode → task failed
+```
+
+It is an ordinary Python task — the log does not show the command output as with `@task.bash`, only *process started*.
+
+:::caution[`timeout=` vs. `_timeout=`]
+In the course it was said that `ping(host, timeout=2)` replaces `-w 2`. But sh turns `timeout=2` into the option `--timeout=2`, which ping does not know. The right way is `ping("-w", 2, host)` (or `w=2`), or `_timeout=2` — a time limit enforced by the sh module itself.
+:::
+
+## Step 3: parallel tasks
+
+We have two healthchecks, and more services will come later. One after another they would run like this:
+
+```python
+data = is_service_alive_in_bash() >> is_service_alive_sh() >> scrape_data(query)
+```
+
+But they **do not depend** on each other. If each takes 10 s, in sequence that is 20 s, in parallel only 10 s. Put parallel tasks in a **list**:
+
+```python
+data = [is_service_alive_in_bash(), is_service_alive_sh()] >> scrape_data(query)
+```
+
+<Pipeline steps={[['is_service_alive_in_bash', 'is_service_alive_sh'], 'scrape_data', 'validate_data', '…']} />
+
+`scrape_data` starts only if **all** the tasks before it end successfully. One failed healthcheck is enough to stop everything:
+
+<Pipeline steps={[[{ label: 'is_service_alive_in_bash', state: 'success' }, { label: 'is_service_alive_sh', state: 'failed' }], { label: 'scrape_data', state: 'upstream_failed' }, { label: 'validate_data', state: 'upstream_failed' }]} caption="One healthcheck failed → the rest is upstream_failed (orange)." />
+
+The task parameter `trigger_rule` can change this behaviour (e.g. `"all_done"`, `"one_success"`); the default is `"all_success"` — exactly what we want for healthchecks.
+
+## Step 4: retrying on failure
+
+A service may be unavailable only for a moment. A task can take parameters that repeat it on failure:
+
+```python
+from datetime import timedelta
+
+
+@task(retries=3, retry_delay=timedelta(seconds=10))
+def is_service_alive() -> None:
+    ...
+```
+
+- **`retries=3`** = 3 **retries** after the first failed attempt, so **up to 4 runs**. (In the course the instructor wondered why the task ran 4 times — that is why.)
+- **`retry_delay`** is the pause between attempts, as a `timedelta` from the `datetime` module (not from `time`). Without it, `default_task_retry_delay` from the configuration applies — **300 s**.
+- While waiting for the next attempt, the task is in the **`up_for_retry`** state (yellow), and the tasks after it wait.
+- A retry follows an ordinary exception. **`AirflowFailException` skips retrying** — see [Logging and errors](/devops-notes/en/python-advanced/logovanie-a-chyby/#how-to-stop-a-task).
+
+## Readable task names
+
+Just as a DAG has a `dag_id` and a `dag_display_name`, a task has **`task_display_name`** — the UI shows it instead of the function name:
+
+```python
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    ...
+```
+
+The function name (`scrape_data`) stays the `task_id`, which is used in the CLI and in logs.
+
+## Lab: a RustFS healthcheck
+
+Tomorrow we will not store the dataset on the server's disk but in **S3** (AWS object storage). Instead of AWS, the course uses **RustFS** — an open-source, S3-compatible store written in Rust. The best known so far was **MinIO**, but after a licence change it is no longer (fully) open source; the community therefore created RustFS, which is even faster.
+
+The workflow will depend on RustFS as well, so it needs its own healthcheck. Unlike OpenWeatherMap, RustFS **has a `/health` endpoint**:
+
+```bash
+$ http <rustfs-host>:9000/health
+HTTP/1.1 200 OK
+...
+```
+
+The response body does not matter (`"status": "ok"`) — the **HTTP status code** decides.
+
+**Task:** create an `is_rustfs_alive()` task that reads the details from the `rustfs` connection (Admin → Connections), sends `httpx.get` to `/health`, and raises `AirflowFailException` if it does not return `200`. Put it **in parallel** with the other healthchecks.
+
+<Solution>
+```python
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection("rustfs")
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health")
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowFailException("RustFS is unhealthy.")
+```
+
+```python
+def main(query: str = "kosice,sk"):
+    data = [
+        is_service_alive_in_bash(),
+        is_service_alive_sh(),
+        is_rustfs_alive(),
+    ] >> scrape_data(query)
+    ...
+```
+
+The slides use `httpx.head` — the server sends only headers without a body, which is enough for a healthcheck. It works only if the endpoint supports HEAD, though. If you want retries during an outage, use `AirflowException` and `retries`.
+</Solution>
+
+## Task groups
+
+*From the day 3 slides.* As healthchecks pile up, the graph gets cluttered. A **task group** groups tasks logically within a DAG — it does not affect execution and serves for:
+
+- better code organisation,
+- a clearer UI (the group can be collapsed and expanded in the graph),
+- grouping related steps.
+
+```python
+from airflow.sdk import task_group
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [
+        is_service_alive_in_bash(),
+        is_service_alive(),
+        is_rustfs_alive(),
+    ]
+```
+
+You work with the group like with any task:
+
+```python
+@dag(...)
+def main(query: str = "kosice,sk"):
+    data = tg_healthcheck() >> scrape_data(query)
+    ...
+```
+
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['is_service_alive_in_bash', 'is_service_alive', 'is_rustfs_alive'] }, 'scrape_data', '…']} />
+
+Task IDs inside the group get the group's prefix: `tg_healthcheck.is_rustfs_alive` (turn it off with `prefix_group_id=False`). You can group downloading, processing, and publishing the same way — the example is in [Dynamic task mapping](/devops-notes/en/python-advanced/dynamicke-mapovanie/#the-weather-ingestion-group).
+
+## Test yourself
+
+<Question q="Which three kinds of healthcheck do you know, and when is the service healthy?">
+An HTTP endpoint (healthy on 200), an open port (the connection succeeds), and a check command (exit code 0).
+</Question>
+
+<Question q="What does `is_service_alive() >> scrape_data(query)` mean?">
+`scrape_data` runs only after `is_service_alive` ends successfully. The `>>` operator sets the order of tasks that do not pass data to each other.
+</Question>
+
+<Question q="How do you run two healthchecks in parallel before `scrape_data`, and when does `scrape_data` start?">
+`[a(), b()] >> scrape_data(query)`. It starts only if both succeed (the default `trigger_rule="all_success"`); if one fails, `scrape_data` is `upstream_failed`.
+</Question>
+
+<Question q="What does a task with the `@task.bash` decorator do?">
+It runs the function's return value (a string) as a Bash command. The task succeeds if the command exits with 0.
+</Question>
+
+<Question q='What do `from sh import ping` and `ping("-c", 1, host, _timeout=3)` do?'>
+The sh module creates a Python function from the `ping` command. The call runs `ping -c 1 <host>`; if it does not finish within 3 s, sh kills it and raises `TimeoutException`. A non-zero exit code raises `ErrorReturnCode`.
+</Question>
+
+<Question q="At most how many times does a task with `retries=3` run, and what does `retry_delay` set?">
+4 times (the first run + 3 retries). `retry_delay` is the pause between attempts (a `timedelta`); 300 s by default.
+</Question>
+
+<Question q="Why is ping not a good healthcheck for a web service?">
+It only checks that the machine is reachable, not that the service runs on it. Also, some servers do not answer ping (ICMP) at all.
+</Question>
+
+<Question q="What is a task group for, and does it affect DAG execution?">
+It groups tasks logically (code, a clearer UI). It does not affect execution — you work with the group as with one task (`tg() >> next_task()`).
+</Question>
+
+## Exercises
+
+### 15.1 · A healthcheck through an open port
+
+Write a healthcheck variant that only tries to connect to `conn.host` and `conn.port` (TCP) with a 3-second timeout. On failure it raises an exception so that the task is retried.
+
+<Solution variant="hint">
+The standard library's `socket` module has `socket.create_connection((host, port), timeout=3)`. Open the connection with `with` so it closes right away.
+</Solution>
+
+<Solution>
+```python
+import socket
+
+
+@task(task_display_name="Port Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    try:
+        with socket.create_connection((conn.host, conn.port), timeout=3):
+            pass
+    except OSError as error:
+        raise AirflowException(f"Cannot connect to {conn.host}:{conn.port}: {error}") from error
+```
+
+`OSError` covers a refused connection, a timeout, and an unknown host. An ordinary `AirflowException` is raised, so `retries` apply.
+</Solution>
+
+### 15.2 · An HTTP HEAD healthcheck with retries
+
+Write `is_service_alive()` for OpenWeatherMap using `httpx.head` on the service root. On a connection error or a code other than 200, the task should fail **and be retried** 3 times with a 30 s pause.
+
+<Solution>
+```python
+@task(
+    task_display_name="OpenWeatherMap Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=30),
+)
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection("openweathermap")
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    try:
+        response = httpx.head(url, follow_redirects=True, timeout=10)
+    except httpx.RequestError as error:
+        raise AirflowException(f"Service unavailable: {error}") from error
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"Service unavailable. HTTP status: {response.status_code}")
+```
+
+`httpx.RequestError` catches an unreachable server as well as a timeout; `follow_redirects=True` is needed because the service root redirects.
+</Solution>

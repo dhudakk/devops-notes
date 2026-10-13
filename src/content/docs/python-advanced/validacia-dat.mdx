@@ -1,0 +1,219 @@
+---
+title: Validácia dát JSON schémou
+description: Prečo overovať dáta zo služby, čo je schéma, ako napísať JSON schému (type, properties, required, minimum…) a ako ňou validovať z príkazového riadku aj v Pythone.
+kind: chapter
+day: 3
+sidebar:
+  order: 12
+  label: 12 · Validácia dát
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+<KeyPoints>
+- Ak API zmení tvar JSON-u, `process_data` spadne na `KeyError`, ktorý veľa nepovie. Dáta preto **overíme hneď po stiahnutí** samostatným taskom.
+- **Schéma** opisuje, ako dáta majú vyzerať: aké kľúče, akého typu, v akom rozsahu. JSON ju sám nemá — na to je projekt **JSON Schema**.
+- Kľúčové slová: `type` (`object`, `string`, `integer`, `number`, `array`, `boolean`, `null`), `properties`, `required`, `minimum` / `maximum`, `exclusiveMinimum`.
+- CLI: `jsonschema -i data.json schema.json` → `echo $?` je `0` (platné) alebo `1` (neplatné).
+- Python: `jsonschema.validate(instance=data, schema=schema)` vyvolá `ValidationError`, ak dáta nesedia.
+</KeyPoints>
+
+## Prečo validovať
+
+Služba nám posiela JSON a `process_data` ráta s kľúčmi ako `name` či `sys.country`. Lenže *shit happens* — vývojári služby jedného dňa presunú `name` napríklad pod `location` a nikomu to nepovedia. Od tej chvíle **každý** beh spadne v `process_data`:
+
+```text
+KeyError: 'name'
+```
+
+Z takej chyby nie je jasné, čo sa stalo. Iný prípad: kľúč sedí, ale namiesto čísla príde reťazec (`"26,3 °C"`). Preto medzi sťahovanie a spracovanie zaradíme task, ktorý dáta **overí** — a ak nesedia, zlyhá s jasnou správou priamo tam, kde problém vznikol.
+
+<Pipeline steps={['scrape_data', 'validate_data', 'process_data', 'publish_data']} />
+
+## Čo je schéma
+
+V databázach **schéma** opisuje tvar dát: tabuľka má stĺpce a každý stĺpec má **obmedzenia** (*constraints*):
+
+- **typ** — stĺpec `teplota` je číslo typu `float`; reťazec „Jano“ databáza odmietne,
+- **rozsah** — teplota v °C nemôže byť nižšia ako absolútna nula, −273,15 °C; hodnota −300 je síce `float`, ale neplatná.
+
+Iný príklad: ročník na základnej škole je **celé** číslo od 1 do 9 — nie 15, nie 2015, nie 1,7.
+
+JSON je formát voľný a schému v sebe nemá. Existuje však samostatný projekt **JSON Schema** ([json-schema.org](https://json-schema.org/)): schéma je **ďalší JSON dokument**, ktorý opisuje, ako má vyzerať validovaný dokument. Na stránke je aj tutoriál, podľa ktorého sme postupovali.
+
+## Píšeme schému krok za krokom
+
+Najpohodlnejšie v online validátore [jsonschemavalidator.net](https://www.jsonschemavalidator.net/): vpravo vlož JSON zo služby (nájdeš ho v logu tasku za `Returned value was:`), vľavo píš schému — chyby vidíš okamžite.
+
+1. **Hlavička** — `$schema` určuje verziu štandardu; `title` a `description` sú nepovinné, ale pri viacerých schémach v Gite sa hodia.
+2. **`type`** celého dokumentu — kučeravé zátvorky sú `object`. (Pythonovský `dictionary` JSON Schema nepozná; JSON = *JavaScript Object Notation*.) Keby si napísal `string`, validátor ohlási *expected string, got object*.
+3. **`properties`** — kľúče na danej úrovni, ktoré ťa zaujímajú; ostatné sa ignorujú. Pri každom uvedieš `type` a voliteľne `description`:
+   - `dt` je `integer` (pri `string` validátor zahlási *Invalid type. Expected String but got Integer*),
+   - `name` je `string`,
+   - `main` je opäť `object` — a jeho kľúče opíšeš vnorenými `properties`.
+4. **Obmedzenia** čísel: `minimum` (≥), `maximum` (≤), `exclusiveMinimum` (`>`), `exclusiveMaximum` (`<`). Teplota: `"minimum": -273.15`.
+5. **`required`** — zoznam kľúčov, ktoré **musia** byť. Patrí na úroveň objektu (vedľa `properties`, nie dovnútra), zvlášť pre koreň a zvlášť pre každý vnorený objekt.
+
+| JSON Schema `type` | Hodnota | Python |
+| --- | --- | --- |
+| `object` | `{...}` | `dict` |
+| `array` | `[...]` | `list` |
+| `string` | `"text"` | `str` |
+| `integer` | `42` | `int` |
+| `number` | `42`, `15.8` | `int`, `float` |
+| `boolean` | `true` / `false` | `bool` |
+| `null` | `null` | `None` |
+
+Výsledná schéma pre hodnoty, ktoré používame — uložená v `~/airflow/data/openweathermap.schema.json` (prípona `.json`, aby editor zvýrazňoval syntax):
+
+```json title="data/openweathermap.schema.json"
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenWeatherMap current weather",
+  "type": "object",
+  "required": ["dt", "name", "main", "wind", "sys"],
+  "properties": {
+    "dt": { "type": "integer", "description": "Time of measurement, Unix time (UTC)" },
+    "name": { "type": "string", "description": "City name" },
+    "main": {
+      "type": "object",
+      "required": ["temp", "humidity", "pressure"],
+      "properties": {
+        "temp": { "type": "number", "minimum": -273.15 },
+        "humidity": { "type": "number", "minimum": 0, "maximum": 100 },
+        "pressure": { "type": "number" }
+      }
+    },
+    "wind": {
+      "type": "object",
+      "required": ["speed", "deg"],
+      "properties": {
+        "speed": { "type": "number", "minimum": 0 },
+        "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+      }
+    },
+    "sys": {
+      "type": "object",
+      "required": ["country"],
+      "properties": { "country": { "type": "string" } }
+    }
+  }
+}
+```
+
+:::tip[Schému netreba písať ručne]
+Online generátory (napr. hľadaj *JSON schema from document*) vytvoria kostru schémy z ukážkového JSON-u. Ešte viac urobí AI — Claude či ChatGPT na požiadavku „vytvor JSON schému na validáciu odpovede openweathermap.org“ doplnia aj rozsahy a opisy. Výsledok však vždy skontroluj.
+:::
+
+## Validácia z príkazového riadku
+
+```bash
+(venv) $ pip install jsonschema
+(venv) $ jsonschema -i weather.json openweathermap.schema.json
+(venv) $ echo $?
+0
+```
+
+`-i` (*instance*) je validovaný dokument, posledný argument je schéma. Ak dokument nesedí, vypíše prečo — napr. `-6666 is less than the minimum of -273.15` — a skončí s kódom `1`. Hodí sa to aj do Bash skriptov.
+
+CLI `jsonschema` hlási, že je zastarané, a odporúča `check-jsonschema` (samostatný balík):
+
+```bash
+check-jsonschema --schemafile openweathermap.schema.json weather.json
+```
+
+## Validácia v Pythone
+
+V ipythone, krok za krokom:
+
+```python
+import json
+
+import httpx
+import jsonschema
+
+payload = httpx.get(url).json()                    # dáta zo služby (slovník)
+
+with open("openweathermap.schema.json", encoding="utf-8") as file:
+    schema = json.load(file)                        # schéma (tiež slovník)
+
+jsonschema.validate(instance=payload, schema=schema)   # v poriadku → nič sa nestane
+
+payload["main"]["temp"] = -6666
+jsonschema.validate(instance=payload, schema=schema)   # jsonschema.ValidationError
+```
+
+Modul `jsonschema` má v podstate jednu funkciu, ktorú potrebuješ — `validate`. (V ipythone si dokumentáciu zobrazíš cez `jsonschema.validate?`.)
+
+## Task validate_data()
+
+```python
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+```
+
+Task dáta iba overí a **vráti ich nezmenené** — ďalší task ich dostane cez XCom:
+
+```python
+def main():
+    data = scrape_data("kosice,sk")
+    valid_data = validate_data(data)
+    entry = process_data(valid_data)
+    publish_data(entry)
+```
+
+Odkiaľ sa berie `SCHEMA_PATH` a prečo nie obyčajné `open("openweathermap.schema.json")`, rieši kapitola [Štruktúra projektu](/devops-notes/python-advanced/struktura-projektu/). `logger` a `AirflowFailException` sú v kapitole [Logovanie a chyby](/devops-notes/python-advanced/logovanie-a-chyby/).
+
+## Otestuj sa
+
+<Question q="Prečo je lepšie, keď zlyhá `validate_data`, než `process_data` s `KeyError`?">
+Chyba vznikne hneď pri zdroji a s jasnou správou (napr. ktorý kľúč chýba alebo ktorá hodnota je mimo rozsahu). `KeyError` v spracovaní nepovie, že sa zmenilo API.
+</Question>
+
+<Question q="Akého typu je v JSON Schema hodnota v kučeravých zátvorkách a akého `42` a `15.8`?">
+Kučeravé zátvorky sú `object`. `42` je `integer` (aj `number`), `15.8` je `number`.
+</Question>
+
+<Question q="Aký je rozdiel medzi `minimum` a `exclusiveMinimum`?">
+`minimum` povolí aj samotnú hraničnú hodnotu (≥), `exclusiveMinimum` nie (>).
+</Question>
+
+<Question q="Kam v schéme patrí `required`?">
+Na úroveň objektu — vedľa `type` a `properties`, nie dovnútra `properties`. Každý vnorený objekt má svoje vlastné `required`.
+</Question>
+
+<Question q="Ako zistíš v Bash skripte, či JSON dokument zodpovedá schéme?">
+`jsonschema -i dokument.json schema.json` a potom `$?`: `0` = zodpovedá, `1` = nezodpovedá.
+</Question>
+
+## Cvičenia
+
+### 12.1 · Rozsah pre vietor a čas
+
+Doplň do schémy, že `wind.deg` je v rozsahu 0–360, `wind.speed` nemôže byť záporné a `dt` je kladné celé číslo. Over, že dokument s `"deg": 400` validáciou neprejde.
+
+<Solution>
+```json
+"dt": { "type": "integer", "exclusiveMinimum": 0 },
+"wind": {
+  "type": "object",
+  "required": ["speed", "deg"],
+  "properties": {
+    "speed": { "type": "number", "minimum": 0 },
+    "deg": { "type": "number", "minimum": 0, "maximum": 360 }
+  }
+}
+```
+
+`jsonschema -i weather.json openweathermap.schema.json` pre `"deg": 400` vypíše `400 is greater than the maximum of 360` a `echo $?` vráti `1`.
+</Solution>

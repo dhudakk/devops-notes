@@ -152,7 +152,7 @@ if response.status_code == HTTPStatus.NOT_FOUND:
     raise AirflowFailException(f'City "{query}" was not found.')
 ```
 
-`AirflowFailException` task ukončí **bez opakovania** — pri zlom kľúči by opakovanie nepomohlo. Ostatné výnimky task ukončia ako `failed` a ak má nastavené `retries`, Airflow ho zopakuje. Viac v kapitole [Validácia, logovanie a healthcheck](/devops-notes/python-advanced/validacia-a-healthcheck/#opakovanie-pri-zlyhaní).
+`AirflowFailException` task ukončí **bez opakovania** — pri zlom kľúči by opakovanie nepomohlo. Ostatné výnimky task ukončia ako `failed` a ak má nastavené `retries`, Airflow ho zopakuje. Viac v kapitole [Healthcheck a retries](/devops-notes/python-advanced/healthcheck/#krok-4-opakovanie-pri-zlyhaní).
 
 ## Parametre DAG-u pri ručnom spustení
 

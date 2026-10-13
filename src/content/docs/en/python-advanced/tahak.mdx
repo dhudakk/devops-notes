@@ -210,11 +210,171 @@ raise AirflowFailException("no retry")
 | Variable / Connection from environment | `AIRFLOW_VAR_WEATHER_CITY=…` · `AIRFLOW_CONN_OPENWEATHERMAP='{"conn_type": …}'` |
 | task states | queued (grey) · running · success (green) · failed (red) · upstream_failed (orange) · up_for_retry (yellow) |
 | `retries=3` | up to 4 runs; `retry_delay` defaults to 300 s |
-| a file next to the DAG | `Path(__file__).parent / "weather.schema.json"` |
+| path to the data | `Path(__file__).parent.parent / "data"` in `dags/constants.py` |
 | JSON schema | `jsonschema.validate(instance=data, schema=schema)` |
-| logging | `logger = logging.getLogger(__name__)` · DEBUG < INFO < WARNING < ERROR < CRITICAL |
+| logging | `logger = logging.getLogger(__name__)` · DEBUG 10 < INFO 20 < WARNING 30 < ERROR 40 < CRITICAL 50 · `print` = INFO |
 | swap | `fallocate -l 2G /swapfile` → `chmod 600` → `mkswap` → `swapon` · `free -h` |
 | tmux (prefix `Ctrl+b`) | `c` new window · `n`/`p` next/previous · `"`/`%` split · `d` detach · `tmux attach` |
+
+## Validation, structure, logging, healthcheck, S3
+
+<div class="sheet-grid">
+
+```bash title="JSON Schema from the command line" wrap
+pip install jsonschema
+jsonschema -i weather.json openweathermap.schema.json
+echo $?          # 0 = valid, 1 = invalid
+```
+
+```json title="JSON Schema — skeleton" wrap
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["dt", "main"],
+  "properties": {
+    "dt": { "type": "integer" },
+    "main": {
+      "type": "object",
+      "required": ["temp"],
+      "properties": {
+        "temp": { "type": "number", "minimum": -273.15 }
+      }
+    }
+  }
+}
+```
+
+```python title="Validation in a task" wrap
+import jsonschema
+
+schema = json.loads(SCHEMA_PATH.read_text())
+try:
+    jsonschema.validate(instance=payload, schema=schema)
+except jsonschema.ValidationError as error:
+    logger.error("Invalid data: %s", error.message)
+    raise AirflowFailException("Data mismatch") from error
+```
+
+```python title="pathlib and constants.py" wrap
+from pathlib import Path
+
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"     # / joins paths
+p = Path("/home/ubuntu/file.tar.gz")
+p.name; p.stem; p.suffix; p.suffixes; p.parent
+p.exists(); p.read_text(); p.unlink(missing_ok=True)
+(DATA_PATH / "a" / "b").mkdir(parents=True)  # mkdir -p
+
+# in a DAG (dags/ is on sys.path):
+from constants import DATA_PATH   # not from .constants
+```
+
+```python title="Logging and errors" wrap
+import logging
+from http import HTTPStatus
+
+logger = logging.getLogger(__name__)
+
+if response.status_code != HTTPStatus.OK:
+    logger.warning("HTTP %s", response.status_code)
+    raise AirflowFailException("Bad response")
+# not sys.exit(1)
+```
+
+```ini title="airflow.cfg" wrap
+[core]
+parallelism = 4
+[logging]
+logging_level = INFO
+```
+
+```python title="Parallel healthchecks + retries" wrap
+from datetime import timedelta
+from sh import ping                 # pip install sh
+
+@task.bash
+def ping_owm() -> str:
+    return "ping -c 1 -w 2 api.openweathermap.org"
+
+@task(task_display_name="Ping (sh)", retries=3,
+      retry_delay=timedelta(seconds=10))
+def ping_sh() -> None:
+    ping("-c", 1, "-w", 2, "api.openweathermap.org")
+
+@task(task_display_name="RustFS Healthcheck")
+def is_rustfs_alive() -> None:
+    conn = BaseHook.get_connection("rustfs")
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    r = httpx.get(f"{url}/health")
+    if r.status_code != HTTPStatus.OK:
+        raise AirflowFailException("RustFS unhealthy")
+
+# in main(): a list = parallel
+data = [ping_owm(), ping_sh(), is_rustfs_alive()] \
+    >> scrape_data(query)
+```
+
+```python title="Task group" wrap
+from airflow.sdk import task_group
+
+@task_group(group_id="tg_healthcheck",
+            group_display_name="Healthcheck")
+def tg_healthcheck():
+    return [ping_owm(), is_rustfs_alive()]
+
+tg_healthcheck() >> scrape_data(query)
+```
+
+```python title="Dynamic mapping" wrap
+from airflow.sdk import Param, get_current_context
+
+@dag(..., params={"query": Param(
+    default=[], type="array", title="Locations")})
+def main():
+    locations = get_locations()
+    data = scrape_data.expand(query=locations)
+    entries = process_data.expand(data=data)
+    publish_data.expand(entry=entries)
+
+@task
+def get_locations() -> list[str]:
+    query = get_current_context()["params"]["query"]
+    return query or Variable.get(
+        "weather_city").splitlines()
+
+# the same for every instance:
+greet.partial(units="metric").expand(city=cities)
+```
+
+```python title="S3 with boto3" wrap
+import boto3
+from botocore.exceptions import ClientError
+
+storage = boto3.resource(
+    "s3", endpoint_url="http://localhost:9000",
+    aws_access_key_id="<ACCESS_KEY>",
+    aws_secret_access_key="<SECRET_KEY>")
+for b in storage.buckets.all():
+    print(b.name)
+bucket = storage.Bucket("datasets")
+bucket.upload_file(Filename="a.csv", Key="a.csv")
+bucket.download_file(Key="a.csv", Filename="b.csv")
+for obj in bucket.objects.all():
+    print(obj.key)
+# missing object → ClientError (404)
+```
+
+```python title="The sh module" wrap
+from sh import ls, ping
+ls()                       # $ ls
+ls("-lh", "/home/ubuntu")  # $ ls -lh /home/ubuntu
+ping("-c", 1, host, _timeout=3)
+# non-zero exit → sh.ErrorReturnCode_<n>
+# _timeout → sh.TimeoutException
+# w=2 → -w 2, timeout=2 → --timeout=2 (!)
+```
+
+</div>
 
 ## Handy bits
 

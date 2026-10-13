@@ -1,0 +1,247 @@
+---
+title: Logovanie a chyby v taskoch
+description: Päť úrovní logovania a ako medzi nimi vybrať, logger pre každý modul, logovanie v Airflow (print = INFO, logging_level v airflow.cfg), kontrola HTTP stavového kódu, sys.exit vs. výnimka, AirflowFailException a HTTPStatus.
+kind: chapter
+day: 3
+sidebar:
+  order: 14
+  label: 14 · Logovanie a chyby
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Úrovne: `DEBUG` (10) < `INFO` (20) < `WARNING` (30) < `ERROR` (40) < `CRITICAL` (50). Zobrazia sa správy s úrovňou **≥ nastavenej**.
+- **DEBUG nikdy v produkcii** — sú v ňom kontrolné výpisy vývojárov, aj citlivé údaje.
+- V každom module: `logger = logging.getLogger(__name__)` a potom `logger.info(...)`. Nie `logging.info(...)` — to loguje do **root** loggera.
+- V Airflow sa `print()` zaloguje ako **INFO**. Minimálnu úroveň nastavíš v `airflow.cfg`: `[logging] logging_level = INFO`.
+- Zlý HTTP stavový kód zachyť hneď pri zdroji: `if response.status_code != HTTPStatus.OK:` → `logger.warning(...)` a `raise AirflowFailException(...)`.
+- Task ukonči **výnimkou**, nie `sys.exit(1)`. Akákoľvek neošetrená výnimka = task `failed`.
+</KeyPoints>
+
+## Úrovne logovania
+
+Modul `logging` je súčasťou štandardnej knižnice a vie veľa: formátovanie, posielanie správ do súboru, na štandardný výstup aj na socket, rotáciu logov… Každá správa má **úroveň** — číslo, ktoré má aj meno (konštanta veľkými písmenami):
+
+| Úroveň | Číslo | Pre koho | Čo sem patrí | Príklad |
+| --- | --- | --- | --- | --- |
+| `DEBUG` | 10 | vývojár | **všetko, čo by si vypísal `print()`-om** — kontrolné výpisy, hodnoty premenných | `payload = {...}` |
+| `INFO` | 20 | prevádzka | žiaduci, bežný stav — čo sa v systéme deje | štartujem službu, pripájam sa na openweathermap.org, používateľ sa prihlásil |
+| `WARNING` | 30 | prevádzka | nežiaduci stav, **proces** môže pokračovať | disk zaplnený na 50 %, neúspešné prihlásenie |
+| `ERROR` | 40 | prevádzka | nežiaduci stav, **aplikácia** môže pokračovať | záznam sa neuložil pre neplatné dáta |
+| `CRITICAL` | 50 | prevádzka | aplikácia **nemôže** pokračovať — posledná správa pred pádom | disk plný na 100 %, databáza nedostupná |
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/python-advanced/log-levels.png" alt="Rozhodovací strom úrovne logovania: pre vývojárov TRACE alebo DEBUG podľa toho, či logujem stav premenných; pre prevádzku INFO, ak nejde o nežiaduci stav, inak WARN ak proces môže pokračovať, ERROR ak aplikácia môže pokračovať, inak FATAL." width="1008" height="712" loading="lazy" />
+  <figcaption>Rozcestník na výber úrovne zo slajdov. V Pythone TRACE neexistuje a FATAL je iné meno pre CRITICAL (obe 50).</figcaption>
+</figure>
+
+Úrovne sú čísla, takže si vieš vyrobiť aj vlastné — ale päť stačí na to, aby si občas váhal.
+
+:::danger[DEBUG nikdy v produkcii]
+Nikdy nevieš, čo vývojári do debug výpisov dali. Kontrolný výpis prihlasovacích údajov je pri vývoji neškodný, v produkcii to budú skutočné mená a heslá používateľov. A debug správ je navyše obrovské množstvo.
+:::
+
+### WARNING alebo ERROR?
+
+S týmto má problém aj lektor. Rozcestník rozlišuje, či môže pokračovať **proces** (WARNING) alebo **aplikácia** (ERROR). V našom prípade:
+
+- *aplikácia* = celý Airflow, *proces* = jeden task jedného DAG-u,
+- `CRITICAL` by bol napríklad PostgreSQL, ktorý hlási plný disk — Airflow ďalej nemôže fungovať,
+- zlá odpoveď zo služby v jednom tasku → skôr **WARNING**.
+
+Ďalšie pomôcky: potrebuješ o tom niekoho **notifikovať**? Skôr ERROR. Postreh z praxe od účastníka: jednorazový výskyt je WARNING, **trvalý stav** treba riešiť.
+
+## Logger v module
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)    # jeden logger na modul — globálna premenná
+
+logger.debug("payload: %s", payload)
+logger.info("Scraping data for %s", query)
+logger.warning("Disk usage above 50 %")
+logger.error("Unexpected data from the service")
+logger.critical("Database is unreachable")
+```
+
+- **Meno loggera** identifikuje, kde správa vznikla. Názov aplikácie (`"weather"`) nestačí — modulov môže byť 20. Preto `__name__`, teda názov modulu.
+- `logging.info(...)` priamo cez modul funguje, ale loguje do **root** loggera — všetky správy by mali rovnaký zdroj `root`. Ruff na to upozorní (*`info` call on root logger*).
+- `logger.warn` je zastaraný alias a `logger.fatal` iný názov pre `critical` — používaj `warning` a `critical`.
+- Do správy dávaj hodnoty cez `%s` a argumenty, nie f-stringom — logger správu poskladá, iba ak sa naozaj zapíše.
+
+V čistom Pythone (mimo Airflow) je predvolená úroveň root loggera **WARNING**, preto `logging.info("…")` nič nevypíše, ale `logging.error("…")` áno — vo formáte `ERROR:root:správa`. S `logging.getLogger("Mirek")` sa namiesto `root` zobrazí `Mirek`.
+
+## Logovanie v Airflow
+
+V UI pri tasku vidíš pre každú správu čas, **úroveň** (farebne odlíšenú), zdroj a text. Pozor:
+
+- **`print()` sa v Airflow zaloguje ako INFO**, nie DEBUG, ako by človek čakal.
+- Debug správy sa predvolene nezobrazia — minimálna úroveň je INFO.
+
+Minimálnu úroveň a formát nastavíš v `airflow.cfg`:
+
+```ini title="~/airflow/airflow.cfg"
+[logging]
+# zobrazia sa správy s úrovňou >= tejto: DEBUG, INFO, WARNING, ERROR, CRITICAL
+logging_level = INFO
+# formát v termináli: čas, úroveň, správa
+simple_log_format = %%(asctime)s %%(levelname)s - %%(message)s
+```
+
+`INFO` (20) znamená, že sa zobrazí INFO, WARNING, ERROR a CRITICAL. Pri `WARNING` (30) už len 30, 40 a 50 — v produkcii to môže stačiť. (`%%` je v `airflow.cfg` escapovaný znak `%`.)
+
+V našom DAG-u nahradíme všetky `print(">> Scraping Data")` za `logger.info("Scraping data")` — presne taký typ správy to je.
+
+:::note[Logy v kontajneroch]
+Pri lokálnej aplikácii vie `logging` zapisovať do súborov a rotovať ich. Aplikácie v **kontajneroch** však logujú na **štandardný výstup** — logy zbiera agregátor a hneď ich posiela preč. Súbory v kontajneri zaniknú spolu s ním, takže na rotáciu logov tam zabudni.
+:::
+
+### loguru
+
+Na vlastné nástroje príkazového riadku (napr. `workflow.py` z 1. dňa) lektor odporúča knižnicu **[loguru](https://github.com/Delgan/loguru)** — nič sa nenastavuje, pekný farebný formát hneď od začiatku:
+
+```python
+from loguru import logger
+
+logger.debug("Hello")
+logger.error("Something went wrong")
+```
+
+**S Airflow nie je kompatibilná** — v DAG-och používaj štandardný `logging`.
+
+## Kontrola HTTP stavového kódu
+
+Keď v Connection chýba alebo je zlý API kľúč, OpenWeatherMap vráti:
+
+```json
+{"cod": 401, "message": "Invalid API key. Please see https://openweathermap.org/faq#error401 for more info."}
+```
+
+Je to JSON, takže `scrape_data` skončí **zelená** a chyba sa ukáže až neskôr (vo validácii alebo v `process_data`). O úspechu požiadavky sa však dá rozhodnúť hneď — podľa **HTTP stavového kódu**. Čokoľvek iné ako `200` považujeme za chybu (či je to `4xx` — chyba klienta, alebo `5xx` — chyba servera, tu nerozlišujeme):
+
+```python
+from http import HTTPStatus
+
+from airflow.sdk.exceptions import AirflowFailException
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    logger.info("Scraping data for %s", query)
+    ...
+    response = httpx.get(url, params=params)
+    if response.status_code != HTTPStatus.OK:
+        logger.warning("Something wrong happened: HTTP %s", response.status_code)
+        raise AirflowFailException(f"Cannot get weather data: {response.text}")
+    return response.json()
+```
+
+Načo posúvať ďalej dáta, o ktorých už vieš, že sú zlé? Task sa zastaví **najbližšie k zdroju chyby**.
+
+## Ako zastaviť task
+
+### `sys.exit(1)` — radšej nie
+
+```python
+import sys
+
+sys.exit(1)          # funguje, ale…
+```
+
+Airflow spúšťa každý task v samostatnom procese, takže `sys.exit(1)` ukončí iba ten jeden proces — v logu bude *Task exited with return code 1* a task je `failed`. Nie je to však korektné ukončenie: okamžite sa zabije bežiaci proces. Ako keď v Quake dostaneš headshot a zavrie sa celá hra.
+
+### Výnimka
+
+Korektná cesta v Airflow sú **výnimky**. Akákoľvek **neošetrená** výnimka okamžite ukončí task ako `failed` (ak ju zachytíš v `try`/`except`, task pokračuje). Vyvolávaš ju príkazom `raise`:
+
+```python
+raise TypeError("Something went wrong")   # funguje — ale typ výnimky nesedí s tým, čo sa stalo
+```
+
+Lepšie je zvoliť výnimku, ktorá opisuje, čo sa stalo. Airflow má vlastné:
+
+```python
+from airflow.sdk.exceptions import AirflowException, AirflowFailException
+```
+
+| Výnimka | Čo spraví |
+| --- | --- |
+| `AirflowException` | všeobecná chyba — task je `failed`; ak má `retries`, **zopakuje sa** |
+| `AirflowFailException` | task zlyhá **bez opakovania** — pre chyby, ktoré opakovanie nevyrieši (zlý kľúč, neexistujúce mesto) |
+| `AirflowSkipException` | task sa preskočí (stav `skipped`) |
+
+V Airflow 3 sa importujú z **`airflow.sdk.exceptions`**. Staršie `from airflow.exceptions import …` ešte funguje, ale hlási *deprecated* (overené na 3.3.2).
+
+## Magické čísla a HTTPStatus
+
+Pravidlo: nepoužívaj **„bulharské konštanty“** (*magic numbers*) — čísla v kóde, ktorým rozumie iba ten, kto ich napísal. `200` je známe, ale `401`? Štandardná knižnica má na HTTP kódy enum **`HTTPStatus`**:
+
+```python
+>>> from http import HTTPStatus
+>>> HTTPStatus.OK
+<HTTPStatus.OK: 200>
+>>> HTTPStatus.OK == 200
+True
+>>> HTTPStatus.BAD_REQUEST.value
+400
+>>> HTTPStatus(401).phrase
+'Unauthorized'
+```
+
+Funguje ako naše konštanty v `constants.py` — niekde je trieda s vymenovanými kódmi. `response.status_code != HTTPStatus.OK` sa číta lepšie ako `!= 200`. Je to však kóderská záležitosť; `200` môžeš kľudne nechať.
+
+## Otestuj sa
+
+<Question q="Ktoré správy sa zobrazia pri nastavení `logging_level = WARNING`?">
+WARNING (30), ERROR (40) a CRITICAL (50) — teda všetko s úrovňou väčšou alebo rovnou 30.
+</Question>
+
+<Question q="Akú úroveň má v logoch Airflow správa vypísaná cez `print()`?">
+INFO.
+</Question>
+
+<Question q="Prečo nepoužívať `logging.info(...)` priamo, ale `logger = logging.getLogger(__name__)`?">
+`logging.info` loguje do root loggera — všetky správy by mali zdroj `root` a nevieš, z ktorého modulu prišli. Logger pomenovaný podľa modulu zdroj ukáže.
+</Question>
+
+<Question q="Prečo nezapínať DEBUG v produkcii?">
+Debug výpisy sú pre vývojárov — môžu obsahovať citlivé údaje (prihlasovacie údaje, osobné dáta) a je ich obrovské množstvo.
+</Question>
+
+<Question q="OpenWeatherMap vráti `401` s JSON-om. Prečo je `scrape_data` napriek tomu zelený a ako to zmeniť?">
+Odpoveď je platný JSON, takže `response.json()` uspeje. Treba skontrolovať `response.status_code` a pri inej hodnote ako `HTTPStatus.OK` vyvolať výnimku.
+</Question>
+
+<Question q="Aký je rozdiel medzi `AirflowException` a `AirflowFailException`?">
+Oba ukončia task ako `failed`. Po `AirflowException` sa task zopakuje, ak má `retries`; `AirflowFailException` opakovanie preskočí.
+</Question>
+
+<Question q="Prečo ukončiť task výnimkou a nie `sys.exit(1)`?">
+`sys.exit` okamžite zabije proces tasku bez korektného ukončenia. Výnimka je spôsob, ktorým Airflow chyby spracúva: zaloguje ju aj s popisom, nastaví stav a podľa typu rozhodne o opakovaní.
+</Question>
+
+## Cvičenia
+
+### 14.1 · Rozlíš chyby podľa kódu
+
+Uprav `scrape_data` tak, aby pri `401` zalogoval WARNING *„check the API key“*, pri `404` WARNING *„unknown city“* a v oboch prípadoch zlyhal bez opakovania. Pri ostatných chybách nech zlyhá **s možnosťou opakovania**.
+
+<Solution variant="hint">
+`HTTPStatus.UNAUTHORIZED`, `HTTPStatus.NOT_FOUND`; pre ostatné chyby stačí `response.raise_for_status()` — vyvolá `httpx.HTTPStatusError`, čo je obyčajná výnimka.
+</Solution>
+
+<Solution>
+```python
+if response.status_code == HTTPStatus.UNAUTHORIZED:
+    logger.warning("401: check the API key in the connection")
+    raise AirflowFailException("Invalid API key.")
+if response.status_code == HTTPStatus.NOT_FOUND:
+    logger.warning("404: unknown city %s", query)
+    raise AirflowFailException(f"City {query} does not exist.")
+response.raise_for_status()   # other 4xx/5xx → ordinary exception → retries apply
+```
+</Solution>

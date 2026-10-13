@@ -64,3 +64,39 @@ Obľúbená Mirekova veta, keď čaká, kým niekto z praxe odpovie. Vy ste ľud
 Na PyCone mal Mirek prednášku, kde sa nový DAG dlho nie a nie zobraziť — zakecával, naťahoval čas, a nič. Na kurze zas tasky padali pre chýbajúci `jwt_secret` a skončilo to „neplánovanou kávovou prestávkou“, kým problém nenašiel. Shit happens — dôležité je vedieť, kde hľadať (logy!).
 
 <p class="wisdom-day">Deň 2</p>
+
+## Shit happens
+
+Vývojári služby jedného dňa zmenia formát dát a nikomu nič nepovedia. Lektorovi sa zas počas dema zrútil Airflow, odpojil sa z hovoru alebo zamrzol stroj. Na to je validácia, healthchecky — a nadhľad: „Vidíte, aj mne sa to stáva počas školenia. Ale o to je to zaujímavejšie.“
+
+<p class="wisdom-day">Deň 3</p>
+
+## Demo efekt
+
+Všetko nachystáš, porozprávaš magické veci, spustíš — a nejde to. Tomu sa hovorí **demo efekt**.
+
+<p class="wisdom-day">Deň 3</p>
+
+## Kto to má všetko pamätať?
+
+Je to `enable` alebo `enable --now`? „Milión nástrojov, kto to má všetko pamätať — no, Claude a ChatGPT.“
+
+<p class="wisdom-day">Deň 3</p>
+
+## Na laboch rastiete vy
+
+Keď sa lab natiahne, nevadí: „Tieto laby, to vtedy rastiete vy, lebo si konečne k tomu sadnete a musíte niečo spraviť.“ Päť minút navyše je len bonus.
+
+<p class="wisdom-day">Deň 3</p>
+
+## MicroPython a testovanie hardvéru
+
+Mirek rieši, ako testovať (pytestom, v CI) kód v **MicroPythone** — štíhlej implementácii Pythonu pre mikrokontroléry:
+
+- minimum pre MicroPython je zhruba **256 kB flash a 16 kB RAM** — klasické Arduino (2 kB RAM, 32 kB flash) nestačí, Raspberry Pi Pico (~150 MHz) áno,
+- ako v CI otestuješ, že teplomer hlási 100 °C a zariadenie pošle poplach? „Šaháš do rýchlovarnej konvice“ — to v GitHub Actions nepôjde,
+- skutočné produkty riešia batériu (nemôže bežať 24/7), výpadky pripojenia (nesmie zamrznúť na výnimke — nie je tam Docker, ktorý by ho reštartol) a Wi-Fi (natvrdo zapísané SSID s heslom nie je riešenie).
+
+Tutoriály o blikaní LED-kou sú „baby projekty“ — profesionálny pohľad je úplne iný typ kódenia aj rozmýšľania. „Lego pre veľkých.“
+
+<p class="wisdom-day">Deň 3</p>

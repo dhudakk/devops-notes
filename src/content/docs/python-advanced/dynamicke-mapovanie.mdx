@@ -1,0 +1,441 @@
+---
+title: Dynamické mapovanie taskov
+description: Počasie pre viac miest naraz — vstupné parametre DAG-u (Param), kontext behu (get_current_context), task get_locations, .partial() a .expand(), súbor pre každé mesto v S3 a celý výsledný projekt.
+kind: chapter
+day: 3
+sidebar:
+  order: 17
+  label: 17 · Dynamické mapovanie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+import Pipeline from '../../../components/Pipeline.astro';
+
+:::note[Zo slajdov 3. dňa]
+Táto kapitola je zo slajdov 3. dňa; na prednáške sa jej venujeme na 4. deň. Celý projekt na konci je odskúšaný na Airflow 3.3.2.
+:::
+
+<KeyPoints>
+- **Dynamic Task Mapping** vytvorí **N inštancií toho istého tasku za behu** — podľa počtu položiek vstupného zoznamu. Pri písaní DAG-u nemusíš vedieť, koľko ich bude.
+- `.expand(arg=zoznam)` — podľa tohto argumentu sa task „rozmnoží“; `.partial(arg=hodnota)` — argumenty rovnaké pre všetky inštancie.
+- Vstupné parametre DAG-u s typom, názvom a popisom: `@dag(params={"query": Param(default=[], type="array", ...)})` — zobrazia sa vo formulári **Trigger**.
+- K parametrom behu sa dostaneš iba **v tasku** cez kontext: `get_current_context()["params"]["query"]`.
+- Výsledok namapovaného tasku pošli ďalej opäť cez `.expand(...)` — každá inštancia spracuje svoju položku.
+</KeyPoints>
+
+## Problém
+
+Chceme počasie pre **viac miest**, nie jedno. Do Variable `weather_city` vieme uložiť viac hodnôt (jedno mesto na riadok), ale ako zabezpečiť, aby sa pre každé mesto stiahli a spracovali dáta **samostatne**?
+
+Riešením je **Dynamic Task Mapping**. Namiesto toho, aby si pri písaní DAG-u určil, koľko taskov bude treba, Airflow to zistí až za behu — z dĺžky zoznamu.
+
+<Pipeline steps={['get_locations', 'scrape_data [0..N]', 'validate_data [0..N]', 'process_data [0..N]', 'publish_data [0..N]']} caption="Každý namapovaný task má N inštancií; v UI ich nájdeš v záložke Mapped Tasks (map_index 0, 1, 2…)." />
+
+## Vstupné parametre DAG-u: Param
+
+Doteraz mal parameter DAG-u iba typ a predvolenú hodnotu. Typ **`Param`** pridá ďalšie vlastnosti — použijú sa vo formulári pri ručnom spustení (tlačidlo **Trigger**):
+
+```python
+from airflow.sdk import Param
+
+@dag(
+    ...,
+    params={
+        "query": Param(
+            default=[],
+            type="array",
+            title="Locations",
+            description="List of locations. One location per line.",
+        ),
+    },
+)
+def main():
+    ...
+```
+
+`type="array"` znamená zoznam — vo formulári sa zadáva jedna položka na riadok. Typy aj validácia sú rovnaké ako v [JSON Schema](/devops-notes/python-advanced/validacia-dat/) (`string`, `integer`, `array`, `minimum`…).
+
+## Kontext behu
+
+Ako sa k hodnote parametra dostať? Funkcia `main()` sa vykoná pri **parsovaní** DAG-u, nie pri behu — vtedy ešte žiadny beh neexistuje. Hodnota je k dispozícii až v **kontexte**: slovníku, ktorý Airflow pripraví pre každý beh. Obsahuje metadáta o behu — kedy beží, aké parametre dostal, ktorý je to DAG atď. Kontext získaš **iba v tasku** cez `get_current_context()`.
+
+Pomocný task `get_locations()` vráti zoznam miest:
+
+- ak je vstup DAG-u prázdny, použije Variable `weather_city` (jedno mesto na riadok),
+- inak vráti zadaný vstup.
+
+```python
+from airflow.sdk import Variable, get_current_context, task
+
+
+@task(task_display_name="Get Locations")
+def get_locations() -> list[str]:
+    context = get_current_context()
+    locations = context["params"]["query"]
+    if not locations:
+        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
+    return locations
+```
+
+`.splitlines()` rozdelí viacriadkovú hodnotu Variable na zoznam. Plánované behy vstup nemajú, takže použijú Variable.
+
+## .expand() a .partial()
+
+| Metóda | Význam |
+| --- | --- |
+| `.expand(arg=zoznam)` | argument, podľa ktorého sa task dynamicky rozmnoží — jedna inštancia na položku |
+| `.partial(arg=hodnota)` | argumenty, ktoré budú rovnaké pre všetky inštancie |
+
+```python
+def main():
+    locations = get_locations()
+    data = tg_healthcheck() >> scrape_data.expand(query=locations)
+    valid_data = validate_data.expand(payload=data)
+    entries = process_data.expand(data=valid_data)
+    publish_data.expand(entry=entries)
+```
+
+- `scrape_data.expand(query=locations)` → pre 3 mestá 3 inštancie `scrape_data`.
+- `validate_data.expand(payload=data)` → výsledok namapovaného tasku je opäť zoznam, takže aj validácia beží pre každé mesto zvlášť. Rovnako spracovanie a publikovanie.
+- Keď výsledok namapovaného tasku pošleš do **nenamapovaného** tasku (`summary(data)`), dostane **zoznam** všetkých výsledkov naraz.
+
+Príklad s `.partial()` — jednotky rovnaké pre všetky mestá:
+
+```python
+results = greet.partial(units="metric").expand(city=["kosice,sk", "presov,sk", "praha,cz"])
+# greet(city="kosice,sk", units="metric"), greet(city="presov,sk", units="metric"), …
+```
+
+Ak teraz spustíš DAG:
+
+- s vyplneným zoznamom miest vo formulári Trigger → použijú sa tie,
+- bez vstupu (aj plánované behy) → použijú sa mestá z Variable.
+
+## Súbor pre každé mesto
+
+Keby všetky inštancie `publish_data` naraz pripisovali do jedného `dataset.csv` v S3, prepisovali by si zápisy (stiahni → pripíš → nahraj nie je atomické). Každé mesto preto dostane **vlastný súbor** — názov vyskladáme z CSV riadku:
+
+```python
+_, name, country, *_ = entry.split(",")      # "2026-…,Kosice,SK,15.8,…"
+key = f"{name}-{country}.csv".lower()        # "kosice-sk.csv"
+```
+
+Celý task je v projekte nižšie.
+
+## Skupina Weather Ingestion
+
+Aj sťahovanie, validáciu, spracovanie a publikovanie môžeš zoskupiť do [task group](/devops-notes/python-advanced/healthcheck/#skupiny-taskov-task-groups):
+
+```python
+@task_group(
+    "weather_ingestion",
+    group_display_name="Weather Ingestion",
+    tooltip="Retrieve, process and upload weather info.",
+)
+def weather_ingestion():
+    locations = get_locations()
+    data = scrape_data.expand(query=locations)
+    valid_data = validate_data.expand(payload=data)
+    entries = process_data.expand(data=valid_data)
+    publish_data.expand(entry=entries)
+    return data
+
+
+@dag(...)
+def main():
+    tg_healthcheck() >> weather_ingestion()
+```
+
+<Pipeline steps={[{ group: 'Healthcheck', steps: ['ping', 'openweathermap', 'rustfs'] }, { group: 'Weather Ingestion', steps: ['get_locations', 'scrape … publish [0..N]'] }]} />
+
+Odskúšané: tasky dostanú ID `weather_ingestion.scrape_data` atď. a beh skončí úspešne.
+
+## Celý projekt
+
+```text
+~/airflow/
+├── dags/
+│   ├── constants.py
+│   ├── tasks.py
+│   └── weather_scraper.py
+├── data/
+│   └── openweathermap.schema.json
+└── ruff.toml                  ← src = ["dags"]
+```
+
+Potrebné balíky: `pip install apache-airflow httpx jsonschema pendulum boto3`. Spojenia `openweathermap` a `rustfs` (Admin → Connections), Variable `weather_city` (jedno mesto na riadok).
+
+```python title="dags/constants.py"
+"""Values shared by all DAGs. Python has no real constants — UPPER_CASE is the convention."""
+
+from pathlib import Path
+
+# ~/airflow — derived from this file's location, so it works wherever Airflow lives
+AIRFLOW_HOME = Path(__file__).parent.parent
+DATA_PATH = AIRFLOW_HOME / "data"
+SCHEMA_PATH = DATA_PATH / "openweathermap.schema.json"
+
+# Airflow Connection IDs
+OPENWEATHERMAP_CONN = "openweathermap"
+STORAGE_CONN = "rustfs"
+
+DATASET_BUCKET = "datasets"
+CSV_HEADER = "dt,name,country,temp,humidity,pressure,wind_speed,wind_deg"
+```
+
+```python title="dags/tasks.py"
+"""Tasks shared by several DAGs."""
+
+import logging
+from datetime import timedelta
+from http import HTTPStatus
+
+import httpx
+from airflow.sdk import BaseHook, task, task_group
+from airflow.sdk.exceptions import AirflowException
+
+from constants import OPENWEATHERMAP_CONN, STORAGE_CONN
+
+logger = logging.getLogger(__name__)
+
+
+@task.bash(task_display_name="Ping OpenWeatherMap")
+def is_service_alive_in_bash() -> str:
+    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
+    return f"ping -c 1 -w 2 {conn.host}"
+
+
+@task(
+    task_display_name="OpenWeatherMap Healthcheck",
+    retries=3,
+    retry_delay=timedelta(seconds=30),
+)
+def is_service_alive() -> None:
+    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}"
+    response = httpx.head(url, follow_redirects=True, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"OpenWeatherMap unavailable: {response.status_code}")
+
+
+@task(task_display_name="RustFS Healthcheck", retries=3, retry_delay=timedelta(seconds=30))
+def is_rustfs_alive() -> None:
+    logger.info("RustFS Healthcheck")
+    conn = BaseHook.get_connection(STORAGE_CONN)
+    response = httpx.get(f"{conn.schema}://{conn.host}:{conn.port}/health", timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        raise AirflowException(f"RustFS is unhealthy: {response.status_code}")
+
+
+@task_group(
+    group_id="tg_healthcheck",
+    group_display_name="Healthcheck",
+    tooltip="Healthcheck of external services.",
+)
+def tg_healthcheck():
+    return [is_service_alive_in_bash(), is_service_alive(), is_rustfs_alive()]
+```
+
+```python title="dags/weather_scraper.py"
+"""Weather scraper: healthchecks -> scrape -> validate -> process -> publish to S3."""
+
+import json
+import logging
+import os
+from http import HTTPStatus
+from pathlib import Path
+from tempfile import mkstemp
+
+import boto3
+import httpx
+import jsonschema
+from airflow.sdk import BaseHook, Param, Variable, dag, get_current_context, task
+from airflow.sdk.exceptions import AirflowFailException
+from botocore.exceptions import ClientError
+from pendulum import datetime, from_timestamp
+
+from constants import (
+    CSV_HEADER,
+    DATASET_BUCKET,
+    OPENWEATHERMAP_CONN,
+    SCHEMA_PATH,
+    STORAGE_CONN,
+)
+from tasks import tg_healthcheck
+
+logger = logging.getLogger(__name__)
+
+
+@task(task_display_name="Get Locations")
+def get_locations() -> list[str]:
+    """Cities from the Trigger form, otherwise from the weather_city Variable."""
+    context = get_current_context()
+    locations = context["params"]["query"]
+    if not locations:
+        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
+    logger.info("Locations: %s", locations)
+    return locations
+
+
+@task(task_display_name="Scrape Data")
+def scrape_data(query: str) -> dict:
+    logger.info("Scraping data for %s", query)
+    conn = BaseHook.get_connection(OPENWEATHERMAP_CONN)
+    url = f"{conn.schema}://{conn.host}:{conn.port}/data/2.5/weather"
+    params = {
+        "q": query,
+        "appid": conn.password,
+        "units": conn.extra_dejson.get("units", "metric"),
+    }
+    response = httpx.get(url, params=params, timeout=10)
+    if response.status_code != HTTPStatus.OK:
+        logger.warning("OpenWeatherMap answered %s for %s", response.status_code, query)
+        raise AirflowFailException(f"Cannot get weather for {query}: {response.status_code}")
+    return response.json()
+
+
+@task(task_display_name="Validate Data")
+def validate_data(payload: dict) -> dict:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=payload, schema=schema)
+    except jsonschema.ValidationError as error:
+        logger.error("Unexpected data from the service: %s", error.message)
+        raise AirflowFailException("The data does not match the schema.") from error
+    return payload
+
+
+@task(task_display_name="Process Data")
+def process_data(data: dict) -> str:
+    values = [
+        from_timestamp(data["dt"]).to_iso8601_string(),
+        data["name"],
+        data["sys"]["country"],
+        data["main"]["temp"],
+        data["main"]["humidity"],
+        data["main"]["pressure"],
+        data["wind"]["speed"],
+        data["wind"]["deg"],
+    ]
+    return ",".join(str(value) for value in values)
+
+
+@task(task_display_name="Publish Data")
+def publish_data(entry: str) -> None:
+    """Append the line to <city>-<country>.csv in the S3 bucket."""
+    conn = BaseHook.get_connection(STORAGE_CONN)
+    storage = boto3.resource(
+        "s3",
+        endpoint_url=f"{conn.schema}://{conn.host}:{conn.port}",
+        aws_access_key_id=conn.login,
+        aws_secret_access_key=conn.password,
+    )
+    bucket = storage.Bucket(DATASET_BUCKET)
+
+    _, name, country, *_ = entry.split(",")
+    key = f"{name}-{country}.csv".lower()
+
+    fd, temp_name = mkstemp(prefix="weather-", suffix=".csv")
+    os.close(fd)  # mkstemp returns an open file descriptor — close it
+    path = Path(temp_name)
+    try:
+        try:
+            bucket.download_file(key, str(path))
+        except ClientError:
+            logger.warning("%s does not exist yet. First upload.", key)
+            path.write_text(CSV_HEADER + "\n", encoding="utf-8")
+        with path.open("a", encoding="utf-8") as file:
+            print(entry, file=file)
+        bucket.upload_file(str(path), key)
+        logger.info("Uploaded %s to bucket %s", key, DATASET_BUCKET)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@dag(
+    "weather_scraper",
+    dag_display_name="Weather Scraper",
+    description="Scrapes weather from openweathermap.org",
+    schedule="*/20 * * * *",
+    start_date=datetime(2026, 1, 1),
+    tags=["weather", "devops"],
+    catchup=False,
+    params={
+        "query": Param(
+            default=[],
+            type="array",
+            title="Locations",
+            description="List of locations. One location per line.",
+        ),
+    },
+)
+def main():
+    locations = get_locations()
+    data = tg_healthcheck() >> scrape_data.expand(query=locations)
+    valid_data = validate_data.expand(payload=data)
+    entries = process_data.expand(data=valid_data)
+    publish_data.expand(entry=entries)
+
+
+if __name__ == "__main__":
+    main().test()
+else:
+    main()
+```
+
+Rozdiely oproti slajdom: healthchecky vyvolávajú `AirflowException` (nie `AirflowFailException`), aby zabrali `retries`; dočasný súbor sa zatvára a maže v `finally`; pribudla validácia.
+
+**Ako odskúšané** (Airflow 3.3.2, `dag.test()`): lokálna náhrada OpenWeatherMap, S3 cez [moto](https://github.com/getmoto/moto) (lokálna náhrada AWS). Tri behy:
+
+1. bez vstupu → mestá z Variable (`kosice,sk`, `bratislava,sk`) → vznikli `kosice-sk.csv` a `bratislava-sk.csv` s hlavičkou,
+2. vstup `["presov,sk", "kosice,sk"]` → nový `presov-sk.csv`, do `kosice-sk.csv` pribudol riadok,
+3. vstup `["poprad,sk", "nowhere"]` → inštancia pre `nowhere` zlyhala na 404 (`AirflowFailException`), beh je `failed`.
+
+## Otestuj sa
+
+<Question q="Čo je Dynamic Task Mapping?">
+Mechanizmus, ktorý za behu vytvorí N inštancií toho istého tasku — jednu pre každú položku vstupného zoznamu. Počet taskov netreba poznať pri písaní DAG-u.
+</Question>
+
+<Question q="Aký je rozdiel medzi `.partial()` a `.expand()`?">
+`.expand()` určuje argumenty, podľa ktorých sa task rozmnoží (jedna inštancia na položku). `.partial()` nastaví argumenty rovnaké pre všetky inštancie.
+</Question>
+
+<Question q="Prečo sa k parametrom behu nedostaneš priamo v `main()`?">
+`main()` sa vykoná pri parsovaní DAG-u, keď ešte žiadny beh neexistuje. Parametre behu sú v kontexte, ktorý je dostupný iba v tasku cez `get_current_context()`.
+</Question>
+
+<Question q='Čo znamená `Param(default=[], type="array", title="Locations")`?'>
+Parameter DAG-u typu zoznam s prázdnou predvolenou hodnotou a nadpisom „Locations“ vo formulári Trigger. Typy a validácia sú ako v JSON Schema.
+</Question>
+
+<Question q="Čo dostane nenamapovaný task, keď mu pošleš výsledok namapovaného tasku?">
+Zoznam výsledkov všetkých inštancií.
+</Question>
+
+<Question q="Prečo má každé mesto vlastný súbor v S3?">
+Inštancie `publish_data` bežia paralelne a „stiahni → pripíš → nahraj“ nie je atomické — pri jednom spoločnom súbore by si zápisy prepisovali.
+</Question>
+
+## Cvičenia
+
+### 17.1 · Mestá bez duplicít
+
+Uprav `get_locations()`, aby odstránil prázdne riadky a medzery okolo názvov, zmenil názvy na malé písmená a vyradil duplicity (poradie zachovaj).
+
+<Solution>
+```python
+@task(task_display_name="Get Locations")
+def get_locations() -> list[str]:
+    context = get_current_context()
+    locations = context["params"]["query"]
+    if not locations:
+        locations = Variable.get("weather_city", default="kosice,sk").splitlines()
+    cleaned = (location.strip().lower() for location in locations)
+    return list(dict.fromkeys(location for location in cleaned if location))
+```
+
+`dict.fromkeys()` zachová poradie prvého výskytu a duplicity zahodí (kľúče slovníka sú jedinečné).
+</Solution>

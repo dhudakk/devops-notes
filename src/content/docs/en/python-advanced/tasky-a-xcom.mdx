@@ -152,7 +152,7 @@ if response.status_code == HTTPStatus.NOT_FOUND:
     raise AirflowFailException(f'City "{query}" was not found.')
 ```
 
-`AirflowFailException` ends the task **without retrying** — retrying would not help with a wrong key. Other exceptions end the task as `failed`, and if it has `retries` set, Airflow repeats it. More in [Validation, logging, and healthcheck](/devops-notes/en/python-advanced/validacia-a-healthcheck/#retrying-on-failure).
+`AirflowFailException` ends the task **without retrying** — retrying would not help with a wrong key. Other exceptions end the task as `failed`, and if it has `retries` set, Airflow repeats it. More in [Healthcheck and retries](/devops-notes/en/python-advanced/healthcheck/#step-4-retrying-on-failure).
 
 ## DAG parameters for manual runs
 
