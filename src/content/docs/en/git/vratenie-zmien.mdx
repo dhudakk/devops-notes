@@ -1,0 +1,253 @@
+---
+title: Undoing changes
+description: How to discard an uncommitted change (restore), unstage a file, fix the last commit (amend), undo a commit (revert), and when to use reset --soft/--mixed/--hard.
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · Undoing changes
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A change in a file, not staged yet → `git restore file` (older form `git checkout -- file`). **The change is gone for good.**
+- A staged file you want to unstage → `git restore --staged file` (older `git reset -- file`). The change stays on disk.
+- Wrong message on the last commit → `git commit --amend -m "new message"` (only if not pushed yet).
+- **`git revert <commit>`** creates a **new** commit that undoes the changes of that commit. History is not rewritten → safe even after a push.
+- **`git reset`** moves the branch to another commit: `--soft` (changes stay staged), `--mixed` (default, changes stay in files), `--hard` (**throws everything away**).
+</KeyPoints>
+
+## Overview: what I want to undo
+
+| Situation | Command | What happens to the change |
+| --- | --- | --- |
+| I edited a file and want the original back | `git restore file` | discarded |
+| I staged a file by mistake | `git restore --staged file` | stays in the file, just not staged |
+| wrong message / forgotten file in the last commit | `git commit --amend` | the last commit is replaced by a new one |
+| a commit (even pushed) was wrong | `git revert <hash>` | a new "opposite" commit is added |
+| I want to drop the last local commits | `git reset HEAD~1` | the commit disappears, changes stay in files |
+| I want to throw everything away and go back to a commit | `git reset --hard <hash>` | **everything** uncommitted and the later commits disappear |
+
+## Uncommitted changes
+
+### Discarding a change in a file
+
+```bash
+echo "bad text" >> README.md
+git diff                  # look at what you are about to throw away
+git restore README.md     # the file goes back to the index / last commit
+```
+
+The older form you will find on the slides and in older guides:
+
+```bash
+git checkout -- README.md
+```
+
+`--` separates the path from a branch name. Without it `git checkout README` could also mean a branch with that name.
+
+:::danger[Git cannot restore uncommitted changes]
+What you discard with `git restore` (or `git reset --hard`) is nowhere in the history — it was never committed. Always check `git diff` first.
+:::
+
+### Unstaging
+
+```bash
+git add .
+git restore --staged README.md    # README is no longer staged, the change remains
+git commit -m "feat: commit only the other file"
+```
+
+Older form: `git reset -- README.md` (or `git reset HEAD README.md`).
+
+## Fixing the last commit: amend
+
+```bash
+git commit -m "fetaure: add lgoin"        # typo
+git commit --amend -m "feat: add login"   # replaces the last commit
+```
+
+Forgot a file?
+
+```bash
+git add forgotten.txt
+git commit --amend --no-edit     # adds it to the last commit, message unchanged
+```
+
+`--amend` does not add another commit — it **replaces** the last commit with a new one (with a different hash). So use it only on commits you have **not pushed** yet.
+
+## git revert — undoing a commit safely
+
+`git revert` undoes **one specific commit** by creating a new commit with the opposite changes. It does not return the whole project to an old state and does not delete later commits.
+
+```bash
+git log --oneline
+# a1b2c3d feat: add commands list
+# 9f8e7d6 fix: inserted text into F2
+
+git revert HEAD          # undo the last commit
+```
+
+An editor opens with the prefilled message `Revert "feat: add commands list"` — save and close (in vim `Esc`, `:wq`). Or without the editor:
+
+```bash
+git revert --no-edit HEAD
+git revert a1b2c3d       # any older commit by hash
+```
+
+```text
+* 4c5d6e7 Revert "feat: add commands list"
+* a1b2c3d feat: add commands list
+* 9f8e7d6 fix: inserted text into F2
+```
+
+The original commit **stays in the history** and a new one was added. That is why `revert` is the right choice for changes already on the server — it does not break anyone's history.
+
+:::note[Clarification to the lecture]
+In the lecture `git revert HEAD` "returned the file to the state where there was nothing yet" — more precisely, it undid only the changes of the **last** commit. If you revert an older commit, the changes from later commits remain.
+:::
+
+## git reset — moving the branch
+
+`git reset <commit>` moves **HEAD and the current branch** to the given commit. Commits after it disappear from the branch. Three modes decide what happens to the changes:
+
+| Mode | Branch (HEAD) | Index (staging) | Working tree (files) |
+| --- | --- | --- | --- |
+| `--soft` | moves | unchanged — changes stay **staged** | unchanged |
+| `--mixed` (default) | moves | reset — changes stay **unstaged** | unchanged |
+| `--hard` | moves | overwritten | **overwritten — changes are gone** |
+
+```bash
+git reset --soft HEAD~1    # drop the last commit, keep changes ready for a new commit
+git reset HEAD~1           # drop the last commit, keep changes in the files
+git reset --hard HEAD~1    # drop the last commit and its changes
+git reset --hard           # throw away all uncommitted changes (back to HEAD)
+```
+
+:::caution[reset vs. revert]
+`reset` **rewrites history** — commits disappear from the branch. That is fine for local, unpushed commits. After a push your colleagues already have those commits and confusion follows — use `revert`. And only use `--hard` when you know exactly what you are throwing away.
+:::
+
+A detailed explanation of the three trees and reset: [Git Tools — Reset Demystified](https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified).
+
+## git checkout of an older commit
+
+```bash
+git checkout 9f8e7d6
+```
+
+Switches the whole working tree to the state of that commit — you can see what the project looked like. This puts you in **detached HEAD** state — more in [Detached HEAD and good habits](/devops-notes/en/git/detached-head/). Back: `git checkout master` (or `main`).
+
+## Test yourself
+
+<Question q="You edited a file and want to throw the change away. Which command, and can it be undone?">
+`git restore file` (or `git checkout -- file`). It cannot be undone — an uncommitted change is not in the history.
+</Question>
+
+<Question q="How do you unstage a file without losing the change?">
+`git restore --staged file` (older form `git reset -- file`).
+</Question>
+
+<Question q="What is the difference between `git revert` and `git reset`?">
+`revert` creates a new commit that undoes the changes of the chosen commit — history stays, so it is safe after a push. `reset` moves the branch back and removes commits from it — it rewrites history and is suitable only locally.
+</Question>
+
+<Question q="What does `git reset --mixed HEAD~1` do with the changes of the last commit?">
+The commit disappears from the branch, the index is reset, but the changes stay in the files in the working tree (unstaged).
+</Question>
+
+<Question q="Why not use `git commit --amend` on a commit you already pushed?">
+Amend replaces the commit with a new one with a different hash. The server and your colleagues have the original — your push fails, or you would have to `--force` and break other people's history.
+</Question>
+
+## Exercises
+
+### 6.1 · Discarding a change
+
+Add some deliberately wrong text to `README.md`, look at the diff, and throw the change away.
+
+<p class="practises">Practises: `git diff`, `git restore`.</p>
+
+<Solution>
+```bash
+echo "THIS IS A MISTAKE" >> README.md
+git diff
+git restore README.md      # or: git checkout -- README.md
+git status                 # clean
+```
+</Solution>
+
+### 6.2 · Unstaging
+
+Edit two files and add both with `git add .`. Unstage one of them so its change stays. The commit must contain only the other file.
+
+<p class="practises">Practises: `git restore --staged`.</p>
+
+<Solution>
+```bash
+echo "a" >> README.md
+echo "b" >> plan.txt
+git add .
+git restore --staged README.md   # or: git reset -- README.md
+git status                       # plan.txt staged, README.md modified
+git commit -m "docs: update plan"
+```
+</Solution>
+
+### 6.3 · Changing the last commit message
+
+Make a commit with a typo in the message and fix it.
+
+<p class="practises">Practises: `git commit --amend`.</p>
+
+<Solution>
+```bash
+echo "x" > x.txt
+git add x.txt
+git commit -m "feat: ad x fiel"
+git commit --amend -m "feat: add x file"
+git log --oneline -2       # only one commit, with the right message
+```
+</Solution>
+
+### 6.4 · Reverting a mistake
+
+Create `mistake.txt`, commit it, and undo the commit with `git revert`. The history must not be rewritten.
+
+<p class="practises">Practises: `git revert`, `git log`.</p>
+
+<Solution>
+```bash
+echo "mistake" > mistake.txt
+git add mistake.txt
+git commit -m "feat: add file by mistake"
+git log --oneline
+git revert HEAD            # in the editor Esc, :wq
+git log --oneline          # the original commit and Revert "…"
+ls                         # mistake.txt is gone
+```
+</Solution>
+
+### 6.5 · The three reset modes
+
+Make three commits (`r1.txt`, `r2.txt`, `r3.txt`). Try `git reset --soft HEAD~1`, `git reset HEAD~1`, and `git reset --hard HEAD~1` in turn and check `git status` and `ls` after each.
+
+<p class="practises">Practises: `--soft`, `--mixed`, `--hard`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do echo $i > r$i.txt; git add r$i.txt; git commit -qm "feat: add r$i"; done
+
+git reset --soft HEAD~1    # r3.txt: "Changes to be committed"
+git commit -qm "feat: add r3 again"
+
+git reset HEAD~1           # r3.txt: untracked (change kept on disk, not staged)
+git add r3.txt && git commit -qm "feat: add r3 once more"
+
+git reset --hard HEAD~1    # r3.txt is gone from disk too
+ls
+```
+</Solution>

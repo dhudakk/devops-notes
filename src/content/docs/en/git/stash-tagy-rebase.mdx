@@ -1,0 +1,325 @@
+---
+title: Stash, tags, and rebase
+description: Setting work in progress aside with git stash, marking versions with lightweight and annotated tags, rebasing onto a new base, interactive rebase, and merge vs. rebase.
+kind: chapter
+day: 2
+sidebar:
+  order: 12
+  label: 12 · Stash, tags, and rebase
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `git stash` temporarily **shelves** uncommitted changes (locally, not on the server) and leaves the working tree clean. `git stash list` = the list, `git stash pop` = bring back and remove from the list.
+- By default stash does **not** shelve new (untracked) files — use `git stash -u` for that.
+- A **tag** is a permanent name for a commit, typically a version: `git tag v1.0` (lightweight), `git tag -a v1.0 -m "…"` (annotated: author, date, message). To the server: `git push origin v1.0`.
+- `git rebase main` **moves** the current branch's commits onto the end of `main` → linear history. The commits get new hashes but **stay separate**.
+- Combining commits into one (*squash*) is done by **interactive** `git rebase -i`. **Never rebase what is already pushed** and others build on.
+</KeyPoints>
+
+## git stash
+
+The situation: you have a change in progress you do not want to commit yet, and you must quickly fix something else (a hotfix) or pull a colleague's work.
+
+```bash
+echo "Work in progress." >> day2-flow.md
+git status                       # modified: day2-flow.md
+git stash push -m "WIP day2-flow text"     # or just: git stash
+git status                       # working tree clean
+git stash list
+# stash@{0}: On main: WIP day2-flow text
+```
+
+The change is gone from the file — it is shelved in a **local** store (*the stash*). Now you can deal with something else in peace:
+
+```bash
+git checkout -b fix
+echo "Footer hotfix text" > footer-hotfix.txt
+git add footer-hotfix.txt
+git commit -m "fix: add footer hotfix text"
+git checkout main
+git merge fix
+git branch -d fix
+```
+
+And go back to the work in progress:
+
+```bash
+git stash pop        # brings back the last shelved change and removes it from the list
+git diff             # the change is back
+git add day2-flow.md
+git commit -m "feat: finish day 2 flow text"
+```
+
+:::note[A question from the course: does stash go to the server?]
+No. "Push" in `git stash push` only means "put on the stack". The stash is purely **local** — it is never sent to the server and colleagues do not see it.
+:::
+
+### Several stashes
+
+```bash
+git stash               # stash@{0}
+git stash               # the new one is stash@{0}, the older moves to stash@{1}
+git stash list
+git stash pop stash@{1}      # bring back a specific one
+git stash apply              # bring back the last one but KEEP it in the list
+git stash drop stash@{0}     # delete without bringing back
+```
+
+| Command | What it does |
+| --- | --- |
+| `git stash` / `git stash push -m "description"` | shelves changes to tracked files |
+| `git stash -u` | shelves new (untracked) files too |
+| `git stash list` | list of shelved changes |
+| `git stash pop` | brings back the last one and deletes it from the list |
+| `git stash apply` | brings back the last one, keeps it in the list |
+
+:::caution[New files]
+Without `-u`, `git stash` only shelves changes to files Git already tracks. A new, unadded file stays in the working tree. That is why in the course the instructor first committed the new file empty and only then wrote into it and stashed.
+:::
+
+A stash is not a replacement for a commit — it is for setting things aside briefly. The instructor also uses it for small, unimportant edits he does not want to lose with a hard reset: stash them, pull the colleague's work, carry on.
+
+## Tags
+
+A **tag** is a named pointer to a specific commit that (unlike a branch) **does not move**. It marks versions: `v1.0`, `v1.5`, `v2.0.1`. Instead of searching history for a hash, you type `git checkout v1.0`.
+
+```bash
+git tag day2-v1                                  # lightweight tag on HEAD
+git tag -a day2-v1-notes -m "Day 2 demo version" # annotated tag
+git tag                                          # list tags
+git log --oneline --decorate                     # the tag shows next to the commit: (tag: day2-v1)
+git show day2-v1 --stat                          # the commit the tag points to
+git tag v0.9 a1b2c3d                             # tag an older commit
+git tag -d day2-v1                               # delete a local tag
+```
+
+### Lightweight vs. annotated
+
+| | Lightweight (`git tag v1`) | Annotated (`git tag -a v1 -m "…"`) |
+| --- | --- | --- |
+| What it stores | just a name → commit | a separate object: **who** tagged, **when**, a **message** |
+| Use | private, temporary markers | **releases** |
+
+You see the difference in `git show`. In the course the instructor saw none because he only looked at the commit — an annotated tag has an extra header:
+
+```text
+$ git show day2-v1-notes --stat
+tag day2-v1-notes
+Tagger: First Last <name@example.com>
+Date:   Wed Oct 28 11:20:41 2026 +0100
+
+Day 2 demo version
+
+commit 53032aefaa92b543d06cdbc19fddf8a9f80b9176
+…
+```
+
+### Tags to the server
+
+`git push` does **not** send tags. Push them explicitly:
+
+```bash
+git push origin day2-v1       # one tag
+git push origin --tags        # all of them
+```
+
+GitHub/GitLab then show them under **Tags** / **Releases**.
+
+## Rebase
+
+**Rebase** moves a sequence of commits onto a new base. The main reason: **linear history**.
+
+The situation — `main` has moved on:
+
+```text
+main          A───B───E
+                   \
+feature             C───D
+```
+
+```bash
+git switch feature
+git rebase main
+```
+
+```text
+main          A───B───E
+                       \
+feature                 C'───D'
+```
+
+Git takes commits `C` and `D`, sets them aside, moves `feature` to `E`, and reapplies them as **new commits `C'` and `D'`** (same changes, different hashes). The branch can then be merged with a fast-forward, without a merge commit:
+
+```bash
+git switch main
+git merge feature --ff-only     # fast-forward only, refuse otherwise
+git branch -d feature
+```
+
+### Merge vs. rebase
+
+| | Merge | Rebase |
+| --- | --- | --- |
+| What it does | a new **merge commit** with two parents | moves the branch's commits **onto the end** of the other branch |
+| History | keeps exactly how branches split and joined | **linear**, easier to read |
+| Hashes of existing commits | unchanged | the branch's commits get **new** hashes |
+| Safe on shared branches | yes | **no** |
+
+:::note[Correction to the lecture]
+The lecture said rebase "combines several commits into one" and the intermediate commits are lost. A plain `git rebase main` does **not** combine commits — after the rebase in the demo there were still two separate commits (*add rebase demo file* and *extend rebase demo file*), just with new hashes on a new base. Combining (squash) is done by **interactive** rebase below.
+:::
+
+### Interactive rebase
+
+```bash
+git rebase -i HEAD~3      # edit the last 3 commits
+```
+
+An editor opens with the list of commits and you choose an action for each:
+
+| Action | What it does |
+| --- | --- |
+| `pick` | keep the commit |
+| `reword` | keep it, but change the message |
+| `squash` | combine with the previous one (messages combined) |
+| `fixup` | combine with the previous one (message dropped) |
+| `drop` | remove the commit |
+| reordering lines | reorders the commits |
+
+This is how messy commits like *wip*, *fix*, *another fix* are tidied into one meaningful commit before merging.
+
+### The golden rule
+
+> **DO. NOT. EVER.** Never rebase anything that has already been pushed to a repository others have access to.
+
+Rebase **throws away** the original commits and creates new ones. If a colleague has already built on the originals, their history diverges from yours and chaos follows. Rebase only **local** branches nobody else uses yet.
+
+## Test yourself
+
+<Question q="Are changes saved with `git stash` stored on the server?">
+No, the stash is purely local. It is never sent to the server.
+</Question>
+
+<Question q="What is the difference between `git stash pop` and `git stash apply`?">
+Both bring back the shelved changes. `pop` also removes them from the stash list; `apply` keeps them there.
+</Question>
+
+<Question q="Why did a new file `new.txt` stay in the working tree after `git stash`?">
+Without `-u`, stash only shelves changes to tracked files. A new (untracked) file is shelved by `git stash -u`.
+</Question>
+
+<Question q="What is the difference between a lightweight and an annotated tag?">
+A lightweight tag is just a name for a commit. An annotated tag (`-a`) is a separate object with the tagger's name, date, and a message — used for releases.
+</Question>
+
+<Question q="You pushed commits with `git push`. Are the tags on the server too?">
+No. Tags must be pushed explicitly: `git push origin v1.0` or `git push origin --tags`.
+</Question>
+
+<Question q="Does `git rebase main` combine a feature branch's two commits into one?">
+No. It moves them onto the end of `main` as two new commits (new hashes). Combining is done by interactive `git rebase -i` with `squash`/`fixup`.
+</Question>
+
+<Question q="Why not rebase a branch your colleagues already use?">
+Rebase replaces commits with new ones (different hashes). Colleagues have the original commits and their work builds on them — histories diverge and duplicate commits and conflicts follow.
+</Question>
+
+## Exercises
+
+### 12.1 · A hotfix during work in progress
+
+Start editing a file but do not commit. Shelve the change with stash, fix a different file on branch `hotfix/readme`, merge it into the main branch, and go back to the shelved work.
+
+<p class="practises">Practises: `git stash push -m`, `git stash list`, `git stash pop`.</p>
+
+<Solution>
+```bash
+echo "Note: after the rebase we look at the graph." >> program.md
+git status
+git stash push -m "WIP program notes"
+git stash list
+git checkout -b hotfix/readme
+echo "Hotfix: added after day one." >> README.md
+git commit -am "fix: update readme"
+git checkout main
+git merge hotfix/readme --no-edit
+git branch -d hotfix/readme
+git stash pop
+git diff                       # the work in progress is back
+git commit -am "feat: add rebase note to program"
+```
+</Solution>
+
+### 12.2 · Release tags
+
+Tag the current commit with a lightweight tag `v1.0.0` and an annotated tag `v1.0.1` with a message. Compare them with `git show` and push them to the server.
+
+<p class="practises">Practises: `git tag`, `git tag -a`, `git push origin <tag>`.</p>
+
+<Solution>
+```bash
+git tag v1.0.0
+git tag -a v1.0.1 -m "Release v1.0.1"
+git tag
+git show v1.0.0 --stat      # straight to the commit
+git show v1.0.1 --stat      # tag v1.0.1, Tagger, Date, message, then the commit
+git push origin v1.0.0 v1.0.1
+```
+</Solution>
+
+### 12.3 · Rebasing a local branch
+
+Create a local branch `feature/rebase-cleanup` with two commits. Make a different commit on the main branch. Rebase the feature branch onto the new base, merge it with a fast-forward, and check that there are still two commits.
+
+<p class="practises">Practises: `git rebase`, `--ff-only`, linear history.</p>
+
+<Solution>
+```bash
+git checkout main
+git checkout -b feature/rebase-cleanup
+echo "rebase step 1" > rebase-demo.txt
+git add rebase-demo.txt && git commit -m "feat: add rebase demo file"
+echo "rebase step 2" >> rebase-demo.txt
+git commit -am "feat: extend rebase demo file"
+
+git checkout main
+echo "A new base on main." > base-after-feature.txt
+git add base-after-feature.txt && git commit -m "feat: add new base on main"
+git log --oneline --graph --all          # two lines
+
+git checkout feature/rebase-cleanup
+git rebase main
+git log --oneline --graph --all          # a straight line, both feature commits are there
+
+git checkout main
+git merge feature/rebase-cleanup --ff-only
+git branch -d feature/rebase-cleanup
+```
+</Solution>
+
+### 12.4 · Squash with interactive rebase
+
+Make three small commits (*wip 1*, *wip 2*, *wip 3*) and combine them into one commit with the message `feat: add search`.
+
+<p class="practises">Practises: `git rebase -i`, `squash`/`fixup`, `reword`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do echo $i >> search.txt; git add search.txt; git commit -qm "wip $i"; done
+git rebase -i HEAD~3
+```
+
+In the editor change the lines to:
+
+```text
+reword 1a2b3c4 wip 1
+fixup  5d6e7f8 wip 2
+fixup  9a0b1c2 wip 3
+```
+
+Save and close. In the next editor change the message to `feat: add search`. `git log --oneline` shows one commit.
+</Solution>

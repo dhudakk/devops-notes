@@ -1,0 +1,187 @@
+---
+title: GitHub a GitLab
+description: Webové rozhranie Git serverov — repozitáre, história, vetvy, členovia a práva, merge requesty, pipeline, prostredia dev/test/prod, skupiny, issues, prístupové tokeny, GitHub Pages a fork.
+kind: chapter
+day: 1
+sidebar:
+  order: 7
+  label: 07 · GitHub a GitLab
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **GitHub** — najznámejší, hlavne osobné a open source projekty. **GitLab** — firmy si ho často hostujú na vlastnom serveri (lacnejšie, dostupný iba cez VPN). Funkčne sú si veľmi podobné.
+- Repozitár na webe: súbory s posledným commitom pri každom, prepínač vetiev, tlačidlo **Code** (clone cez **SSH** alebo **HTTPS**, stiahnutie ZIP), história commitov.
+- Repozitár je **private** (iba pozvaní členovia s rolou) alebo **public**.
+- **Merge request** (GitLab) = **pull request** (GitHub): žiadosť o zlúčenie vetvy, ktorú niekto posúdi.
+- **Pipeline** (CI/CD) sa spustí po pushi: kontrola commit správy, testy, build, nasadenie.
+- Vetvy pre prostredia: `dev` → `test` → `main`/`prod`; produkčná vetva býva **protected**.
+</KeyPoints>
+
+## GitHub vs. GitLab
+
+| | GitHub | GitLab |
+| --- | --- | --- |
+| Typické použitie | osobné projekty, open source, portfólio | firmy, často **self-hosted** na vlastnom serveri |
+| Žiadosť o zlúčenie | **pull request** (PR) | **merge request** (MR) |
+| CI/CD | GitHub Actions | GitLab CI/CD (pipelines) |
+| Predvolená vetva | `main` | `main` (staršie inštancie `master`) |
+
+Firmy hostujú GitLab u seba, lebo je to pri veľkom počte ľudí lacnejšie ako platiť za cloud a kód neopustí firemnú sieť — mimo VPN sa naň ani nedostaneš. Prihlásenie býva cez firemné **SSO**.
+
+## Repozitár na webe
+
+Po otvorení repozitára vidíš:
+
+- **zoznam súborov** — pri každom čas poslednej zmeny a **správu commitu**, ktorý ho naposledy menil (aj preto sa oplatí písať dobré commit správy),
+- **prepínač vetiev** — ako vyzerá projekt v inej vetve,
+- **README.md** zobrazený pod súbormi — dokumentácia projektu v Markdowne: čo to je, ako to spustiť, čo je v ktorom priečinku,
+- tlačidlo **Code / Clone**:
+  - **SSH** — kľúč nastavíš raz a potom už nič nezadávaš (pozri [ďalšiu kapitolu](/devops-notes/git/ssh-clone-push/)),
+  - **HTTPS** — pri pushi sa musíš prihlasovať,
+  - **Download ZIP** — iba stiahnutie súborov bez histórie,
+- **Commits** — história; pri každom commite si vieš prezrieť súbory presne v tom stave (*Browse files*) a stiahnuť si starú verziu.
+
+### Členovia a viditeľnosť
+
+| Viditeľnosť | Kto vidí |
+| --- | --- |
+| **Private** | iba pridaní členovia |
+| **Internal** (GitLab) | každý prihlásený v organizácii |
+| **Public** | ktokoľvek, aj bez prihlásenia |
+
+V časti **Members** pridáš ľudí a určíš im **rolu** — od iba čítania (Guest, Reporter) cez úpravy (Developer) až po plnú kontrolu (Maintainer, Owner) — a voliteľne aj dátum, kedy prístup vyprší.
+
+### Ďalšie časti repozitára
+
+| Časť | Na čo |
+| --- | --- |
+| **Branches** | zoznam vetiev, porovnanie, mazanie |
+| **Merge / Pull requests** | žiadosti o zlúčenie vetvy — review, komentáre, schválenie |
+| **Pipelines / Actions** | automatické kroky po pushi (CI/CD) |
+| **Issues / Work items / Milestones** | úlohy a plánovanie, často prepojené s Jirou |
+| **Wiki** | dokumentácia projektu (alebo je v samostatnom systéme) |
+| **Tags / Releases** | označené verzie |
+
+## Pipeline
+
+Pipeline je postupnosť automatických krokov, ktorá sa spustí pri pushi. Príklad z praxe lektora:
+
+1. kontrola **formátu commit správy** — nevyhovuje? Pipeline spadne, príde e-mail a ďalej sa nepokračuje,
+2. **build** — dá sa projekt skompilovať?
+3. **testy**,
+4. **nasadenie** na server.
+
+Na GitHube to isté robia **Actions** — napr. pri každom pushi sa aplikácia nasadí na Vercel.
+
+## Vetvy podľa prostredí
+
+Na produkčnej verzii, ktorú používajú zákazníci, sa neexperimentuje. Preto sa vetvy často delia podľa prostredí:
+
+| Vetva | Prostredie | Kto tam pracuje |
+| --- | --- | --- |
+| `dev` | vývojový server, napr. `dev.aplikacia.sk` | vývojári si skúšajú zmeny |
+| `test` | testovací server | testeri overujú pokročilejšiu verziu |
+| `main` / `master` / `prod` | produkcia, `aplikacia.sk` | iba otestované zmeny |
+
+Zmena putuje `dev` → `test` → `prod` cez merge requesty. Na produkciu sa nasadzuje, keď systém najmenej ľudí používa. Produkčná vetva býva **protected** — nedá sa do nej pushovať priamo, iba zlúčiť cez schválený merge request.
+
+## Skupiny (groups)
+
+Väčší systém (backend, frontend, databáza, dokumentácia) sa často **nedáva do jedného repozitára** — pracujú na ňom iní ľudia a vznikali by zbytočné konflikty. Repozitáre sa zoskupia do **group**, ktorá môže mať ďalšie podskupiny (napr. po rokoch alebo tímoch). Práva sa dajú nastaviť pre celú skupinu naraz.
+
+## Personal Access Token
+
+Pre skripty a automatizáciu (napr. Python skript, ktorý číta veľa repozitárov cez API) si vytvoríš **Personal Access Token** v nastaveniach profilu:
+
+- zvolíš **scope** — čo token smie: čítať používateľov, repozitáre, registry, API, alebo aj zapisovať,
+- nastavíš platnosť,
+- dostaneš reťazec, ktorý vložíš do skriptu namiesto hesla.
+
+Token je ako heslo — **necommituj ho** do repozitára (patrí do premennej prostredia alebo `.env` v `.gitignore`).
+
+:::note[HTTPS a heslo]
+Na kurze zaznelo, že pri HTTPS zadávaš heslo k účtu. GitHub heslo účtu pre Git **neprijíma** — pri HTTPS sa namiesto hesla zadáva práve personal access token (alebo ho za teba spraví prihlasovací pomocník Git Credential Manager). Aj preto je SSH pohodlnejšie.
+:::
+
+## GitHub Pages
+
+GitHub vie zadarmo hostovať **statický web** (HTML, CSS, JS) priamo z repozitára:
+
+- **Settings → Pages → Deploy from a branch** a vyberieš vetvu, napr. `gh-pages`,
+- pri každej zmene v tej vetve sa web automaticky aktualizuje na adrese `https://<meno>.github.io/<repo>/`,
+- na bezplatnom účte musí byť repozitár **public**.
+
+Lektor ukázal, že vetvy môžu mať úplne odlišný obsah: v `main` je zdrojový kód, v `gh-pages` iba hotový (zbuildovaný) web.
+
+```bash
+git checkout -b gh-pages
+git rm -r -q .                 # vetva pre web nepotrebuje zdrojáky
+cp ~/web/index.html .
+git add index.html
+git commit -m "chore: gh pages init"
+git push -u origin gh-pages
+git checkout main              # zdrojáky sú späť
+```
+
+Aj tieto poznámky bežia na GitHub Pages — namiesto vetvy ich nasadzuje GitHub Actions.
+
+## Fork a pull request
+
+Ako prispievajú do open source projektu cudzí ľudia (stovky prispievateľov, tisíce commitov):
+
+1. Na stránke projektu klikneš **Fork** — vznikne kópia repozitára pod tvojím účtom.
+2. Naklonuješ si fork, spravíš zmenu vo vlastnej vetve a pushneš ju.
+3. Otvoríš **pull request** do pôvodného projektu.
+4. Správca zmenu posúdi, okomentuje a ak je dobrá, **zlúči** ju do hlavnej vetvy. Do hlavnej vetvy nemáš priamy prístup — rozhoduje správca.
+
+## Otestuj sa
+
+<Question q="Prečo firmy často používajú self-hosted GitLab namiesto GitHubu?">
+Pri veľkom počte ľudí je to lacnejšie a kód ostáva na vlastnom serveri vo firemnej sieti (prístupný iba cez VPN) — je to bezpečnejšie.
+</Question>
+
+<Question q="Aký je rozdiel medzi merge requestom a pull requestom?">
+Žiadny vecný — je to to isté (žiadosť o zlúčenie vetvy s review), GitLab tomu hovorí merge request, GitHub pull request.
+</Question>
+
+<Question q="Čo je protected branch?">
+Vetva, do ktorej sa nedá pushovať priamo (alebo iba vybraným ľuďom) — zmeny sa do nej dostanú iba zlúčením schváleného merge requestu. Typicky produkčná `main`/`prod`.
+</Question>
+
+<Question q="Čo robí typická CI/CD pipeline po pushi?">
+Postupne spúšťa automatické kroky: napr. kontrolu formátu commit správy, build, testy a nasadenie. Keď krok zlyhá, ďalšie sa nespustia a autor dostane upozornenie.
+</Question>
+
+<Question q="Ako prispeješ do cudzieho open source projektu, kam nemáš právo pushovať?">
+Spravíš fork, v ňom zmenu na vlastnej vetve, pushneš ju do forku a otvoríš pull request do pôvodného repozitára. Správca rozhodne, či ho zlúči.
+</Question>
+
+<Question q="Na čo je Personal Access Token?">
+Na prístup k API a repozitárom zo skriptov a automatizácie (a pri HTTPS namiesto hesla). Má obmedzené oprávnenia (scope) a platnosť; treba ho chrániť ako heslo.
+</Question>
+
+## Cvičenia
+
+### 7.1 · Repozitár cez web
+
+Na GitHube (alebo GitLabe) vytvor nový repozitár `git-kurz` s README a `.gitignore` šablónou pre Python. Prezri si históriu commitov a nájdi, kde sa nastavuje viditeľnosť a členovia.
+
+<p class="practises">Precvičíš: orientácia vo webovom rozhraní.</p>
+
+<Solution>
+GitHub: **New repository** → názov `git-kurz`, *Public/Private*, zaškrtni *Add a README file*, *.gitignore template: Python* → **Create repository**. Prvý commit *Initial commit* vytvoril web. Viditeľnosť: **Settings → General → Danger Zone → Change visibility**. Členovia: **Settings → Collaborators**. Na GitLabe: **New project → Create blank project**, členovia v **Manage → Members**.
+</Solution>
+
+### 7.2 · Prostredia
+
+Tím má vetvy `dev`, `test` a `main`. Opíš, ako sa nová funkcia dostane k zákazníkom a ktorú vetvu by si nastavil ako protected.
+
+<p class="practises">Precvičíš: vetvy podľa prostredí, merge request, protected branch.</p>
+
+<Solution>
+Vývojár funkciu pushne (cez feature vetvu a merge request) do `dev` a overí ju na vývojovom serveri. Potom merge request `dev` → `test` — testeri ju otestujú. Keď je všetko v poriadku, merge request `test` → `main` a nasadenie na produkciu v čase, keď systém používa najmenej ľudí. Protected má byť minimálne `main` (a často aj `test`), aby sa do nich nedalo pushnúť priamo.
+</Solution>

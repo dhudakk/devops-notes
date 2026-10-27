@@ -1,0 +1,299 @@
+---
+title: Merge a konflikty
+description: git merge do aktuálnej vetvy, fast-forward vs. merge commit, ako Git spája súbory po riadkoch, merge konflikt krok za krokom, conflict markers a git mergetool.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Merge a konflikty
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `git merge vetva` zlúči `vetva` **do aktuálnej vetvy**. Pred merge si vždy over, kde stojíš (`git status`).
+- Ak sa aktuálna vetva medzitým nepohla → **fast-forward** (iba posun ukazovateľa). Inak vznikne **merge commit** s dvoma rodičmi (otvorí sa editor na správu; `--no-edit` použije predvolenú).
+- Textové súbory sa spájajú **po riadkoch**. Ten istý riadok zmenený v oboch vetvách = **konflikt**. Binárne súbory = konflikt vždy.
+- Pri konflikte: v súbore nájdeš `<<<<<<<`, `=======`, `>>>>>>>` → uprav na finálnu verziu a markery zmaž → `git add subor` → `git commit`.
+- Zrušiť rozbehnutý merge: `git merge --abort`.
+</KeyPoints>
+
+## git merge
+
+```bash
+git switch main
+git merge dev
+```
+
+Zmeny z `dev` sa zlúčia **do aktuálnej vetvy** (`main`). Smer záleží:
+
+- stojíš na `main`, `git merge dev` → `main` dostane zmeny z `dev`, pokračuješ na `main`,
+- stojíš na `dev`, `git merge main` → `dev` dostane zmeny z `main` (bežné, keď si chceš do feature vetvy dotiahnuť novinky z hlavnej).
+
+Git aplikuje iba zmeny od **posledného spoločného predka** oboch vetiev.
+
+### Fast-forward
+
+Ak na `main` od rozvetvenia nepribudol žiadny commit, netreba nič spájať — Git iba posunie ukazovateľ `main` dopredu:
+
+```text
+pred:  main     ●───●
+                   \
+         feature    ●───●
+
+po:   ●───●───●───●   ← main, feature
+```
+
+```text
+Updating dd2fb90..b088fa7
+Fast-forward
+ f.txt | 1 +
+```
+
+### Merge commit
+
+Ak pribudli commity v oboch vetvách, vznikne **nový commit s dvoma rodičmi**:
+
+```text
+main      ●───●───●───────●   ← merge commit (2 rodičia)
+               \         /
+dev             ●───●───●
+```
+
+Výsledok merge sa commitne **hneď** (ak nie je konflikt). Otvorí sa editor s predvyplnenou správou `Merge branch 'dev'` — ulož a zatvor (`Esc`, `:wq`). Bez editora:
+
+```bash
+git merge dev --no-edit
+```
+
+## Príklad: vetvy, ktoré sa rozišli
+
+Postup zo slajdov (vľavo príkaz, vpravo čo sa stane):
+
+| Príkaz | Výsledok |
+| --- | --- |
+| `git checkout -b develop` | `develop` aj `master` ukazujú na ten istý commit |
+| commit na `develop` | `develop` ide dopredu |
+| `git checkout master` | working tree sa vráti do stavu `master` |
+| 2× commit na `master` | vetvy sa rozišli |
+| `git checkout develop` | súbory z `master` commitov zmiznú, si tam, kde si na `develop` skončil |
+| commit na `develop` | ďalší krok `develop` |
+| `git merge master` | do `develop` sa zlúči `master` → merge commit na `develop` |
+
+Po merge stará vetva ďalej existuje — môžeš na nej pokračovať alebo ju zmazať.
+
+V deme na kurze sa súbor `prikazy.txt` menil v oboch vetvách, ale **konflikt nevznikol**: na jednej vetve sa iba pridávali nové riadky na koniec, druhá ten súbor nemenila na rovnakom mieste.
+
+## Ako Git spája súbory
+
+| Situácia | Výsledok |
+| --- | --- |
+| súbor zmenený iba v jednej vetve | prevezme sa automaticky |
+| súbor zmenený v oboch, ale **na rôznych riadkoch** | spojí sa automaticky |
+| **ten istý riadok** zmenený v oboch vetvách | **konflikt** |
+| binárny súbor (obrázok, `.exe`) zmenený v oboch | **konflikt vždy** — Git nevie spájať binárky |
+
+Aj preto patria výstupy kompilácie do `.gitignore`.
+
+## Konflikt krok za krokom
+
+Zámerne vytvoríme konflikt (ako na kurze):
+
+```bash
+echo "tema: pôvodná verzia" > konflikt.txt
+git add konflikt.txt
+git commit -m "feat: add conflict base"
+
+git checkout -b feature/konflikt
+echo "tema: verzia z feature branchu" > konflikt.txt
+git commit -am "feat: change topic in feature branch"
+
+git checkout main
+echo "tema: verzia z main branchu" > konflikt.txt
+git commit -am "feat: change topic in main branch"
+
+git merge feature/konflikt
+```
+
+```text
+Auto-merging konflikt.txt
+CONFLICT (content): Merge conflict in konflikt.txt
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+Prompt v Git Bash sa zmení na `(main|MERGING)` — si uprostred merge.
+
+```bash
+git status
+```
+
+```text
+You have unmerged paths.
+  (fix conflicts and run "git commit")
+  (use "git merge --abort" to abort the merge)
+
+Unmerged paths:
+  (use "git add <file>..." to mark resolution)
+	both modified:   konflikt.txt
+```
+
+Súbory **bez** konfliktu (a metadáta merge) sú už pripravené v indexe. Súbory s konfliktom ostali vo working tree označené ako *unmerged*.
+
+### Conflict markers
+
+```bash
+cat konflikt.txt
+```
+
+```text
+<<<<<<< HEAD
+tema: verzia z main branchu
+=======
+tema: verzia z feature branchu
+>>>>>>> feature/konflikt
+```
+
+| Marker | Význam |
+| --- | --- |
+| `<<<<<<< HEAD` | začiatok verzie z **aktuálnej** vetvy (kam zlučuješ) |
+| `=======` | oddeľovač |
+| `>>>>>>> feature/konflikt` | koniec verzie zo **zlučovanej** vetvy |
+
+### Vyriešenie
+
+Rozhodneš, ako má súbor vyzerať — ponecháš jednu verziu, druhú, alebo ich skombinuješ. **Markery musia zmiznúť.**
+
+```bash
+echo "tema: finálna spoločná verzia" > konflikt.txt    # alebo uprav v editore
+cat konflikt.txt                                         # žiadne <<<<<<<
+git add konflikt.txt                                     # = konflikt vyriešený
+git status                                               # All conflicts fixed but you are still merging
+git commit -m "merge: resolve topic conflict"
+```
+
+`git add` tu neznamená „pridaj nový súbor“, ale „**tento súbor je vyriešený**“. Ak má byť výsledkom zmazanie súboru, použi `git rm subor`. Keď sú všetky súbory vyriešené, `git commit` dokončí merge a prompt sa vráti na `(main)`.
+
+Ak sa v tom stratíš, vráť všetko do stavu pred merge:
+
+```bash
+git merge --abort
+```
+
+### Nástroj na konflikty
+
+```bash
+git mergetool konflikt.txt
+```
+
+Otvorí nakonfigurovaný grafický nástroj (kdiff3, meld, vimdiff…) s oboma verziami vedľa seba. Pohodlné je aj **VS Code** — pri každom konflikte ponúka tlačidlá *Accept Current / Incoming / Both*. Lektor osobne mergetool nepoužíva.
+
+## Ako sa konfliktom vyhnúť
+
+- Dohodnite sa v tíme, **kto na čom pracuje**, a pomenúvajte vetvy zrozumiteľne.
+- Zlučuj **často** a **malé** zmeny — čím dlhšie vetva žije bokom, tým viac konfliktov.
+- Pred prácou `git pull`, nech začínaš z aktuálneho stavu.
+- Necommituj generované súbory.
+
+:::tip[Lektorov postup]
+Keď hrozí konflikt vo veľa súboroch, lektor si svoje zmeny odloží mimo repozitára (alebo cez `git stash`), urobí merge/pull čistej verzie a potom svoje zmeny vráti a dorobí ručne.
+:::
+
+## Otestuj sa
+
+<Question q="Stojíš na `dev` a spustíš `git merge main`. Ktorá vetva sa zmení?">
+`dev` — merge vždy zlučuje do aktuálnej vetvy. `main` ostane bez zmeny.
+</Question>
+
+<Question q="Kedy vznikne fast-forward a kedy merge commit?">
+Fast-forward, keď aktuálna vetva od rozvetvenia nemá nové commity — iba sa posunie ukazovateľ. Ak majú nové commity obe vetvy, vznikne merge commit s dvoma rodičmi.
+</Question>
+
+<Question q="Prečo nevznikol konflikt, keď sa ten istý súbor menil v oboch vetvách?">
+Git spája textové súbory po riadkoch. Ak zmeny neboli na rovnakých riadkoch (napr. jedna vetva iba pridávala riadky na koniec), spojí ich automaticky.
+</Question>
+
+<Question q="Čo znamenajú `<<<<<<< HEAD`, `=======` a `>>>>>>> feature`?">
+Úsek medzi `<<<<<<< HEAD` a `=======` je verzia z aktuálnej vetvy, úsek medzi `=======` a `>>>>>>> feature` verzia zo zlučovanej vetvy. Po vyriešení musia markery zo súboru zmiznúť.
+</Question>
+
+<Question q="Ako Gitu povieš, že konflikt v súbore je vyriešený, a ako dokončíš merge?">
+`git add subor` (súbor ide do indexu ako vyriešený), a keď sú vyriešené všetky, `git commit`.
+</Question>
+
+<Question q="Ako zrušíš merge, ktorý skončil konfliktom?">
+`git merge --abort` — všetko sa vráti do stavu pred merge.
+</Question>
+
+## Cvičenia
+
+### 10.1 · Merge bez konfliktu
+
+Zlúč `feature/profil` z predošlej kapitoly do hlavnej vetvy a pozri si graf. Bol to fast-forward?
+
+<p class="practises">Precvičíš: `git merge`, fast-forward.</p>
+
+<Solution>
+```bash
+git checkout main
+git merge feature/profil
+git log --oneline --graph --all
+git branch -d feature/profil
+```
+
+Ak na `main` od vytvorenia vetvy nepribudol commit, výstup obsahuje *Fast-forward* a graf je rovný. Inak vznikol merge commit.
+</Solution>
+
+### 10.2 · Merge commit
+
+Na novej vetve sprav dva commity, na `main` jeden iný commit a vetvu zlúč. Pozri si graf — merge commit má dvoch rodičov.
+
+<p class="practises">Precvičíš: rozídené vetvy, merge commit, `--no-edit`.</p>
+
+<Solution>
+```bash
+git switch -c feature/day2-intro
+echo "# Deň 2 demo" > day2-flow.md
+git add day2-flow.md && git commit -m "feat: add day 2 flow file"
+echo "Riadok z feature vetvy." >> day2-flow.md
+git commit -am "feat: extend day 2 flow"
+
+git switch main
+echo "Zmena priamo na hlavnom branchi." > main-note.txt
+git add main-note.txt && git commit -m "feat: add main branch note"
+
+git log --oneline --graph --all     # dve línie
+git merge feature/day2-intro --no-edit
+git log --oneline --graph --all     # spojené merge commitom
+git show --stat HEAD                # Merge: <rodič1> <rodič2>
+git branch -d feature/day2-intro
+```
+</Solution>
+
+### 10.3 · Vytvor a vyrieš konflikt
+
+V súbore `menu.txt` zmeň ten istý riadok inak na `main` a inak na `feature/menu`. Zlúč, vyrieš konflikt (výsledok `farba: červená a zelená`) a dokonči merge.
+
+<p class="practises">Precvičíš: konflikt, conflict markers, `git add` po vyriešení.</p>
+
+<Solution>
+```bash
+git checkout main
+echo "farba: modrá" > menu.txt
+git add menu.txt && git commit -m "feat: add menu"
+git checkout -b feature/menu
+echo "farba: zelená" > menu.txt
+git commit -am "feat: change menu color in feature"
+git checkout main
+echo "farba: červená" > menu.txt
+git commit -am "feat: change menu color in main"
+git merge feature/menu              # CONFLICT
+cat menu.txt                        # markery
+echo "farba: červená a zelená" > menu.txt
+git add menu.txt
+git commit -m "merge: resolve menu color conflict"
+git log --oneline --graph --all
+git branch -d feature/menu
+```
+</Solution>

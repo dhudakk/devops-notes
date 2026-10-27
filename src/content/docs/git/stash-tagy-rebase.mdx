@@ -1,0 +1,325 @@
+---
+title: Stash, tagy a rebase
+description: Odloženie rozrobenej práce cez git stash, označovanie verzií jednoduchými a anotovanými tagmi, rebase na nový základ, interaktívny rebase a rozdiel medzi merge a rebase.
+kind: chapter
+day: 2
+sidebar:
+  order: 12
+  label: 12 · Stash, tagy a rebase
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `git stash` dočasne **odloží** necommitnuté zmeny (lokálne, nie na server) a working tree je čistý. `git stash list` = zoznam, `git stash pop` = vráť a zmaž zo zoznamu.
+- Nové (untracked) súbory stash predvolene **neodloží** — na to `git stash -u`.
+- **Tag** = trvalé meno pre commit, typicky verzia: `git tag v1.0` (jednoduchý), `git tag -a v1.0 -m "…"` (anotovaný: autor, dátum, správa). Na server: `git push origin v1.0`.
+- `git rebase main` **prenesie** commity aktuálnej vetvy na koniec `main` → lineárna história. Commity dostanú nové hashe, ale **ostanú samostatné**.
+- Spájanie commitov do jedného (*squash*) robí až **interaktívny** `git rebase -i`. **Nikdy nerob rebase toho, čo už je pushnuté** a iní na tom stavajú.
+</KeyPoints>
+
+## git stash
+
+Situácia: máš rozrobenú zmenu, ktorú ešte nechceš commitnúť, a musíš rýchlo opraviť niečo iné (hotfix) alebo si stiahnuť prácu kolegu.
+
+```bash
+echo "Rozpracovaná zmena." >> day2-flow.md
+git status                       # modified: day2-flow.md
+git stash push -m "WIP day2-flow text"     # alebo iba: git stash
+git status                       # working tree clean
+git stash list
+# stash@{0}: On main: WIP day2-flow text
+```
+
+Zmena zmizla zo súboru — je odložená v **lokálnej** schránke (*stash*). Teraz môžeš v pokoji riešiť niečo iné:
+
+```bash
+git checkout -b fix
+echo "Footer hotfix text" > footer-hotfix.txt
+git add footer-hotfix.txt
+git commit -m "fix: add footer hotfix text"
+git checkout main
+git merge fix
+git branch -d fix
+```
+
+A vrátiš sa k rozrobenej práci:
+
+```bash
+git stash pop        # vráti poslednú odloženú zmenu a odstráni ju zo zoznamu
+git diff             # zmena je späť
+git add day2-flow.md
+git commit -m "feat: finish day 2 flow text"
+```
+
+:::note[Otázka z kurzu: ide stash na server?]
+Nie. „Push“ v `git stash push` znamená iba „odlož na zásobník“. Stash je čisto **lokálny** — na server sa nikdy neposiela a kolegovia ho nevidia.
+:::
+
+### Viac stashov
+
+```bash
+git stash               # stash@{0}
+git stash               # nový je stash@{0}, starší sa posunie na stash@{1}
+git stash list
+git stash pop stash@{1}      # vráť konkrétny
+git stash apply              # vráť posledný, ale NECHAJ ho v zozname
+git stash drop stash@{0}     # zmaž bez vrátenia
+```
+
+| Príkaz | Čo robí |
+| --- | --- |
+| `git stash` / `git stash push -m "popis"` | odloží zmeny sledovaných súborov |
+| `git stash -u` | odloží aj nové (untracked) súbory |
+| `git stash list` | zoznam odložených |
+| `git stash pop` | vráti posledný a zmaže ho zo zoznamu |
+| `git stash apply` | vráti posledný, v zozname ostane |
+
+:::caution[Nové súbory]
+`git stash` bez `-u` odloží iba zmeny v súboroch, ktoré Git už sleduje. Nový, ešte nepridaný súbor ostane vo working tree. Preto na kurze lektor nový súbor najprv commitol prázdny a až potom doň písal a stashoval.
+:::
+
+Stash nie je náhrada commitu — je na krátke odloženie. Lektor ho používa aj na drobné, nepodstatné úpravy, ktoré nechce zahodiť tvrdým resetom: stashne ich, pullne prácu kolegu a pokračuje.
+
+## Tagy
+
+**Tag** je pomenovaný ukazovateľ na konkrétny commit, ktorý sa (na rozdiel od vetvy) **nehýbe**. Používa sa na označenie verzií: `v1.0`, `v1.5`, `v2.0.1`. Namiesto hľadania hashu v histórii napíšeš `git checkout v1.0`.
+
+```bash
+git tag den2-v1                                  # jednoduchý (lightweight) tag na HEAD
+git tag -a den2-v1-notes -m "Deň 2 demo verzia"  # anotovaný tag
+git tag                                          # zoznam tagov
+git log --oneline --decorate                     # tag vidíš pri commite: (tag: den2-v1)
+git show den2-v1 --stat                          # commit, na ktorý tag ukazuje
+git tag v0.9 a1b2c3d                             # tag na starší commit
+git tag -d den2-v1                               # zmazanie lokálneho tagu
+```
+
+### Jednoduchý vs. anotovaný
+
+| | Jednoduchý (`git tag v1`) | Anotovaný (`git tag -a v1 -m "…"`) |
+| --- | --- | --- |
+| Čo uloží | iba meno → commit | samostatný objekt: **kto** tagoval, **kedy**, **správa** |
+| Použitie | súkromné, dočasné značky | **releasy** |
+
+Rozdiel uvidíš v `git show`. Na kurze lektor rozdiel nevidel, lebo pozeral iba commit — anotovaný tag má navyše hlavičku:
+
+```text
+$ git show den2-v1-notes --stat
+tag den2-v1-notes
+Tagger: Meno Priezvisko <meno@example.com>
+Date:   Wed Oct 28 11:20:41 2026 +0100
+
+Deň 2 demo verzia
+
+commit 53032aefaa92b543d06cdbc19fddf8a9f80b9176
+…
+```
+
+### Tagy na server
+
+`git push` tagy **neposiela**. Treba explicitne:
+
+```bash
+git push origin den2-v1       # jeden tag
+git push origin --tags        # všetky
+```
+
+Na GitHube/GitLabe sa potom zobrazia v časti **Tags** / **Releases**.
+
+## Rebase
+
+**Rebase** prenesie postupnosť commitov na nový základ (*base*). Hlavný dôvod: **lineárna história**.
+
+Situácia — `main` medzitým pokročil:
+
+```text
+main          A───B───E
+                   \
+feature             C───D
+```
+
+```bash
+git switch feature
+git rebase main
+```
+
+```text
+main          A───B───E
+                       \
+feature                 C'───D'
+```
+
+Git vezme commity `C` a `D`, dočasne ich odloží, posunie `feature` na `E` a commity na ne znova aplikuje ako **nové commity `C'` a `D'`** (rovnaké zmeny, iné hashe). Potom sa dá zlúčiť fast-forwardom, bez merge commitu:
+
+```bash
+git switch main
+git merge feature --ff-only     # iba fast-forward, inak odmietni
+git branch -d feature
+```
+
+### Merge vs. rebase
+
+| | Merge | Rebase |
+| --- | --- | --- |
+| Čo urobí | nový **merge commit** s dvoma rodičmi | prenesie commity vetvy **za koniec** druhej vetvy |
+| História | zachová presne, ako sa vetvy rozvetvili a spojili | **lineárna**, čitateľnejšia |
+| Hashe existujúcich commitov | nezmení | commity vetvy dostanú **nové** hashe |
+| Bezpečné na zdieľané vetvy | áno | **nie** |
+
+:::note[Oprava z prednášky]
+Na kurze zaznelo, že rebase „spojí viac commitov do jedného“ a čiastkové commity sa stratia. Obyčajný `git rebase main` commity **nespája** — po rebase v ukážke ostali dva samostatné commity (*add rebase demo file* a *extend rebase demo file*), iba s novými hashmi a na novom základe. Spájanie (squash) robí **interaktívny** rebase nižšie.
+:::
+
+### Interaktívny rebase
+
+```bash
+git rebase -i HEAD~3      # uprav posledné 3 commity
+```
+
+Otvorí sa editor so zoznamom commitov a pri každom zvolíš akciu:
+
+| Akcia | Čo urobí |
+| --- | --- |
+| `pick` | ponechá commit |
+| `reword` | ponechá, ale zmeníš správu |
+| `squash` | spojí s predchádzajúcim (správy spojí) |
+| `fixup` | spojí s predchádzajúcim (správu zahodí) |
+| `drop` | commit odstráni |
+| zmena poradia riadkov | zmení poradie commitov |
+
+Takto sa pred zlúčením „upratujú“ rozrobené commity ako *wip*, *oprava*, *ešte oprava* do jedného zmysluplného.
+
+### Zlaté pravidlo
+
+> **DO. NOT. EVER.** Nikdy nerob rebase niečoho, čo už je pushnuté do repozitára, ku ktorému majú prístup iní.
+
+Rebase **zahodí** pôvodné commity a vytvorí nové. Ak kolega už na tých pôvodných postavil svoju prácu, jeho história sa s tvojou rozíde a vznikne chaos. Rebase rob iba na **lokálnych** vetvách, ktoré ešte nikto nepoužíva.
+
+## Otestuj sa
+
+<Question q="Uložia sa zmeny po `git stash` na server?">
+Nie, stash je čisto lokálny. Na server sa nikdy neposiela.
+</Question>
+
+<Question q="Aký je rozdiel medzi `git stash pop` a `git stash apply`?">
+Oba vrátia odložené zmeny. `pop` ich zároveň zmaže zo zoznamu stashov, `apply` ich tam nechá.
+</Question>
+
+<Question q="Prečo po `git stash` ostal nový súbor `novy.txt` vo working tree?">
+Bez `-u` stash odkladá iba zmeny sledovaných súborov. Nový (untracked) súbor odloží `git stash -u`.
+</Question>
+
+<Question q="Aký je rozdiel medzi jednoduchým a anotovaným tagom?">
+Jednoduchý je iba meno pre commit. Anotovaný (`-a`) je samostatný objekt s menom autora tagu, dátumom a správou — používa sa na releasy.
+</Question>
+
+<Question q="Pushol si commity cez `git push`. Sú na serveri aj tagy?">
+Nie. Tagy treba poslať explicitne: `git push origin v1.0` alebo `git push origin --tags`.
+</Question>
+
+<Question q="Spojí `git rebase main` dva commity feature vetvy do jedného?">
+Nie. Prenesie ich na koniec `main` ako dva nové commity (nové hashe). Spojenie robí interaktívny `git rebase -i` s akciou `squash`/`fixup`.
+</Question>
+
+<Question q="Prečo nerobiť rebase vetvy, ktorú už používajú kolegovia?">
+Rebase nahradí commity novými (iné hashe). Kolegovia majú pôvodné commity a ich práca na nich stavia — histórie sa rozídu a vzniknú duplicitné commity a konflikty.
+</Question>
+
+## Cvičenia
+
+### 12.1 · Hotfix počas rozrobenej práce
+
+Začni upravovať súbor, ale necommituj. Odlož zmenu cez stash, na vetve `hotfix/readme` sprav opravu iného súboru, zlúč ju do hlavnej vetvy a vráť sa k odloženej práci.
+
+<p class="practises">Precvičíš: `git stash push -m`, `git stash list`, `git stash pop`.</p>
+
+<Solution>
+```bash
+echo "Poznámka: po rebase si pozrieme graf." >> program.md
+git status
+git stash push -m "WIP program notes"
+git stash list
+git checkout -b hotfix/readme
+echo "Hotfix: doplnené po prvom dni." >> README.md
+git commit -am "fix: update readme"
+git checkout main
+git merge hotfix/readme --no-edit
+git branch -d hotfix/readme
+git stash pop
+git diff                       # rozrobená zmena je späť
+git commit -am "feat: add rebase note to program"
+```
+</Solution>
+
+### 12.2 · Release tagy
+
+Označ aktuálny commit jednoduchým tagom `v1.0.0` a anotovaným `v1.0.1` so správou. Porovnaj ich cez `git show` a pushni ich na server.
+
+<p class="practises">Precvičíš: `git tag`, `git tag -a`, `git push origin <tag>`.</p>
+
+<Solution>
+```bash
+git tag v1.0.0
+git tag -a v1.0.1 -m "Release v1.0.1"
+git tag
+git show v1.0.0 --stat      # rovno commit
+git show v1.0.1 --stat      # tag v1.0.1, Tagger, Date, správa, potom commit
+git push origin v1.0.0 v1.0.1
+```
+</Solution>
+
+### 12.3 · Rebase lokálnej vetvy
+
+Vytvor lokálnu vetvu `feature/rebase-cleanup` s dvoma commitmi. Na hlavnej vetve sprav iný commit. Feature vetvu prenes cez rebase na nový základ, zlúč fast-forwardom a over, že commity ostali dva.
+
+<p class="practises">Precvičíš: `git rebase`, `--ff-only`, lineárna história.</p>
+
+<Solution>
+```bash
+git checkout main
+git checkout -b feature/rebase-cleanup
+echo "rebase krok 1" > rebase-demo.txt
+git add rebase-demo.txt && git commit -m "feat: add rebase demo file"
+echo "rebase krok 2" >> rebase-demo.txt
+git commit -am "feat: extend rebase demo file"
+
+git checkout main
+echo "Nový základ na main." > base-after-feature.txt
+git add base-after-feature.txt && git commit -m "feat: add new base on main"
+git log --oneline --graph --all          # dve línie
+
+git checkout feature/rebase-cleanup
+git rebase main
+git log --oneline --graph --all          # rovná čiara, oba feature commity sú tam
+
+git checkout main
+git merge feature/rebase-cleanup --ff-only
+git branch -d feature/rebase-cleanup
+```
+</Solution>
+
+### 12.4 · Squash cez interaktívny rebase
+
+Sprav tri malé commity (*wip 1*, *wip 2*, *wip 3*) a spoj ich do jedného commitu so správou `feat: add search`.
+
+<p class="practises">Precvičíš: `git rebase -i`, `squash`/`fixup`, `reword`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do echo $i >> search.txt; git add search.txt; git commit -qm "wip $i"; done
+git rebase -i HEAD~3
+```
+
+V editore zmeň riadky na:
+
+```text
+reword 1a2b3c4 wip 1
+fixup  5d6e7f8 wip 2
+fixup  9a0b1c2 wip 3
+```
+
+Ulož a zatvor. V ďalšom editore prepíš správu na `feat: add search`. `git log --oneline` ukáže jeden commit.
+</Solution>

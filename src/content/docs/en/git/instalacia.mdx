@@ -1,0 +1,182 @@
+---
+title: Installation and setup
+description: Installing Git and Git Bash, basic terminal commands, setting your name, e-mail, and editor with git config, and how to get out of vim.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Installation and setup
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Windows: [gitforwindows.org](https://gitforwindows.org/) → work in **Git Bash**. Linux: `sudo apt-get install git`. Check: `git --version`.
+- First step on every machine: `git config --global user.name "…"` and `user.email "…"`. They are written into every commit — **and not verified**.
+- `--global` = once for the whole machine (the `~/.gitconfig` file). Check with `git config --list`.
+- The default editor is **vim**: `i` = type, `Esc` = stop typing, `:wq` = save and quit. Change it: `git config --global core.editor nano`.
+- Terminal: `pwd` (where am I), `ls` / `ls -a` (contents, including hidden), `cd folder`, `cd ..` (one level up), **Tab** completes names.
+</KeyPoints>
+
+## Installation
+
+| System | How |
+| --- | --- |
+| **Windows** | [gitforwindows.org](https://gitforwindows.org/) (or the portable *PortableGit* from [GitHub releases](https://github.com/git-for-windows/git/releases)). It installs **Git Bash** too — a terminal with Bash. |
+| **Linux** (Debian/Ubuntu) | `sudo apt-get update && sudo apt-get install git` |
+| **macOS** | Git comes with the Xcode Command Line Tools — the first run of `git` offers to install them. Or `brew install git`. |
+
+Check that Git works:
+
+```bash
+git --version
+# git version 2.43.0
+```
+
+On Windows you can open Git Bash in a specific folder with **Shift + right-click → Open Git Bash here**. Graphical tools exist too ([list on git-scm.com](https://git-scm.com/downloads/guis)), but in practice people use Git from the terminal.
+
+:::tip[Without installing]
+If you cannot install Git, an online terminal such as Google Cloud Shell has it built in. For real work, set it up on your own machine.
+:::
+
+## Terminal basics
+
+Git Bash is ordinary Bash. These commands are enough for the course:
+
+| Command | What it does |
+| --- | --- |
+| `pwd` | prints the folder you are in (*print working directory*) |
+| `ls` | lists files in the current folder |
+| `ls -a` | also lists **hidden** files and folders (starting with a dot, e.g. `.git`) |
+| `cd name` | enters a folder |
+| `cd ..` | goes one level up |
+| `mkdir name` | creates a folder |
+| `cat file.txt` | prints a file |
+| `echo "text" > file.txt` | creates (or **overwrites**) a file with one line |
+| `echo "text" >> file.txt` | **appends** a line to a file |
+| `touch file.txt` | creates an empty file |
+| `clear` | clears the screen |
+
+**Tab** completes names: type `cd fir` + Tab and the terminal completes `cd first/` if only one folder starts with `fir`.
+
+## Initial configuration
+
+With every commit, Git records **who** made it. So set your name and e-mail first:
+
+```bash
+git config --global user.name "First Last"
+git config --global user.email "name@example.com"
+```
+
+- It can be anything — a first name, a nickname, a work or personal e-mail. Git does **not verify** it; it just stores it in the commit. GitHub/GitLab match the e-mail to your account.
+- `--global` means the setting applies to all repositories of your user on this machine. It is saved in **`~/.gitconfig`**. You only do it once.
+- Without `--global` (run inside a repository) the setting applies only to that project — useful when you want a different e-mail in a work project.
+
+Checking the settings:
+
+```bash
+git config --list            # all settings (system, global, repository)
+git config --global --list   # only your global ones
+git config user.email        # one specific value
+```
+
+:::caution[Committing without a name]
+Without a name and e-mail, the first commit fails with *Please tell me who you are* and prints exactly the two commands above. It happened to the instructor in a fresh shell during the demo — set it right after installing.
+:::
+
+## Editor
+
+Some commands open a text editor: `git commit` without `-m`, `git revert`, a merge that creates a commit. The default is **vim**. If you prefer something else:
+
+```bash
+git config --global core.editor nano
+# or VS Code:
+git config --global core.editor "code --wait"
+```
+
+### Getting out of vim
+
+Vim has **modes** — the current one is shown in the bottom line.
+
+| Key | What it does |
+| --- | --- |
+| `i` | switch to **INSERT** mode — you can type |
+| `Esc` | stop typing (normal mode) |
+| `:wq` + Enter | **save and quit** (*write, quit*) |
+| `:q!` + Enter | quit **without saving** |
+
+With `git revert` or a merge the message is already filled in — just `Esc`, `:wq`, Enter.
+
+## Proxy on a company network
+
+If the company network does not let Git reach GitHub directly, set a proxy in the current Git Bash window:
+
+```bash
+export HTTP_PROXY=http://<PROXY>:8080/
+export HTTPS_PROXY=http://<PROXY>:8080/
+```
+
+It applies only to this terminal window. Your IT department gives you the proxy address.
+
+## Test yourself
+
+<Question q="What does `git config --global user.email me@example.com` do and where is it saved?">
+It sets the commit author's e-mail for all repositories of your user on this machine. It is saved in `~/.gitconfig`.
+</Question>
+
+<Question q="Does Git verify that the e-mail in `user.email` is really yours?">
+No. Git just writes it into the commit. That is why you can put anything there — and why other mechanisms (such as commit signing) are used to verify authorship.
+</Question>
+
+<Question q="How do you find out which name and e-mail Git uses?">
+`git config --list` (or `git config --global --list`), or `git config user.name`.
+</Question>
+
+<Question q="How do you save the message and leave vim?">
+`Esc` (stop typing), then `:wq` and Enter. Without saving: `:q!`.
+</Question>
+
+<Question q="How do you list the hidden `.git` folder too?">
+`ls -a` — hidden files and folders start with a dot and plain `ls` does not show them.
+</Question>
+
+## Exercises
+
+### 2.1 · Check and configure
+
+Check that Git is installed, set your name and e-mail, and verify they were saved.
+
+<p class="practises">Practises: `git --version`, `git config`.</p>
+
+<Solution>
+```bash
+git --version
+git config --global user.name "First Last"
+git config --global user.email "name@example.com"
+git config --global --list
+```
+
+The output contains `user.name=…` and `user.email=…`. The same lines are in `~/.gitconfig` (`cat ~/.gitconfig`).
+</Solution>
+
+### 2.2 · A walk through the terminal
+
+Find out where you are, create a folder `git-course`, enter it, create `notes.txt` with two lines, and print it. Then go one level up.
+
+<p class="practises">Practises: `pwd`, `mkdir`, `cd`, `echo >`, `echo >>`, `cat`.</p>
+
+<Solution>
+```bash
+pwd
+mkdir git-course
+cd git-course
+echo "first line" > notes.txt
+echo "second line" >> notes.txt
+cat notes.txt
+cd ..
+```
+
+Mind the difference: `>` overwrites the file, `>>` appends.
+</Solution>

@@ -1,0 +1,239 @@
+---
+title: SSH, clone a push
+description: Vytvorenie SSH kľúča (ssh-keygen), súkromný vs. verejný kľúč, pridanie do GitHubu/GitLabu, git clone cez SSH, prvý push a čo znamená „ahead by 2 commits“.
+kind: chapter
+day: 1
+sidebar:
+  order: 8
+  label: 08 · SSH, clone a push
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `ssh-keygen` (na všetky otázky Enter) vytvorí **pár kľúčov** v `~/.ssh/`: `id_ed25519` (**súkromný — nikomu nedávaj**) a `id_ed25519.pub` (verejný).
+- `cat ~/.ssh/id_ed25519.pub` → skopíruj → profil na GitHube/GitLabe → **SSH Keys** → Add. Stačí raz na počítač.
+- `git clone git@github.com:meno/repo.git` stiahne repozitár aj s históriou a nastaví ho ako `origin`. Pri prvom pripojení potvrď `yes`.
+- `git push` pošle lokálne commity na server. `git status` ukáže *Your branch is ahead of 'origin/main' by N commits* = N commitov ešte nie je na serveri.
+- Denný rytmus: `git status` → `git add` → `git commit -m` → `git push`.
+</KeyPoints>
+
+## Prečo SSH
+
+| | SSH | HTTPS |
+| --- | --- | --- |
+| Adresa | `git@github.com:meno/repo.git` | `https://github.com/meno/repo.git` |
+| Overenie | kľúč na tvojom počítači, nastavíš **raz** | prihlásenie (token) pri pushi, ak si ho Git nezapamätá |
+| Pohodlie | po nastavení nič nezadávaš | závisí od správcu prihlasovacích údajov |
+
+SSH kľúč je spôsob, ako sa tvoj počítač preukáže serveru. Funguje na princípe **páru kľúčov**: verejný kľúč dáš serveru, súkromný ostáva iba u teba. Server overí, že vlastníš súkromný kľúč, bez toho, aby ho niekedy videl.
+
+## Vytvorenie kľúča
+
+Funguje v Git Bash, PowerShelli aj v termináli na Linuxe a Macu:
+
+```bash
+ssh-keygen
+```
+
+```text
+Generating public/private ed25519 key pair.
+Enter file in which to save the key (/home/meno/.ssh/id_ed25519):    ← Enter
+Enter passphrase (empty for no passphrase):                          ← Enter
+Enter same passphrase again:                                         ← Enter
+Your identification has been saved in /home/meno/.ssh/id_ed25519
+Your public key has been saved in /home/meno/.ssh/id_ed25519.pub
+```
+
+- Na všetky otázky stačí **Enter**, ak nepotrebuješ nič špeciálne.
+- Ak kľúč už máš, opýta sa, či ho prepísať (*Overwrite?*). Prepíš iba vtedy, keď ho nikde nepoužívaš — starý kľúč by na serveroch prestal fungovať.
+- **Passphrase** je heslo k súkromnému kľúču. Na kurze sa nechávalo prázdne; na pracovnom počítači je bezpečnejšie ho nastaviť.
+
+:::note[Typ kľúča]
+Aktuálny OpenSSH vytvára predvolene kľúč typu **ed25519**. Starší vytvára `id_rsa`. Typ si môžeš vynútiť: `ssh-keygen -t ed25519 -C "meno@example.com"` (`-C` je iba komentár na konci kľúča, aby si ho na serveri spoznal).
+:::
+
+```bash
+ls ~/.ssh
+# id_ed25519  id_ed25519.pub  known_hosts
+```
+
+| Súbor | Čo to je | Komu |
+| --- | --- | --- |
+| `id_ed25519` | **súkromný** kľúč | nikomu — nikdy ho nekopíruj, neposielaj, necommituj |
+| `id_ed25519.pub` | **verejný** kľúč | serveru (GitHub, GitLab) |
+| `known_hosts` | servery, ktorým už dôveruješ | vytvára sa automaticky |
+
+## Pridanie kľúča do účtu
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA… meno@pocitac
+```
+
+Kľúč začína `ssh-ed25519` (alebo `ssh-rsa`) a pokračuje dlhým reťazcom. Skopíruj **celý riadok** a vlož ho:
+
+- **GitHub:** Settings → SSH and GPG keys → **New SSH key**,
+- **GitLab:** Preferences / Edit profile → **SSH Keys** → Add new key.
+
+Daj mu názov (napr. `notebook-praca`) a ulož. Tým si spároval účet s týmto počítačom. Overenie:
+
+```bash
+ssh -T git@github.com
+# Hi meno! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+Podrobný návod: [kurzy.kpi.fei.tuke.sk — Version control](https://kurzy.kpi.fei.tuke.sk/zap/tutorials/version-control.html).
+
+## git clone
+
+Na stránke repozitára: **Code → SSH** → skopíruj adresu.
+
+```bash
+git clone git@github.com:meno/git-kurz.git
+```
+
+```text
+Cloning into 'git-kurz'...
+The authenticity of host 'github.com (…)' can't be established.
+ED25519 key fingerprint is SHA256:…
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'github.com' to the list of known hosts.
+Receiving objects: 100% (3/3), done.
+```
+
+Pri **prvom** pripojení k serveru napíš `yes` — server sa uloží do `~/.ssh/known_hosts` a nabudúce sa už nepýta.
+
+Clone vytvorí priečinok s názvom repozitára, v ňom celú históriu (`.git`) a nastaví adresu servera pod menom **`origin`**:
+
+```bash
+cd git-kurz
+ls -a              # .git  README.md
+git remote -v
+# origin  git@github.com:meno/git-kurz.git (fetch)
+# origin  git@github.com:meno/git-kurz.git (push)
+```
+
+Do iného priečinka: `git clone <url> moj-nazov`.
+
+## Prvý push
+
+```bash
+touch 1.txt
+git add 1.txt
+git commit -m "feat: init repository"
+git status
+```
+
+```text
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+```
+
+**Ahead by 1 commit** = lokálne máš o jeden commit viac, ako je na serveri. Commit je zatiaľ iba u teba.
+
+```bash
+touch 2.txt
+git add 2.txt
+git commit -m "feat: add second file"
+git status          # ahead by 2 commits
+git push
+```
+
+Po `git push` sú commity na serveri — na webe vidíš nové súbory a pri každom správu commitu, v ktorom pribudol. `git status` hlási *Your branch is up to date with 'origin/main'*.
+
+Netreba pushovať po každom commite. Lokálne commity sa oplatia aj tak — v histórii sa ti bude ľahšie hľadať. Ale pushuj pravidelne, aby si sa od tímu príliš nevzdialil.
+
+## Denný rytmus
+
+> „Najdôležitejšie pri práci s Gitom je zautomatizovať si týchto pár príkazov.“
+
+```bash
+git pull                       # stiahni, čo pribudlo (2. deň)
+git status                     # čo som zmenil
+git add .                      # pripravím zmeny
+git commit -m "feat: …"        # uložím lokálne
+git push                       # pošlem na server
+```
+
+`git config`, `ssh-keygen` a `git clone` robíš na projekte iba raz.
+
+## Otestuj sa
+
+<Question q="Ktorý z dvojice súborov `id_ed25519` a `id_ed25519.pub` vkladáš na GitHub?">
+Verejný `id_ed25519.pub`. Súkromný `id_ed25519` nikdy neopúšťa tvoj počítač.
+</Question>
+
+<Question q="Prečo sa pri prvom `git clone` cez SSH Git pýta *Are you sure you want to continue connecting?*">
+Server je nový a jeho odtlačok ešte nie je v `~/.ssh/known_hosts`. Po `yes` sa uloží a nabudúce sa už nepýta. Chráni ťa to pred podvrhnutým serverom.
+</Question>
+
+<Question q="Čo znamená *Your branch is ahead of 'origin/main' by 2 commits*?">
+Lokálne máš dva commity, ktoré ešte nie sú na serveri. Pošleš ich cez `git push`.
+</Question>
+
+<Question q="Čo všetko spraví `git clone`?">
+Vytvorí priečinok, stiahne celú históriu repozitára, nastaví server ako remote `origin` a prepne sa na predvolenú vetvu (`main`/`master`).
+</Question>
+
+<Question q="Ako overíš, že SSH kľúč na GitHube funguje?">
+`ssh -T git@github.com` — odpovie *Hi meno! You've successfully authenticated*.
+</Question>
+
+## Cvičenia
+
+### 8.1 · SSH kľúč
+
+Vytvor SSH kľúč, vypíš verejnú časť, pridaj ju do svojho účtu a over spojenie.
+
+<p class="practises">Precvičíš: `ssh-keygen`, `cat`, `ssh -T`.</p>
+
+<Solution>
+```bash
+ssh-keygen                     # Enter, Enter, Enter
+cat ~/.ssh/id_ed25519.pub      # skopíruj celý riadok
+# GitHub: Settings → SSH and GPG keys → New SSH key → vlož → Add
+ssh -T git@github.com
+```
+</Solution>
+
+### 8.2 · Clone a push
+
+Vytvor na webe repozitár (s README), naklonuj ho cez SSH, pridaj dva súbory v dvoch commitoch, sleduj `git status` a pushni. Over výsledok na webe.
+
+<p class="practises">Precvičíš: `git clone`, `git push`, „ahead by“.</p>
+
+<Solution>
+```bash
+git clone git@github.com:meno/git-kurz.git
+cd git-kurz
+echo "1" > 1.txt && git add 1.txt && git commit -m "feat: add first file"
+echo "2" > 2.txt && git add 2.txt && git commit -m "feat: add second file"
+git status            # ahead of 'origin/main' by 2 commits
+git push
+git status            # up to date with 'origin/main'
+```
+
+Na webe sú `1.txt` a `2.txt`, každý so správou svojho commitu.
+</Solution>
+
+### 8.3 · Úlohy z kurzu do vlastného repozitára
+
+Stiahni si z lektorovho repozitára [marek-horvath/git](https://github.com/marek-horvath/git) súbory s úlohami (stačí *Download ZIP*), skopíruj ich do svojho klonu a pushni ich jedným commitom.
+
+<p class="practises">Precvičíš: `git add .`, commit viacerých súborov, push.</p>
+
+<Solution>
+```bash
+cd git-kurz
+cp ~/Downloads/git-main/*.html .
+git status            # nové súbory sú untracked
+git add .
+git status            # všetko zelené
+git commit -m "feat: add training tasks"
+git push
+```
+</Solution>

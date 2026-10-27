@@ -1,0 +1,253 @@
+---
+title: Vrátenie zmien
+description: Ako zahodiť necommitnutú zmenu (restore), vybrať súbor zo stagingu, opraviť posledný commit (amend), vrátiť commit (revert) a kedy použiť reset --soft/--mixed/--hard.
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · Vrátenie zmien
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Zmena v súbore, ešte nie staged → `git restore subor` (starší zápis `git checkout -- subor`). **Zmena je nenávratne preč.**
+- Súbor v stagingu, chcem ho vybrať → `git restore --staged subor` (starší `git reset -- subor`). Zmena ostane na disku.
+- Zlá správa posledného commitu → `git commit --amend -m "nová správa"` (iba ak ešte nie je pushnutý).
+- **`git revert <commit>`** vytvorí **nový** commit, ktorý zruší zmeny daného commitu. História sa neprepisuje → bezpečné aj po pushi.
+- **`git reset`** posunie vetvu na iný commit: `--soft` (zmeny ostanú staged), `--mixed` (predvolené, zmeny ostanú v súboroch), `--hard` (**všetko zahodí**).
+</KeyPoints>
+
+## Prehľad: čo chcem vrátiť
+
+| Situácia | Príkaz | Čo sa stane so zmenou |
+| --- | --- | --- |
+| upravil som súbor, chcem pôvodný stav | `git restore subor` | zahodí sa |
+| pridal som súbor do stagingu omylom | `git restore --staged subor` | ostane v súbore, iba nie je staged |
+| zlá správa / zabudnutý súbor v poslednom commite | `git commit --amend` | posledný commit sa nahradí novým |
+| commit (aj pushnutý) bol chybný | `git revert <hash>` | pribudne nový „opačný“ commit |
+| chcem zrušiť posledné lokálne commity | `git reset HEAD~1` | commit zmizne, zmeny ostanú v súboroch |
+| chcem všetko zahodiť a vrátiť sa na commit | `git reset --hard <hash>` | **všetko** necommitnuté aj commity za ním zmiznú |
+
+## Necommitnuté zmeny
+
+### Zahodenie zmeny v súbore
+
+```bash
+echo "zlý text" >> README.md
+git diff                  # najprv sa pozri, čo zahadzuješ
+git restore README.md     # súbor sa vráti do stavu v indexe / posledného commitu
+```
+
+Starší zápis, ktorý nájdeš na slajdoch aj v starších návodoch:
+
+```bash
+git checkout -- README.md
+```
+
+`--` oddeľuje cestu od názvu vetvy. Bez neho by `git checkout README` mohol znamenať aj vetvu s takým menom.
+
+:::danger[Necommitnutú zmenu Git nevráti]
+Čo zahodíš cez `git restore` (alebo `git reset --hard`), nikde v histórii nie je — nebolo commitnuté. Vždy si najprv pozri `git diff`.
+:::
+
+### Vybratie zo stagingu
+
+```bash
+git add .
+git restore --staged README.md    # README už nie je staged, zmena v ňom ostala
+git commit -m "feat: commit only the other file"
+```
+
+Starší zápis: `git reset -- README.md` (alebo `git reset HEAD README.md`).
+
+## Oprava posledného commitu: amend
+
+```bash
+git commit -m "fetaure: add lgoin"        # preklep
+git commit --amend -m "feat: add login"   # nahradí posledný commit
+```
+
+Zabudol si súbor?
+
+```bash
+git add zabudnuty.txt
+git commit --amend --no-edit     # pridá ho do posledného commitu, správa ostane
+```
+
+`--amend` nevytvorí nový commit navyše — **nahradí** posledný commit novým (s iným hashom). Preto ho používaj iba na commity, ktoré si ešte **nepushol**.
+
+## git revert — bezpečné vrátenie commitu
+
+`git revert` vráti **jeden konkrétny commit** tak, že vytvorí nový commit s opačnými zmenami. Nevracia celý projekt do starého stavu a nemaže neskoršie commity.
+
+```bash
+git log --oneline
+# a1b2c3d feat: add commands list
+# 9f8e7d6 fix: inserted text into F2
+
+git revert HEAD          # vráti posledný commit
+```
+
+Otvorí sa editor s predvyplnenou správou `Revert "feat: add commands list"` — ulož a zatvor (vo vime `Esc`, `:wq`). Alebo bez editora:
+
+```bash
+git revert --no-edit HEAD
+git revert a1b2c3d       # ľubovoľný starší commit podľa hashu
+```
+
+```text
+* 4c5d6e7 Revert "feat: add commands list"
+* a1b2c3d feat: add commands list
+* 9f8e7d6 fix: inserted text into F2
+```
+
+Pôvodný commit **v histórii ostáva** a pribudol nový. Preto je `revert` správna voľba pre zmeny, ktoré už sú na serveri — nikomu z tímu nerozbije históriu.
+
+:::note[Spresnenie k prednáške]
+`git revert HEAD` na kurze „vrátil súbor do stavu, kde ešte nič nebolo“ — presnejšie: zrušil iba zmeny **posledného** commitu. Keby si revertol starší commit, zmeny z neskorších commitov zostanú.
+:::
+
+## git reset — posunutie vetvy
+
+`git reset <commit>` presunie **HEAD aj aktuálnu vetvu** na zadaný commit. Commity za ním z vetvy zmiznú. Tri režimy určujú, čo sa stane so zmenami:
+
+| Režim | Vetva (HEAD) | Index (staging) | Working tree (súbory) |
+| --- | --- | --- | --- |
+| `--soft` | posunie | nezmení — zmeny ostanú **staged** | nezmení |
+| `--mixed` (predvolený) | posunie | vyprázdni — zmeny ostanú **unstaged** | nezmení |
+| `--hard` | posunie | prepíše | **prepíše — zmeny sú preč** |
+
+```bash
+git reset --soft HEAD~1    # zruš posledný commit, zmeny nechaj pripravené na nový commit
+git reset HEAD~1           # zruš posledný commit, zmeny nechaj v súboroch
+git reset --hard HEAD~1    # zruš posledný commit aj jeho zmeny
+git reset --hard           # zahoď všetky necommitnuté zmeny (vráť sa na HEAD)
+```
+
+:::caution[reset vs. revert]
+`reset` **prepisuje históriu** — commity z vetvy zmiznú. Na lokálnych, nepushnutých commitoch je to v poriadku. Po pushi kolegovia tie commity už majú a vznikne zmätok — použi `revert`. A `--hard` používaj iba vtedy, keď presne vieš, čo zahadzuješ.
+:::
+
+Podrobný výklad troch stromov a resetu: [Git Tools — Reset Demystified](https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified).
+
+## git checkout na starší commit
+
+```bash
+git checkout 9f8e7d6
+```
+
+Prepne celý working tree do stavu daného commitu — môžeš si pozrieť, ako projekt vyzeral. Dostaneš sa tým do stavu **detached HEAD** — viac v kapitole [Detached HEAD a dobré návyky](/devops-notes/git/detached-head/). Späť: `git checkout master` (alebo `main`).
+
+## Otestuj sa
+
+<Question q="Upravil si súbor a chceš zmenu zahodiť. Aký príkaz použiješ a dá sa to vrátiť?">
+`git restore subor` (alebo `git checkout -- subor`). Vrátiť sa to nedá — necommitnutá zmena nie je v histórii.
+</Question>
+
+<Question q="Ako vyberieš súbor zo stagingu bez straty zmien?">
+`git restore --staged subor` (starší zápis `git reset -- subor`).
+</Question>
+
+<Question q="Aký je rozdiel medzi `git revert` a `git reset`?">
+`revert` vytvorí nový commit, ktorý ruší zmeny vybraného commitu — história ostáva, je to bezpečné aj po pushi. `reset` posunie vetvu späť a commity z nej odstráni — prepisuje históriu, vhodné iba lokálne.
+</Question>
+
+<Question q="Čo spraví `git reset --mixed HEAD~1` so zmenami posledného commitu?">
+Commit z vetvy zmizne, index sa vyprázdni, ale zmeny ostanú v súboroch vo working tree (unstaged).
+</Question>
+
+<Question q="Prečo nepoužiť `git commit --amend` na už pushnutý commit?">
+Amend nahradí commit novým s iným hashom. Server a kolegovia majú pôvodný — push zlyhá alebo by si musel použiť `--force` a rozbiť históriu ostatným.
+</Question>
+
+## Cvičenia
+
+### 6.1 · Zahodenie zmeny
+
+Do `README.md` pridaj zámerne zlý text, pozri si diff a zmenu zahoď.
+
+<p class="practises">Precvičíš: `git diff`, `git restore`.</p>
+
+<Solution>
+```bash
+echo "TOTO JE OMYL" >> README.md
+git diff
+git restore README.md      # alebo: git checkout -- README.md
+git status                 # čisté
+```
+</Solution>
+
+### 6.2 · Vybratie zo stagingu
+
+Uprav dva súbory a pridaj oba cez `git add .`. Jeden vyber zo stagingu tak, aby zmena v ňom ostala. Commit má obsahovať iba druhý súbor.
+
+<p class="practises">Precvičíš: `git restore --staged`.</p>
+
+<Solution>
+```bash
+echo "a" >> README.md
+echo "b" >> plan.txt
+git add .
+git restore --staged README.md   # alebo: git reset -- README.md
+git status                       # plan.txt staged, README.md modified
+git commit -m "docs: update plan"
+```
+</Solution>
+
+### 6.3 · Zmena správy posledného commitu
+
+Sprav commit s preklepom v správe a oprav ju.
+
+<p class="practises">Precvičíš: `git commit --amend`.</p>
+
+<Solution>
+```bash
+echo "x" > x.txt
+git add x.txt
+git commit -m "feat: ad x fiel"
+git commit --amend -m "feat: add x file"
+git log --oneline -2       # iba jeden commit so správnou správou
+```
+</Solution>
+
+### 6.4 · Revert omylu
+
+Vytvor `omyl.txt`, commitni ho a commit vráť cez `git revert`. História sa nemá prepísať.
+
+<p class="practises">Precvičíš: `git revert`, `git log`.</p>
+
+<Solution>
+```bash
+echo "omyl" > omyl.txt
+git add omyl.txt
+git commit -m "feat: add file by mistake"
+git log --oneline
+git revert HEAD            # v editore Esc, :wq
+git log --oneline          # pôvodný commit aj Revert "…"
+ls                         # omyl.txt už nie je
+```
+</Solution>
+
+### 6.5 · Tri režimy resetu
+
+Sprav tri commity (`r1.txt`, `r2.txt`, `r3.txt`). Postupne vyskúšaj `git reset --soft HEAD~1`, `git reset HEAD~1` a `git reset --hard HEAD~1` a po každom pozri `git status` a `ls`.
+
+<p class="practises">Precvičíš: `--soft`, `--mixed`, `--hard`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do echo $i > r$i.txt; git add r$i.txt; git commit -qm "feat: add r$i"; done
+
+git reset --soft HEAD~1    # r3.txt: "Changes to be committed"
+git commit -qm "feat: add r3 again"
+
+git reset HEAD~1           # r3.txt: untracked (zmena ostala na disku, nie je staged)
+git add r3.txt && git commit -qm "feat: add r3 once more"
+
+git reset --hard HEAD~1    # r3.txt zmizol aj z disku
+ls
+```
+</Solution>

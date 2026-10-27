@@ -1,0 +1,64 @@
+---
+title: Zdroje
+description: Slajdy, lektorov repozitár s úlohami a ťahákom, odporúčaná dokumentácia a z čoho vznikla ktorá kapitola.
+kind: sources
+sidebar:
+  order: 99
+---
+
+Dvojdňové školenie **Git** viedol Marek. Poznámky vznikli zo slajdov, z prepisu záznamu oboch dní a z materiálov v lektorovom repozitári. Sú usporiadané podľa tém, opravené, doplnené o otázky a cvičenia a príkazy sú odskúšané na Git 2.50.
+
+:::note[Čo v poznámkach zámerne chýba]
+Adresa firemnej proxy je nahradená zástupným textom (`<PROXY>`). Mená účastníkov a kolegov zo záznamu sú vynechané.
+:::
+
+## Materiály
+
+| Materiál | Obsah |
+| --- | --- |
+| Slajdy *Git* (PDF, 88 strán) | version control, inštalácia, lokálna práca, vrátenie zmien, vetvy a merge, remote, stash, tag, rebase, detached HEAD |
+| [marek-horvath/git ↗](https://github.com/marek-horvath/git) | `README.md` (ťahák s vysvetlením príkazov), `DemoDen2.md` (scenár dema 2. dňa), `1DenUlohy.html` a `2DenUlohy.html` (úlohy s riešeniami), `prikazy.txt` |
+
+### Odporúčaná dokumentácia zo slajdov
+
+- `man git-<príkaz>` alebo `git <príkaz> --help`
+- [Pro Git kniha ↗](https://git-scm.com/book) — aj [v češtine ↗](https://git-scm.com/book/cs/v2)
+- [Atlassian Git tutorials ↗](https://www.atlassian.com/git) a ich [Git cheat sheet (PDF) ↗](https://www.atlassian.com/git/tutorials/atlassian-git-cheatsheet)
+- [ITnetwork — Git tutoriál (CZ) ↗](https://www.itnetwork.cz/programovani/git/git-tutorial-zaklady)
+- [Reset Demystified ↗](https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified) — reset a tri stromy
+- [Návod na SSH a version control (KPI FEI TUKE) ↗](https://kurzy.kpi.fei.tuke.sk/zap/tutorials/version-control.html)
+- Cvičenia: [git-katas ↗](https://github.com/eficode-academy/git-katas) (basic-commits, basic-staging, basic-branching, ff-merge, 3-way-merge, basic-revert, reset, amend, basic-stashing, ignore, git-tag) a [W3Schools Git exercises ↗](https://www.w3schools.com/git/exercise.asp)
+
+## Z čoho je ktorá kapitola
+
+| Kapitola | Zdroj |
+| --- | --- |
+| [01 · Verzionovanie](/devops-notes/git/verzionovanie/) | slajdy s. 2–13; deň 1 — prepis 1. časti (final_final, centralizovaný vs. distribuovaný, snímky) |
+| [02 · Inštalácia a nastavenie](/devops-notes/git/instalacia/) | slajdy s. 14–18; deň 1 — prepis 1. časti (Git Bash, terminál, `git config`, vim); proxy z `README.md` lektora |
+| [03 · Staging a commit](/devops-notes/git/prvy-commit/) | slajdy s. 19–27, 31; deň 1 — prepis 1. časti (`.git`, `status`, `add`, `commit`, commit správy, `rm`, `mv`) |
+| [04 · Diff a história](/devops-notes/git/diff-a-historia/) | slajdy s. 28–31; deň 1 — prepis 1. časti (`diff HEAD`, `log`, `show`) |
+| [05 · .gitignore](/devops-notes/git/gitignore/) | slajdy s. 11, 32; deň 1 — prepis 1. časti (ukážka s `program.c`); úloha 7 z `1DenUlohy.html` |
+| [06 · Vrátenie zmien](/devops-notes/git/vratenie-zmien/) | slajdy s. 34–42; deň 1 — prepis 1. časti (`restore`, `revert HEAD`); úlohy 8–10 z `1DenUlohy.html` |
+| [07 · GitHub a GitLab](/devops-notes/git/github-a-gitlab/) | deň 1 — prepis 2. časti (webové rozhranie, pipeline, prostredia, skupiny, tokeny, GitHub Pages, fork); deň 2 — prepis 2. časti (GitHub Pages) |
+| [08 · SSH, clone a push](/devops-notes/git/ssh-clone-push/) | deň 1 — prepis 2. časti (`ssh-keygen`, `clone`, `push`, „ahead by“) |
+| [09 · Vetvy](/devops-notes/git/vetvy/) | slajdy s. 44–49, 57; deň 2 — prepis 1. časti (`checkout -b`, `switch`, `branch -a`, push s upstream) |
+| [10 · Merge a konflikty](/devops-notes/git/merge-a-konflikty/) | slajdy s. 50–58; deň 2 — prepis 1. časti (merge `dev`, zámerný konflikt); `DemoDen2.md` |
+| [11 · Remote, push a pull](/devops-notes/git/remote/) | slajdy s. 60–73; deň 2 — prepis 1. a 2. časti (Arthur/Brian/Sam, kolega v druhom clone); `2DenUlohy.html` úlohy 8–10 |
+| [12 · Stash, tagy a rebase](/devops-notes/git/stash-tagy-rebase/) | slajdy s. 74–80; deň 2 — prepis 2. časti (demo stash, tagy, rebase) |
+| [13 · Detached HEAD a návyky](/devops-notes/git/detached-head/) | slajdy s. 81–88; `DemoDen2.md` (detached HEAD); `2DenUlohy.html` úlohy 13–14 |
+| [Ťahák](/devops-notes/git/tahak/) | `README.md` lektora, `prikazy.txt`, slajdy s. 81–82 |
+
+## Opravy oproti prednáške
+
+Overené na Git 2.50.
+
+- **Commit nepresúva súbory do stagingu.** Do stagingu ich dáva `git add`, `git commit` ich uloží do lokálneho repozitára a na server ich pošle až `git push`.
+- **`git commit subor` bez `add`** (slajd 24) funguje iba pre súbory, ktoré Git už sleduje. Na kurze zlyhal, lebo súbor bol nový: *pathspec 'F3' did not match any file(s) known to git*.
+- **`git show` s dvoma znakmi hashu** nefungoval a zaznelo, že treba celé ID. Stačí jednoznačný začiatok s aspoň 4 znakmi.
+- **`.gitignore` nepoužíva regulárne výrazy**, ale glob vzory. A vzor bez lomítka (`program`) platí v každom priečinku, takže po presune do `code/` súbory ostanú ignorované; iba v koreni je `/program`.
+- **`git rebase main` nespája commity do jedného.** Prenesie ich na nový základ ako nové commity (v deme ostali dva). Spájanie robí `git rebase -i` (squash/fixup) — slajd 78.
+- **HTTPS a heslo účtu:** GitHub heslo účtu pre Git neprijíma; pri HTTPS sa používa personal access token alebo správca prihlasovacích údajov.
+- **`git stash push`** neposiela nič na server — „push“ znamená iba odloženie na zásobník.
+- **`git pull` pri rozídených vetvách** v novšom Gite skončí *Need to specify how to reconcile divergent branches*, ak nie je nastavené `pull.rebase`. V poznámkach `git pull --no-rebase` (ako v lektorovom ťaháku).
+- Anotovaný tag sa od jednoduchého v `git show` líši hlavičkou `tag …`, `Tagger:`, `Date:` a správou pred commitom.
+- Slajd 15: `sudo apt-get update && apt-get install git` — druhý príkaz potrebuje tiež `sudo`.

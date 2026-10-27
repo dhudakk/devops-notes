@@ -1,0 +1,137 @@
+---
+title: Verzionovacie systémy
+description: Prečo „final_final2.docx“ nefunguje, na čo slúži version control, rozdiel medzi centralizovaným a distribuovaným systémom a čo patrí do repozitára.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Verzionovanie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Version control system (VCS)** spravuje zmeny dokumentov a ich verzie. Každá verzia (revízia) má **čas, autora a popis zmeny**.
+- Štyri prípady použitia: **história**, **práca v tíme**, **vetvenie**, **externí prispievatelia** (fork).
+- **Centralizovaný VCS** (SVN, CVS): história je iba na serveri, bez spojenia nič nevrátiš. **Distribuovaný** (Git): **celá história je aj u teba**, väčšina operácií funguje offline.
+- Git ukladá **snímky (snapshots)** celého projektu; nezmenený súbor sa neukladá znova, iba sa naň odkáže.
+- Do repozitára patria súbory, ktoré **nevygeneroval nástroj** (zdrojáky, skripty, dokumentácia, obrázky). Výstupy kompilácie (`.o`, `.exe`, `.class`…) **nie**.
+</KeyPoints>
+
+## Problém bez verzionovania
+
+Bez nástroja vyzerá história projektu takto:
+
+```text
+diplomovka.docx
+diplomovka_final.docx
+diplomovka_final2.docx
+diplomovka_final_naozaj.docx
+diplomovka_final_naozaj_oprava.docx
+```
+
+Nevieš, ktorá verzia je posledná, kto ju upravil, čo sa medzi verziami zmenilo ani prečo. Staršiu verziu ľahko omylom prepíšeš alebo zmažeš.
+
+## Čo je version control
+
+**Revision control** je správa zmien dokumentov, programov, webov a iných súborov. Projekt si môžeš predstaviť ako **časovú os so snímkami** každej verzie:
+
+- každá zmena dostane identifikátor (revízia 1, 2, 3… — v Gite je to hash commitu),
+- ku každej revízii sa uloží **čas** a **autor**,
+- revízie sa dajú **porovnať**, **obnoviť** a niektoré aj **spojiť** (merge).
+
+### Štyri prípady použitia
+
+| Prípad | Čo ti VCS dá |
+| --- | --- |
+| **1. História** | Kedykoľvek sa vrátiš k staršej verzii. Vidíš **kedy, kto, čo a prečo** zmenil. Zmazaný obsah ostáva v histórii. Keď sa niečo pokazí, zistíš, ktorá zmena to spôsobila. |
+| **2. Práca v tíme** | Zdieľaš súbory s tímom bez posielania cez USB, e-mail či zdieľaný disk. Zmeny kolegov sa spájajú (merge) a nič sa omylom neprepíše. |
+| **3. Vetvenie** | Viac variantov toho istého softvéru naraz: hlavná vetva, údržbová (opravy starších verzií), vývojová (veľké zmeny), release (zmrazenie pred vydaním). |
+| **4. Externí prispievatelia** | Open source: ktokoľvek si spraví **fork** (vlastnú kópiu), opraví v ňom chybu a pošle zmenu späť na schválenie. |
+
+## Centralizovaný vs. distribuovaný VCS
+
+| | Centralizovaný (Subversion, CVS) | Distribuovaný (Git, Mercurial) |
+| --- | --- | --- |
+| Kde je história | iba na **centrálnom serveri** | **u každého** — lokálny repozitár je úplná kópia |
+| Získanie projektu | *checkout* aktuálneho stavu | *clone* celej histórie |
+| Commit | priamo na server (*check in*) | do **lokálneho** repozitára, na server neskôr cez *push* |
+| Offline | skoro nič — staršiu verziu si musíš vyžiadať zo servera | commit, história, diff, vetvy fungujú bez siete |
+| Rýchlosť | každá operácia ide cez sieť | väčšina operácií je lokálna, teda rýchla |
+
+V centralizovanom systéme máš u seba iba aktuálne súbory a tvoje zmeny nie sú verzionované, kým ich neodošleš na server. V Gite robíš commity lokálne a keď si pripravený, pošleš ich na server príkazom **push**; zmeny ostatných si stiahneš cez **pull**.
+
+## Git ukladá snímky
+
+Centralizované systémy si pamätajú **rozdiely** pri každom súbore. Git si pri každom commite pamätá **snímok celého projektu**:
+
+```text
+Verzia 1:  login(A)   registrácia(B)   hlavná(C)
+Verzia 2:  login(A1)  registrácia(B)   hlavná(C1)    ← B sa nezmenil, odkaz na B z verzie 1
+Verzia 3:  login(A1)  registrácia(B)   hlavná(C2)    ← zmenil sa iba C
+```
+
+Nezmenený súbor sa neukladá druhýkrát — snímok naň iba odkáže. Preto je prepínanie medzi verziami a vetvami v Gite také rýchle.
+
+## Čo patrí do repozitára
+
+**Repozitár** je projekt v Gite aj s celou jeho históriou.
+
+| Ukladaj | Neukladaj |
+| --- | --- |
+| zdrojové kódy (`.c`, `.java`, `.py`, `.tex`…) | výstupy kompilácie: `.o`, `.a`, `.so`, `.dll`, `.class`, `.jar`, `.exe` |
+| build skripty a projektové súbory (`Makefile`, `CMakeLists.txt`, `.sln`) | generované dokumenty: `.dvi`, `.ps`, `.pdf` z LaTeXu |
+| dokumentáciu (`README.md`, `.txt`) | zdrojáky a skripty, ktoré vygeneroval nástroj (autoconf, cmake, lex, yacc) |
+| zdroje: obrázky, zvuk, statické podklady | |
+
+Prečo nie generované súbory? Kolega si projekt skompiluje sám. Keby ste obaja commitovali binárky, vznikali by **zbytočné konflikty** — a binárne súbory sa nedajú rozumne spojiť ani prečítať. Na ich ignorovanie slúži [.gitignore](/devops-notes/git/gitignore/).
+
+:::note[Veľké súbory]
+Bežné obrázky Git zvládne bez problémov. S veľmi veľkými súbormi (videá, datasety) sa pracuje inak — napr. cez rozšírenie Git LFS. To už nie je obsahom kurzu.
+:::
+
+## Otestuj sa
+
+<Question q="Čo všetko sa ukladá ku každej revízii?">
+Samotný snímok súborov, **čas** zmeny, **autor** a popis (commit správa). Revízie sa dajú porovnať a obnoviť.
+</Question>
+
+<Question q="Aký je hlavný rozdiel medzi centralizovaným a distribuovaným VCS?">
+V centralizovanom je história iba na serveri — bez spojenia si staršiu verziu nevyžiadaš a necommitneš. V distribuovanom (Git) má každý **úplnú kópiu histórie**, commit, diff aj log fungujú offline a na server sa zmeny posielajú cez `push`.
+</Question>
+
+<Question q="Prečo je prepínanie verzií v Gite rýchle?">
+Git ukladá snímky celého projektu, ale nezmenené súbory neukladá znova — snímok odkáže na ich poslednú verziu. Všetko je navyše lokálne, takže netreba nič sťahovať zo servera.
+</Question>
+
+<Question q="Prečo nedávať do repozitára súbory `.o` alebo `.exe`?">
+Sú vygenerované kompilátorom — každý si ich vytvorí sám zo zdrojákov. Ich commitovanie spôsobuje zbytočné konflikty, ktoré sa pri binárnych súboroch nedajú rozumne vyriešiť.
+</Question>
+
+<Question q="Čo je fork?">
+Kópia cudzieho repozitára pod tvojím účtom. Urobíš v nej zmenu a pošleš správcovi pôvodného projektu žiadosť (pull/merge request), aby ju zapracoval.
+</Question>
+
+## Cvičenia
+
+### 1.1 · Ručné verzie súboru
+
+Vytvor priečinok `bez-gitu` a v ňom `navrh.txt` s krátkym opisom malej aplikácie. Potom vytvor tri kópie s názvami `navrh-final.txt`, `navrh-final2.txt` a `navrh-oprava.txt` a do každej urob malú zmenu. Zisti, ktorá je najnovšia a čo sa v nej zmenilo. Prečo by to pri reálnom projekte bol problém?
+
+<p class="practises">Precvičíš: motivácia pre version control.</p>
+
+<Solution>
+Z názvov súborov sa poradie verzií nedá spoľahlivo určiť (je `oprava` novšia ako `final2`?). Chýba čas zmeny, autor, dôvod a spoľahlivý diff — rozdiely musíš hľadať očami. Git to rieši commitmi: každý ukladá stav projektu spolu s metadátami a `git diff` / `git log` ukážu presne, čo, kto a kedy zmenil.
+</Solution>
+
+### 1.2 · Ukladať, či nie?
+
+Rozhodni pri každom súbore Java projektu, či patrí do repozitára: `Main.java`, `Main.class`, `pom.xml`, `README.md`, `target/app.jar`, `logo.png`, `debug.log`.
+
+<p class="practises">Precvičíš: čo patrí do repozitára.</p>
+
+<Solution>
+Áno: `Main.java` (zdroják), `pom.xml` (build skript), `README.md` (dokumentácia), `logo.png` (zdroj). Nie: `Main.class` a `target/app.jar` (výstup kompilácie), `debug.log` (generuje ho bežiaca aplikácia).
+</Solution>

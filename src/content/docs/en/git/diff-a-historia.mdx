@@ -1,0 +1,210 @@
+---
+title: Differences and history
+description: git diff, git diff --staged, and git diff HEAD — what each compares; git log, git log --oneline --graph, and git show for browsing history.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Diff and history
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `git diff` = working tree **vs. the index** (what is not staged yet). After `git add` it can be empty!
+- `git diff --staged` = index **vs. the last commit** (what goes into the commit).
+- `git diff HEAD` = **all** changes vs. the last commit.
+- `git log` = history, `git log --oneline` = one line per commit, `--graph --all --decorate` = a graph of branches.
+- `git show` = commit details (author, date, message + diff). Pick a commit by hash — its **beginning** is enough (at least 4 characters, usually 7).
+- **HEAD** = the latest commit on the branch you are on.
+</KeyPoints>
+
+## git diff — what it compares
+
+```text
+ working tree  ◀── git diff ──▶  index  ◀── git diff --staged ──▶  HEAD (last commit)
+ working tree  ◀────────────────── git diff HEAD ──────────────────▶  HEAD
+```
+
+| Command | Compares | When |
+| --- | --- | --- |
+| `git diff` | working tree ↔ index | what I changed and have not added |
+| `git diff --staged` (= `--cached`) | index ↔ HEAD | exactly what goes into the commit |
+| `git diff HEAD` | working tree ↔ HEAD | everything since the last commit |
+| `git diff A B` | commit A ↔ commit B | difference between two versions |
+| `git diff -- file.txt` | only that file | limit to a path |
+
+The general form from the slides: `git diff [rev_a [rev_b]] [-- path…]` — with no arguments `rev_a` is the index and `rev_b` the working tree.
+
+### Example
+
+```bash
+echo "hello" > foo.txt
+git add foo.txt                 # foo is in the index
+echo "hello" > bar.txt
+git add bar.txt
+echo "world" >> bar.txt         # bar's second line is NOT in the index
+```
+
+```bash
+git diff
+```
+
+```diff
+diff --git a/bar.txt b/bar.txt
+--- a/bar.txt
++++ b/bar.txt
+@@ -1 +1,2 @@
+ hello
++world
+```
+
+`git diff` shows only the `world` line — everything else is already in the index. `git diff --staged` shows the new files `foo.txt` and `bar.txt` (with one line `hello`). `git diff HEAD` shows both together.
+
+Reading a diff: `---` is the old version, `+++` the new one, a line with `+` was added, with `-` removed, and `@@ -1 +1,2 @@` says which lines are compared.
+
+:::caution[A common trap]
+`git diff` without arguments is **not** the difference from the last commit but from the index. Once you have `git add`-ed everything it is empty, even though you have changes. Against the commit: `git diff HEAD`.
+:::
+
+## git log — history
+
+```bash
+git log
+```
+
+```text
+commit 7f607c4ace7890638d80f760b6daf803bdff8cf1 (HEAD -> master)
+Author: First Last <name@example.com>
+Date:   Tue Oct 27 10:15:02 2026 +0100
+
+    fix: inserted text into F2
+```
+
+The newest commit is on top. Scroll a long output with arrows/space and leave with `q`.
+
+| Variant | Shows |
+| --- | --- |
+| `git log --oneline` | one line: short hash + message |
+| `git log -3` | only the last 3 commits |
+| `git log --stat` | also the list of changed files |
+| `git log -p` | also the full diff of each commit |
+| `git log --oneline --graph --all --decorate` | a graph of all branches with branch and tag names |
+| `git log -- file.txt` | only commits that changed that file |
+
+You will use that long graph constantly on day 2 — an alias pays off:
+
+```bash
+git config --global alias.lg "log --oneline --graph --all --decorate"
+git lg
+```
+
+## git show — commit details
+
+```bash
+git show              # the last commit (HEAD): metadata + diff
+git show 7f607c4      # a specific commit by hash
+git show HEAD~1       # the commit before the last
+git show --stat HEAD  # only the list of files, no full diff
+```
+
+### The commit hash
+
+Every commit has an identifier — a **SHA-1 hash** (40 hex characters) computed from the file contents, the metadata (author, message, time), and the parent commit's hash. That makes it unique and impossible to change quietly.
+
+You do not have to type the whole hash — a **unique prefix** of at least 4 characters is enough. `git log --oneline` shows 7.
+
+:::note[Correction to the lecture]
+In the lecture `git show` with two characters of a hash (`c2`) did not work, and the claim was that you need the full ID. Two characters are too few — Git needs at least 4, and they must be unique:
+
+```text
+$ git show 7f
+fatal: ambiguous argument '7f': unknown revision or path not in the working tree.
+$ git show 7f607c4      # works
+```
+:::
+
+### HEAD
+
+**HEAD** points to the commit you are on — usually the latest commit of the current branch. On branch `master`, `HEAD` and `master` point to the same commit. Relative references:
+
+- `HEAD~1` (or `HEAD~`) — one commit back,
+- `HEAD~3` — three commits back.
+
+## Test yourself
+
+<Question q="You added everything with `git add .`. What does `git diff` show?">
+Nothing — `git diff` compares the working tree with the index and they are now the same. Staged changes are shown by `git diff --staged`, all changes vs. the commit by `git diff HEAD`.
+</Question>
+
+<Question q="How do you see exactly what goes into the next commit?">
+`git diff --staged` (or `--cached`).
+</Question>
+
+<Question q="How do you print the history as a graph of all branches?">
+`git log --oneline --graph --all --decorate`.
+</Question>
+
+<Question q="How many characters of a hash do you need for `git show`?">
+A unique prefix of at least 4 characters (commonly 7, as `git log --oneline` shows).
+</Question>
+
+<Question q="What is a commit hash computed from?">
+The committed file contents, the metadata (author, message, time), and the parent commits' hashes. Changing anything in history changes the hashes of all following commits.
+</Question>
+
+## Exercises
+
+### 4.1 · diff vs. diff --staged
+
+Edit `README.md`. Look at the change with `git diff`, then stage it and compare `git diff` with `git diff --staged`. Finally commit.
+
+<p class="practises">Practises: `git diff`, `git diff --staged`.</p>
+
+<Solution>
+```bash
+echo "New line" >> README.md
+git diff                # shows + New line
+git add README.md
+git diff                # empty
+git diff --staged       # shows + New line
+git commit -m "docs: extend README"
+```
+</Solution>
+
+### 4.2 · Staged and unstaged at once
+
+Add a line to `README.md` and stage it. Then add a second line and do not stage it. Check what `git status`, `git diff`, `git diff --staged`, and `git diff HEAD` show.
+
+<p class="practises">Practises: the three diff variants, a file in two areas at once.</p>
+
+<Solution>
+```bash
+echo "Staged change" >> README.md
+git add README.md
+echo "Unstaged change" >> README.md
+git status          # README.md under "Changes to be committed" AND "Changes not staged"
+git diff            # only "Unstaged change"
+git diff --staged   # only "Staged change"
+git diff HEAD       # both
+```
+
+The same file can have part of its changes in the index and part only in the working tree.
+</Solution>
+
+### 4.3 · Searching history
+
+Print the history in short form, pick an older commit, and show its details and then only the list of changed files.
+
+<p class="practises">Practises: `git log --oneline`, `git show`, `--stat`.</p>
+
+<Solution>
+```bash
+git log --oneline
+git show 3f2a1c9            # hash from the output above
+git show --stat 3f2a1c9
+git show HEAD~2
+```
+</Solution>

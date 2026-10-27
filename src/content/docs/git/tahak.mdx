@@ -1,0 +1,293 @@
+---
+title: Ťahák
+description: Všetky príkazy z kurzu Git na jednej stránke, typické postupy a pasce.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Denný rytmus
+
+```bash title="Základný cyklus" wrap
+git pull                      # najprv aktuálny stav
+git status                    # kde som, čo je zmenené
+git diff                      # čo som zmenil (oproti indexu)
+git add <subor>               # alebo git add .
+git diff --staged             # čo pôjde do commitu
+git commit -m "feat: krátka správa"
+git push
+```
+
+## Nastavenie a terminál
+
+<div class="sheet-grid">
+
+```bash title="Jednorazové nastavenie" wrap
+git --version
+git config --global user.name "Meno Priezvisko"
+git config --global user.email "meno@example.com"
+git config --global core.editor nano
+git config --global init.defaultBranch main
+git config --global pull.rebase false
+git config --list               # kontrola (~/.gitconfig)
+```
+
+```bash title="Terminál" wrap
+pwd             # kde som
+ls -a           # aj skryté (.git)
+cd priecinok    # dnu
+cd ..           # o úroveň vyššie
+mkdir nazov
+cat subor.txt
+echo "text" > subor.txt     # prepíše
+echo "text" >> subor.txt    # pridá riadok
+```
+
+```bash title="SSH kľúč" wrap
+ssh-keygen                      # Enter, Enter, Enter
+cat ~/.ssh/id_ed25519.pub       # tento → GitHub/GitLab SSH Keys
+ssh -T git@github.com           # overenie
+```
+
+```text title="vim" wrap
+i        písanie (INSERT)
+Esc      koniec písania
+:wq      ulož a odíď
+:q!      odíď bez uloženia
+```
+
+</div>
+
+## Lokálna práca
+
+<div class="sheet-grid">
+
+```bash title="Repozitár a commit" wrap
+git init nazov
+git status
+git add subor.txt
+git add .
+git commit -m "feat: správa"
+git commit -am "fix: …"         # iba sledované súbory
+git commit --amend -m "nová správa"
+git rm subor.txt
+git rm --cached subor.txt       # prestaň sledovať, nechaj na disku
+git mv stary.txt novy.txt
+```
+
+```bash title="Diff a história" wrap
+git diff                  # working tree ↔ index
+git diff --staged         # index ↔ HEAD
+git diff HEAD             # working tree ↔ HEAD
+git log
+git log --oneline
+git log --oneline --graph --all --decorate --max-count=20
+git show                  # posledný commit
+git show 7f607c4 --stat   # aspoň 4 znaky hashu
+```
+
+```bash title="Vrátenie zmien" wrap
+git restore subor               # zahoď zmenu (= git checkout -- subor)
+git restore --staged subor      # vyber zo stagingu (= git reset -- subor)
+git revert HEAD                 # nový commit, ktorý ruší posledný
+git revert --no-edit <hash>
+git reset --soft HEAD~1         # zruš commit, zmeny staged
+git reset HEAD~1                # zruš commit, zmeny v súboroch
+git reset --hard HEAD~1         # zruš commit aj zmeny (!)
+git reset --hard                # zahoď všetko necommitnuté (!)
+```
+
+```text title=".gitignore" wrap
+*.log           všade
+build/          priečinok
+/program        iba v koreni
+program         kdekoľvek, aj code/program
+log/*.log.[0-9] glob, nie regex
+videos/*        obsah priečinka…
+!videos/keep.mp4  …okrem tohto
+```
+
+</div>
+
+## Vetvy a merge
+
+<div class="sheet-grid">
+
+```bash title="Vetvy" wrap
+git branch                      # lokálne, * = aktuálna
+git branch -a                   # aj remotes/origin/…
+git checkout -b feature/x       # vytvor a prepni
+git switch -c feature/x         # to isté, novšie
+git checkout main
+git switch main
+git branch -d feature/x         # iba zlúčenú
+git branch -D feature/x         # násilne
+```
+
+```bash title="Merge a konflikt" wrap
+git merge feature/x             # DO aktuálnej vetvy
+git merge feature/x --no-edit
+git merge feature/x --ff-only
+# CONFLICT → uprav súbor, zmaž <<<<<<< ======= >>>>>>>
+git add konflikt.txt            # = vyriešené
+git commit                      # dokonči merge
+git merge --abort               # zruš merge
+git mergetool                   # grafický nástroj
+```
+
+</div>
+
+## Remote
+
+<div class="sheet-grid">
+
+```bash title="Clone, remote, push" wrap
+git clone git@github.com:meno/repo.git
+git remote -v
+git remote add origin git@github.com:meno/repo.git
+git branch -M main
+git push -u origin main         # prvý push novej vetvy
+git push
+git push origin --delete feature/x
+```
+
+```bash title="Fetch a pull" wrap
+git fetch origin                # iba stiahni, súbory nemeň
+git status                      # behind 'origin/main' by N
+git pull                        # fetch + merge
+git pull --no-rebase origin main
+git checkout feature/x          # vzdialená vetva → lokálna sledujúca
+```
+
+</div>
+
+## Stash, tagy, rebase, detached HEAD
+
+<div class="sheet-grid">
+
+```bash title="Stash (lokálny)" wrap
+git stash                       # odlož zmeny
+git stash push -m "WIP popis"
+git stash -u                    # aj nové súbory
+git stash list
+git stash pop                   # vráť + zmaž zo zoznamu
+git stash apply                 # vráť, nechaj v zozname
+git stash pop stash@{1}
+```
+
+```bash title="Tagy" wrap
+git tag v1.0.0                  # jednoduchý
+git tag -a v1.0.1 -m "Release"  # anotovaný (kto, kedy, správa)
+git tag
+git show v1.0.1 --stat
+git push origin v1.0.1          # tagy push neposiela sám
+git push origin --tags
+git tag -d v1.0.0
+```
+
+```bash title="Rebase" wrap
+git switch feature/x
+git rebase main                 # commity na nový základ (nové hashe)
+git switch main
+git merge feature/x --ff-only
+git rebase -i HEAD~3            # pick, reword, squash, fixup, drop
+# nikdy nerebasuj pushnuté!
+```
+
+```bash title="Detached HEAD" wrap
+git checkout <hash>             # alebo HEAD~3, tag
+git switch -c rescue/x          # zachráň commity vetvou
+git reflog                      # nájdi stratený commit
+git branch rescue/x <hash>
+git switch main                 # späť
+```
+
+</div>
+
+## Typické postupy
+
+<div class="sheet-grid">
+
+```bash title="Feature vetva" wrap
+git switch main && git pull
+git switch -c feature/x
+git add . && git commit -m "feat: …"
+git push -u origin feature/x
+# hotové:
+git switch main && git pull
+git merge feature/x --no-edit
+git push
+git branch -d feature/x
+```
+
+```bash title="Push odmietnutý (remote je ďalej)" wrap
+git push                        # rejected (fetch first)
+git pull --no-rebase
+# prípadne vyrieš konflikt, git add, git commit
+git push
+```
+
+```bash title="Hotfix počas rozrobenej práce" wrap
+git stash push -m "WIP"
+git switch -c hotfix/x
+git commit -am "fix: …"
+git switch main
+git merge hotfix/x --no-edit
+git branch -d hotfix/x
+git stash pop
+```
+
+```bash title="Lokálny projekt na server" wrap
+git init && git add . && git commit -m "feat: init"
+git branch -M main
+git remote add origin git@github.com:meno/repo.git
+git push -u origin main
+```
+
+</div>
+
+## Pojmy
+
+| Pojem | Význam |
+| --- | --- |
+| working tree | súbory v priečinku, ako ich práve upravuješ |
+| staging area / index | zmeny vybrané do najbližšieho commitu (`git add`) |
+| repozitár | celá história v `.git` |
+| commit | snímok projektu + autor, čas, správa, rodič(ia); identifikuje ho SHA-1 hash |
+| HEAD | kde práve stojíš — zvyčajne vetva → jej posledný commit |
+| vetva | ukazovateľ na posledný commit línie vývoja |
+| tag | pevné meno pre commit (verzia) |
+| origin | predvolené meno vzdialeného repozitára |
+| `origin/main` | lokálna kópia stavu `main` na serveri |
+| upstream | vzdialená vetva, ktorú lokálna sleduje (`push -u`) |
+| fast-forward | merge bez nového commitu — iba posun ukazovateľa |
+| detached HEAD | HEAD ukazuje na commit, nie na vetvu |
+| merge / pull request | žiadosť o zlúčenie vetvy na GitLabe / GitHube |
+| fork | kópia cudzieho repozitára pod tvojím účtom |
+
+## Pasce na skúške
+
+| Pasca | Správne |
+| --- | --- |
+| `git commit` hlási *no changes added* | najprv `git add` |
+| `git commit novy.txt` → *pathspec did not match* | nový súbor treba `git add` |
+| `git diff` prázdny po `git add` | `git diff --staged` alebo `git diff HEAD` |
+| commit = poslanie na server | commit je lokálny, na server `git push` |
+| `git show c2` → *ambiguous argument* | aspoň 4 znaky hashu |
+| `.gitignore` sú regulárne výrazy | glob vzory (`*`, `?`, `[0-9]`) |
+| vzor `program` platí iba v koreni | platí všade; iba v koreni je `/program` |
+| `*.log` v `.gitignore`, ale `app.log` stále *modified* | už je sledovaný → `git rm --cached app.log` |
+| `videos/` + `!videos/x.mp4` | `videos/*` + `!videos/x.mp4` |
+| `git restore` / `reset --hard` — „vrátim neskôr“ | necommitnuté zmeny sú preč nadobro |
+| `reset` na pushnuté commity | `revert` (história ostane) |
+| `git merge x` zlúči aktuálnu vetvu do `x` | naopak — `x` **do** aktuálnej |
+| `git branch -d` nezlúčenej vetvy | odmietne; `-D` iba ak ju naozaj nechceš |
+| `git fetch` aktualizuje moje súbory | iba `origin/*`; súbory mení `pull` |
+| push rejected → `git push --force` | `git pull`, potom `git push` |
+| `git pull` → *Need to specify how to reconcile* | `git pull --no-rebase` / `pull.rebase false` |
+| `git stash` ide na server | stash je lokálny |
+| `git stash` odloží aj nový súbor | iba s `-u` |
+| tagy sa pushnú s `git push` | `git push origin <tag>` / `--tags` |
+| `git rebase main` spojí commity do jedného | iba ich prenesie; spája `rebase -i` |
+| rebase zdieľanej vetvy | rebase iba lokálnych, nepushnutých vetiev |
+| commit v detached HEAD | pred odchodom `git switch -c …`, inak `git reflog` |

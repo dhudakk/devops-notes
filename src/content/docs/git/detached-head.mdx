@@ -1,0 +1,209 @@
+---
+title: Detached HEAD a dobré návyky
+description: Čo je detached HEAD, ako v ňom nestratiť commity a ako ich zachrániť (aj cez reflog), odporúčania na prácu s Gitom a typické pasce.
+kind: chapter
+day: 2
+sidebar:
+  order: 13
+  label: 13 · Detached HEAD a návyky
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Detached HEAD** = HEAD ukazuje priamo na commit, nie na vetvu. Vznikne pri `git checkout <hash>`, `<tag>`, `HEAD~3` alebo `origin/main`.
+- V detached HEAD môžeš pozerať aj commitovať, ale nové commity nepatria žiadnej vetve — po odchode sa „stratia“.
+- Záchrana: kým si tam, `git switch -c rescue/nazov`. Keď si už odišiel, hash nájdeš v `git reflog`.
+- Návyky: commituj často a malé zmeny, pred commitom `git diff`, v správe vysvetli **prečo**, nezabúdaj `git push`, generované súbory do `.gitignore`, `git pull` často.
+- Git neodpúšťa: čítaj jeho varovania a `--force` / `reset --hard` nepoužívaj, kým presne nevieš, čo robia.
+</KeyPoints>
+
+## Detached HEAD
+
+Bežne HEAD ukazuje na **vetvu** a vetva na commit:
+
+```text
+HEAD → main → E
+```
+
+Pri `git checkout` na niečo, čo **nie je vetva** (hash, tag, `HEAD~3`, vzdialená vetva), ukazuje HEAD **priamo na commit**:
+
+```text
+A───B───C───D───E  ← main
+        ↑
+       HEAD          (detached)
+```
+
+```bash
+git checkout HEAD~3
+```
+
+```text
+Note: switching to 'HEAD~3'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+...
+HEAD is now at 1f92450 proxy
+```
+
+Na čo je to dobré: pozrieť si, ako projekt vyzeral v starej verzii, spustiť ju, nájsť, kedy sa niečo pokazilo.
+
+### Commit v detached HEAD
+
+Commitovať sa dá:
+
+```bash
+echo "Toto vzniklo v detached HEAD." > detached-demo.txt
+git add detached-demo.txt
+git commit -m "demo: commit in detached HEAD"
+```
+
+```text
+A───B───C───D───E  ← main
+        \
+         X          ← HEAD (žiadna vetva)
+```
+
+Keď sa teraz prepneš preč (`git switch main`), na commit `X` neukazuje nič pomenované. Git varuje:
+
+```text
+Warning: you are leaving 1 commit behind, not connected to
+any of your branches:
+
+  4e5f6a7 demo: commit in detached HEAD
+
+If you want to keep it by creating a new branch, this may be a good time
+to do so with:
+
+ git branch <new-branch-name> 4e5f6a7
+```
+
+### Záchrana
+
+Kým si ešte v detached HEAD, daj commitom vetvu:
+
+```bash
+git switch -c rescue/detached-demo     # vetva na aktuálnom mieste
+git switch main
+git merge rescue/detached-demo --no-edit
+git branch -d rescue/detached-demo
+```
+
+Ak si už odišiel a hash si nezapamätal, pomôže **`git reflog`** — denník všetkých pohybov HEAD:
+
+```bash
+git reflog
+# a1b2c3d HEAD@{0}: checkout: moving from 4e5f6a7… to main
+# 4e5f6a7 HEAD@{1}: commit: demo: commit in detached HEAD
+git branch rescue/detached-demo 4e5f6a7
+```
+
+Opustené commity Git po čase (predvolene po týždňoch) zmaže. Reflog je iba lokálny.
+
+Späť na normálnu vetvu: `git switch main` (alebo `git checkout main`).
+
+## Dobré návyky
+
+Odporúčania zo slajdov a z prednášky:
+
+1. **Commituj často** a nezávislé zmeny drž v samostatných commitoch.
+2. Pred commitom spusti **`git diff`** (a `git diff --staged`) a **`git status`** — vieš, čo commituješ.
+3. V commit správe opíš **dôvod** zmeny — často je dôležitejší ako zmena samotná.
+4. **Nezabudni `git push`** — kým commit nie je na serveri, kolegovia ho nemajú a neexistuje záloha.
+5. Generované súbory (`*.o`, `*.a`, `build/`…) daj do **`.gitignore`**.
+6. **Nevzďaľuj sa od tímu** — `git pull` dostatočne často, aby sa ti nehromadili konflikty.
+
+### Typické pasce
+
+| Pasca | Správne |
+| --- | --- |
+| `git diff` je prázdny, hoci zmeny mám | porovnáva s indexom → `git diff HEAD` (alebo `--staged`) |
+| `git reset` nevrátil súbory | mení iba index → `git reset --hard`, ak chceš zahodiť aj zmeny v súboroch |
+| varovanie Gitu som preskočil | Git neodpúšťa — čítaj výstup, väčšinou radí presný príkaz |
+| `--force` „aby to prešlo“ | iba ak presne vieš prečo; prepisuje cudziu prácu |
+| história Gitu je nemenná | nie je — `amend`, `rebase`, `reset` ju prepisujú |
+| commit v detached HEAD zmizol | daj mu vetvu (`git switch -c …`) alebo ho nájdi v `git reflog` |
+
+## Otestuj sa
+
+<Question q="Kedy sa ocitneš v detached HEAD?">
+Keď prepneš na niečo, čo nie je lokálna vetva: konkrétny commit (hash, `HEAD~3`), tag alebo vzdialenú vetvu (`origin/main`).
+</Question>
+
+<Question q="Urobil si v detached HEAD commit. Ako ho zachrániš?">
+Kým si tam: `git switch -c nova-vetva` (alebo `git branch nova-vetva`). Ak si už odišiel: nájdi hash v `git reflog` a `git branch nova-vetva <hash>`.
+</Question>
+
+<Question q="Čo je `git reflog`?">
+Lokálny denník všetkých pohybov HEAD (commity, checkouty, resety, rebase). Dá sa v ňom nájsť aj commit, na ktorý už neukazuje žiadna vetva.
+</Question>
+
+<Question q="Prečo je v commit správe dôležitejšie *prečo* ako *čo*?">
+*Čo* sa zmenilo ukáže diff. *Prečo* sa to zmenilo z kódu nevyčítaš — o pol roka to bude jediná stopa po dôvode.
+</Question>
+
+## Cvičenia
+
+### 13.1 · Výlet do minulosti a záchrana
+
+Prepni sa na commit `HEAD~3`, pozri `git status`, sprav tam commit a zachráň ho novou vetvou. Potom ho zlúč do hlavnej vetvy.
+
+<p class="practises">Precvičíš: detached HEAD, `git switch -c`, merge.</p>
+
+<Solution>
+```bash
+git checkout main
+git log --oneline --decorate --max-count=10
+git checkout HEAD~3
+git status                          # HEAD detached at …
+echo "Toto vzniklo v detached HEAD." > detached-demo.txt
+git add detached-demo.txt
+git commit -m "demo: commit in detached HEAD"
+git switch -c rescue/detached-demo
+git status                          # On branch rescue/detached-demo
+git checkout main
+git merge rescue/detached-demo --no-edit
+git branch -d rescue/detached-demo
+```
+</Solution>
+
+### 13.2 · Záchrana cez reflog
+
+Zopakuj predchádzajúce cvičenie, ale z detached HEAD odíď **bez** vytvorenia vetvy. Commit potom nájdi a zachráň.
+
+<p class="practises">Precvičíš: `git reflog`, `git branch <meno> <hash>`.</p>
+
+<Solution>
+```bash
+git checkout HEAD~2
+echo "stratený" > lost.txt
+git add lost.txt && git commit -m "demo: lost commit"
+git switch main                    # Warning: you are leaving 1 commit behind
+git reflog                         # nájdi riadok "commit: demo: lost commit"
+git branch rescue/lost <hash>
+git log --oneline rescue/lost -1
+```
+</Solution>
+
+### 13.3 · Záverečný changelog
+
+Vytvor `CHANGELOG.md` so zoznamom toho, čo si počas 2. dňa vyskúšal. Pomôž si `git log` a `git show`. Pred commitom skontroluj `git diff --staged`, potom commitni a pushni.
+
+<p class="practises">Precvičíš: celý rytmus `status` → `diff` → `add` → `diff --staged` → `commit` → `push`.</p>
+
+<Solution>
+```bash
+git status
+git log --oneline --graph --all --decorate --max-count=30
+printf '# Changelog\n\n## Deň 2\n\n- vetvy a merge\n- vyriešený konflikt\n- stash\n- remote workflow\n- tagy\n- rebase\n' > CHANGELOG.md
+git add CHANGELOG.md
+git diff --staged
+git commit -m "docs: add day 2 changelog"
+git push
+git show HEAD --stat
+```
+</Solution>

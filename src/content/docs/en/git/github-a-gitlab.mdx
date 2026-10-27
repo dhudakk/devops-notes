@@ -1,0 +1,187 @@
+---
+title: GitHub and GitLab
+description: The web interface of Git servers — repositories, history, branches, members and permissions, merge requests, pipelines, dev/test/prod environments, groups, issues, access tokens, GitHub Pages, and forks.
+kind: chapter
+day: 1
+sidebar:
+  order: 7
+  label: 07 · GitHub and GitLab
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **GitHub** — the best known, mostly personal and open source projects. **GitLab** — companies often host it on their own server (cheaper, reachable only through VPN). Functionally they are very similar.
+- A repository on the web: files with the last commit next to each, a branch switcher, the **Code** button (clone over **SSH** or **HTTPS**, ZIP download), and the commit history.
+- A repository is **private** (only invited members with a role) or **public**.
+- **Merge request** (GitLab) = **pull request** (GitHub): a request to merge a branch, reviewed by someone.
+- A **pipeline** (CI/CD) runs after a push: commit message check, tests, build, deployment.
+- Branches per environment: `dev` → `test` → `main`/`prod`; the production branch is usually **protected**.
+</KeyPoints>
+
+## GitHub vs. GitLab
+
+| | GitHub | GitLab |
+| --- | --- | --- |
+| Typical use | personal projects, open source, portfolio | companies, often **self-hosted** on their own server |
+| Merge request | **pull request** (PR) | **merge request** (MR) |
+| CI/CD | GitHub Actions | GitLab CI/CD (pipelines) |
+| Default branch | `main` | `main` (older instances `master`) |
+
+Companies host GitLab themselves because, with many people, it is cheaper than paying for the cloud and the code never leaves the company network — outside the VPN you cannot even reach it. Login usually goes through company **SSO**.
+
+## A repository on the web
+
+When you open a repository you see:
+
+- the **file list** — next to each file the time of its last change and the **commit message** that last changed it (one more reason to write good commit messages),
+- a **branch switcher** — what the project looks like on another branch,
+- **README.md** rendered below the files — the project's documentation in Markdown: what it is, how to run it, what is in which folder,
+- the **Code / Clone** button:
+  - **SSH** — you set up a key once and never type anything again (see [the next chapter](/devops-notes/en/git/ssh-clone-push/)),
+  - **HTTPS** — you have to sign in when pushing,
+  - **Download ZIP** — just the files, without history,
+- **Commits** — the history; for every commit you can browse the files exactly as they were (*Browse files*) and download the old version.
+
+### Members and visibility
+
+| Visibility | Who can see it |
+| --- | --- |
+| **Private** | only added members |
+| **Internal** (GitLab) | everyone signed in to the organisation |
+| **Public** | anyone, even without signing in |
+
+Under **Members** you add people and give them a **role** — from read-only (Guest, Reporter) through editing (Developer) to full control (Maintainer, Owner) — and optionally a date when access expires.
+
+### Other parts of a repository
+
+| Part | What for |
+| --- | --- |
+| **Branches** | list of branches, comparing, deleting |
+| **Merge / Pull requests** | requests to merge a branch — review, comments, approval |
+| **Pipelines / Actions** | automated steps after a push (CI/CD) |
+| **Issues / Work items / Milestones** | tasks and planning, often linked with Jira |
+| **Wiki** | project documentation (or it lives in a separate system) |
+| **Tags / Releases** | marked versions |
+
+## Pipelines
+
+A pipeline is a sequence of automated steps triggered by a push. An example from the instructor's experience:
+
+1. check the **commit message format** — if it does not match, the pipeline fails, you get an e-mail, and nothing else runs,
+2. **build** — does the project compile?
+3. **tests**,
+4. **deployment** to the server.
+
+On GitHub the same is done by **Actions** — e.g. every push deploys the app to Vercel.
+
+## Branches per environment
+
+You do not experiment on the production version your customers use. So branches are often split by environment:
+
+| Branch | Environment | Who works there |
+| --- | --- | --- |
+| `dev` | development server, e.g. `dev.app.com` | developers try out changes |
+| `test` | test server | testers check a more mature version |
+| `main` / `master` / `prod` | production, `app.com` | only tested changes |
+
+A change travels `dev` → `test` → `prod` through merge requests. Production deployments happen when the fewest people use the system. The production branch is usually **protected** — you cannot push to it directly, only merge an approved merge request.
+
+## Groups
+
+A bigger system (backend, frontend, database, documentation) is often **not kept in one repository** — different people work on it and there would be needless conflicts. The repositories are put into a **group**, which can have subgroups (e.g. by year or team). Permissions can be set for the whole group at once.
+
+## Personal Access Tokens
+
+For scripts and automation (e.g. a Python script that reads many repositories through the API) you create a **Personal Access Token** in your profile settings:
+
+- choose the **scope** — what the token may do: read users, repositories, registries, the API, or also write,
+- set an expiry date,
+- you get a string that you put into the script instead of a password.
+
+A token is like a password — **do not commit it** to a repository (it belongs in an environment variable or a `.env` listed in `.gitignore`).
+
+:::note[HTTPS and passwords]
+The lecture said you type your account password over HTTPS. GitHub does **not accept** the account password for Git — over HTTPS you use a personal access token instead (or the Git Credential Manager does it for you). That is another reason SSH is more convenient.
+:::
+
+## GitHub Pages
+
+GitHub can host a **static website** (HTML, CSS, JS) for free straight from a repository:
+
+- **Settings → Pages → Deploy from a branch** and pick a branch, e.g. `gh-pages`,
+- every change on that branch updates the site automatically at `https://<name>.github.io/<repo>/`,
+- on a free account the repository must be **public**.
+
+The instructor showed that branches can have completely different content: `main` holds the source code, `gh-pages` only the built website.
+
+```bash
+git checkout -b gh-pages
+git rm -r -q .                 # the website branch does not need the sources
+cp ~/web/index.html .
+git add index.html
+git commit -m "chore: gh pages init"
+git push -u origin gh-pages
+git checkout main              # the sources are back
+```
+
+These notes run on GitHub Pages too — deployed by GitHub Actions instead of a branch.
+
+## Forks and pull requests
+
+How strangers contribute to an open source project (hundreds of contributors, thousands of commits):
+
+1. Click **Fork** on the project page — a copy of the repository appears under your account.
+2. Clone your fork, make a change on your own branch, and push it.
+3. Open a **pull request** to the original project.
+4. The maintainer reviews it, comments, and if it is good **merges** it into the main branch. You have no direct access to the main branch — the maintainer decides.
+
+## Test yourself
+
+<Question q="Why do companies often use a self-hosted GitLab instead of GitHub?">
+With many people it is cheaper, and the code stays on their own server inside the company network (reachable only via VPN) — it is safer.
+</Question>
+
+<Question q="What is the difference between a merge request and a pull request?">
+None in substance — it is the same thing (a request to merge a branch, with review). GitLab calls it a merge request, GitHub a pull request.
+</Question>
+
+<Question q="What is a protected branch?">
+A branch you cannot push to directly (or only selected people can) — changes reach it only by merging an approved merge request. Typically the production `main`/`prod`.
+</Question>
+
+<Question q="What does a typical CI/CD pipeline do after a push?">
+It runs automated steps in order: for example a commit message format check, build, tests, and deployment. When a step fails, the following ones do not run and the author is notified.
+</Question>
+
+<Question q="How do you contribute to an open source project you cannot push to?">
+Fork it, make the change on your own branch in the fork, push it to the fork, and open a pull request to the original repository. The maintainer decides whether to merge it.
+</Question>
+
+<Question q="What is a Personal Access Token for?">
+Access to the API and repositories from scripts and automation (and over HTTPS instead of a password). It has limited permissions (scope) and an expiry date; protect it like a password.
+</Question>
+
+## Exercises
+
+### 7.1 · A repository via the web
+
+On GitHub (or GitLab) create a new repository `git-course` with a README and the Python `.gitignore` template. Browse the commit history and find where visibility and members are set.
+
+<p class="practises">Practises: finding your way around the web interface.</p>
+
+<Solution>
+GitHub: **New repository** → name `git-course`, *Public/Private*, tick *Add a README file*, *.gitignore template: Python* → **Create repository**. The first commit, *Initial commit*, was made by the web. Visibility: **Settings → General → Danger Zone → Change visibility**. Members: **Settings → Collaborators**. On GitLab: **New project → Create blank project**, members under **Manage → Members**.
+</Solution>
+
+### 7.2 · Environments
+
+A team has `dev`, `test`, and `main` branches. Describe how a new feature reaches customers and which branch you would make protected.
+
+<p class="practises">Practises: branches per environment, merge requests, protected branches.</p>
+
+<Solution>
+The developer pushes the feature (through a feature branch and a merge request) to `dev` and checks it on the development server. Then a merge request `dev` → `test` — testers test it. When everything is fine, a merge request `test` → `main` and a production deployment at a time when the fewest people use the system. At least `main` should be protected (often `test` too), so nobody can push to it directly.
+</Solution>

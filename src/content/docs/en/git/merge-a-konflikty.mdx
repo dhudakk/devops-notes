@@ -1,0 +1,299 @@
+---
+title: Merge and conflicts
+description: git merge into the current branch, fast-forward vs. merge commit, how Git merges files line by line, a merge conflict step by step, conflict markers, and git mergetool.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Merge and conflicts
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `git merge branch` merges `branch` **into the current branch**. Always check where you are first (`git status`).
+- If the current branch has not moved since → **fast-forward** (the pointer just moves). Otherwise a **merge commit** with two parents is created (an editor opens for the message; `--no-edit` takes the default).
+- Text files are merged **line by line**. The same line changed in both branches = a **conflict**. Binary files = always a conflict.
+- On a conflict: the file contains `<<<<<<<`, `=======`, `>>>>>>>` → edit it to the final version and remove the markers → `git add file` → `git commit`.
+- Cancel a merge in progress: `git merge --abort`.
+</KeyPoints>
+
+## git merge
+
+```bash
+git switch main
+git merge dev
+```
+
+The changes from `dev` are merged **into the current branch** (`main`). Direction matters:
+
+- on `main`, `git merge dev` → `main` gets the changes from `dev`, you continue on `main`,
+- on `dev`, `git merge main` → `dev` gets the changes from `main` (common when you want the latest main-branch work in your feature branch).
+
+Git applies only the changes since the **last common ancestor** of both branches.
+
+### Fast-forward
+
+If `main` got no new commit since the branches split, there is nothing to combine — Git just moves the `main` pointer forward:
+
+```text
+before:  main     ●───●
+                   \
+         feature    ●───●
+
+after:   ●───●───●───●   ← main, feature
+```
+
+```text
+Updating dd2fb90..b088fa7
+Fast-forward
+ f.txt | 1 +
+```
+
+### Merge commit
+
+If both branches have new commits, a **new commit with two parents** is created:
+
+```text
+main      ●───●───●───────●   ← merge commit (2 parents)
+               \         /
+dev             ●───●───●
+```
+
+The merge result is committed **immediately** (unless there is a conflict). An editor opens with the prefilled message `Merge branch 'dev'` — save and close (`Esc`, `:wq`). Without the editor:
+
+```bash
+git merge dev --no-edit
+```
+
+## Example: branches that diverged
+
+The flow from the slides (command on the left, what happens on the right):
+
+| Command | Result |
+| --- | --- |
+| `git checkout -b develop` | `develop` and `master` point to the same commit |
+| commit on `develop` | `develop` moves ahead |
+| `git checkout master` | the working tree goes back to `master` |
+| 2× commit on `master` | the branches diverge |
+| `git checkout develop` | files from the `master` commits disappear; you are where you left `develop` |
+| commit on `develop` | another step on `develop` |
+| `git merge master` | `master` is merged into `develop` → a merge commit on `develop` |
+
+After the merge the old branch still exists — you can keep working on it or delete it.
+
+In the lecture demo, `prikazy.txt` changed on both branches but **no conflict** happened: one branch only appended new lines at the end, the other did not touch the same place.
+
+## How Git merges files
+
+| Situation | Result |
+| --- | --- |
+| a file changed on only one branch | taken automatically |
+| a file changed on both, but **on different lines** | merged automatically |
+| **the same line** changed on both branches | **conflict** |
+| a binary file (image, `.exe`) changed on both | **always a conflict** — Git cannot merge binaries |
+
+That is one more reason build output belongs in `.gitignore`.
+
+## A conflict step by step
+
+Let us cause a conflict on purpose (as in the lecture):
+
+```bash
+echo "topic: original version" > conflict.txt
+git add conflict.txt
+git commit -m "feat: add conflict base"
+
+git checkout -b feature/conflict
+echo "topic: version from the feature branch" > conflict.txt
+git commit -am "feat: change topic in feature branch"
+
+git checkout main
+echo "topic: version from the main branch" > conflict.txt
+git commit -am "feat: change topic in main branch"
+
+git merge feature/conflict
+```
+
+```text
+Auto-merging conflict.txt
+CONFLICT (content): Merge conflict in conflict.txt
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+The Git Bash prompt changes to `(main|MERGING)` — you are in the middle of a merge.
+
+```bash
+git status
+```
+
+```text
+You have unmerged paths.
+  (fix conflicts and run "git commit")
+  (use "git merge --abort" to abort the merge)
+
+Unmerged paths:
+  (use "git add <file>..." to mark resolution)
+	both modified:   conflict.txt
+```
+
+Files **without** a conflict (and the merge metadata) are already staged in the index. Files with a conflict are left in the working tree marked as *unmerged*.
+
+### Conflict markers
+
+```bash
+cat conflict.txt
+```
+
+```text
+<<<<<<< HEAD
+topic: version from the main branch
+=======
+topic: version from the feature branch
+>>>>>>> feature/conflict
+```
+
+| Marker | Meaning |
+| --- | --- |
+| `<<<<<<< HEAD` | start of the version from the **current** branch (the one you merge into) |
+| `=======` | separator |
+| `>>>>>>> feature/conflict` | end of the version from the **merged** branch |
+
+### Resolving
+
+Decide what the file should look like — keep one version, the other, or combine them. **The markers must go.**
+
+```bash
+echo "topic: final shared version" > conflict.txt    # or edit it in an editor
+cat conflict.txt                                      # no <<<<<<<
+git add conflict.txt                                  # = conflict resolved
+git status                                            # All conflicts fixed but you are still merging
+git commit -m "merge: resolve topic conflict"
+```
+
+Here `git add` does not mean "add a new file" but "**this file is resolved**". If the result should be deleting the file, use `git rm file`. When every file is resolved, `git commit` completes the merge and the prompt goes back to `(main)`.
+
+If you get lost, return everything to the state before the merge:
+
+```bash
+git merge --abort
+```
+
+### A conflict tool
+
+```bash
+git mergetool conflict.txt
+```
+
+Opens the configured graphical tool (kdiff3, meld, vimdiff…) with both versions side by side. **VS Code** is handy too — for each conflict it offers *Accept Current / Incoming / Both* buttons. The instructor does not use mergetool himself.
+
+## Avoiding conflicts
+
+- Agree in the team **who works on what** and name branches clearly.
+- Merge **often** and in **small** pieces — the longer a branch lives on the side, the more conflicts.
+- `git pull` before you start, so you begin from the current state.
+- Do not commit generated files.
+
+:::tip[The instructor's approach]
+When a conflict across many files looms, the instructor moves his changes outside the repository (or uses `git stash`), merges/pulls the clean version, and then brings his changes back and finishes them by hand.
+:::
+
+## Test yourself
+
+<Question q="You are on `dev` and run `git merge main`. Which branch changes?">
+`dev` — merge always goes into the current branch. `main` stays unchanged.
+</Question>
+
+<Question q="When do you get a fast-forward and when a merge commit?">
+Fast-forward when the current branch has no new commits since the split — only the pointer moves. If both branches have new commits, a merge commit with two parents is created.
+</Question>
+
+<Question q="Why was there no conflict when the same file changed on both branches?">
+Git merges text files line by line. If the changes were not on the same lines (e.g. one branch only appended lines at the end), it merges them automatically.
+</Question>
+
+<Question q="What do `<<<<<<< HEAD`, `=======`, and `>>>>>>> feature` mean?">
+Between `<<<<<<< HEAD` and `=======` is the version from the current branch, between `=======` and `>>>>>>> feature` the version from the merged branch. After resolving, the markers must be gone from the file.
+</Question>
+
+<Question q="How do you tell Git a conflict in a file is resolved, and how do you finish the merge?">
+`git add file` (the file goes into the index as resolved), and when all are resolved, `git commit`.
+</Question>
+
+<Question q="How do you cancel a merge that ended in a conflict?">
+`git merge --abort` — everything returns to the state before the merge.
+</Question>
+
+## Exercises
+
+### 10.1 · A merge without a conflict
+
+Merge `feature/profile` from the previous chapter into the main branch and look at the graph. Was it a fast-forward?
+
+<p class="practises">Practises: `git merge`, fast-forward.</p>
+
+<Solution>
+```bash
+git checkout main
+git merge feature/profile
+git log --oneline --graph --all
+git branch -d feature/profile
+```
+
+If `main` got no commit since the branch was created, the output says *Fast-forward* and the graph is a straight line. Otherwise a merge commit was created.
+</Solution>
+
+### 10.2 · A merge commit
+
+Make two commits on a new branch and a different commit on `main`, then merge the branch. Look at the graph — the merge commit has two parents.
+
+<p class="practises">Practises: diverged branches, a merge commit, `--no-edit`.</p>
+
+<Solution>
+```bash
+git switch -c feature/day2-intro
+echo "# Day 2 demo" > day2-flow.md
+git add day2-flow.md && git commit -m "feat: add day 2 flow file"
+echo "A line from the feature branch." >> day2-flow.md
+git commit -am "feat: extend day 2 flow"
+
+git switch main
+echo "A change right on the main branch." > main-note.txt
+git add main-note.txt && git commit -m "feat: add main branch note"
+
+git log --oneline --graph --all     # two lines
+git merge feature/day2-intro --no-edit
+git log --oneline --graph --all     # joined by a merge commit
+git show --stat HEAD                # Merge: <parent1> <parent2>
+git branch -d feature/day2-intro
+```
+</Solution>
+
+### 10.3 · Create and resolve a conflict
+
+In `menu.txt` change the same line differently on `main` and on `feature/menu`. Merge, resolve the conflict (result `color: red and green`), and finish the merge.
+
+<p class="practises">Practises: a conflict, conflict markers, `git add` after resolving.</p>
+
+<Solution>
+```bash
+git checkout main
+echo "color: blue" > menu.txt
+git add menu.txt && git commit -m "feat: add menu"
+git checkout -b feature/menu
+echo "color: green" > menu.txt
+git commit -am "feat: change menu color in feature"
+git checkout main
+echo "color: red" > menu.txt
+git commit -am "feat: change menu color in main"
+git merge feature/menu              # CONFLICT
+cat menu.txt                        # markers
+echo "color: red and green" > menu.txt
+git add menu.txt
+git commit -m "merge: resolve menu color conflict"
+git log --oneline --graph --all
+git branch -d feature/menu
+```
+</Solution>

@@ -1,0 +1,64 @@
+---
+title: Sources
+description: Slides, the instructor's repository with tasks and a cheat sheet, recommended documentation, and which chapter came from which material.
+kind: sources
+sidebar:
+  order: 99
+---
+
+The two-day **Git** course was taught by Marek. The notes are based on the slides, the transcripts of both days, and the material in the instructor's repository. They are organised by topic, corrected, extended with questions and exercises, and the commands were tested on Git 2.50.
+
+:::note[What is deliberately left out]
+The company proxy address is replaced with a placeholder (`<PROXY>`). Names of participants and colleagues from the recording are omitted.
+:::
+
+## Materials
+
+| Material | Contents |
+| --- | --- |
+| *Git* slides (PDF, 88 pages) | version control, installation, working locally, undoing changes, branching and merging, remotes, stash, tags, rebase, detached HEAD |
+| [marek-horvath/git ↗](https://github.com/marek-horvath/git) | `README.md` (a cheat sheet explaining each command), `DemoDen2.md` (the day 2 demo script), `1DenUlohy.html` and `2DenUlohy.html` (tasks with solutions), `prikazy.txt` |
+
+### Recommended documentation from the slides
+
+- `man git-<command>` or `git <command> --help`
+- [The Pro Git book ↗](https://git-scm.com/book) — also [in Czech ↗](https://git-scm.com/book/cs/v2)
+- [Atlassian Git tutorials ↗](https://www.atlassian.com/git) and their [Git cheat sheet ↗](https://www.atlassian.com/git/tutorials/atlassian-git-cheatsheet)
+- [ITnetwork — Git tutorial (CZ) ↗](https://www.itnetwork.cz/programovani/git/git-tutorial-zaklady)
+- [Reset Demystified ↗](https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified) — reset and the three trees
+- [SSH and version control guide (KPI FEI TUKE) ↗](https://kurzy.kpi.fei.tuke.sk/zap/tutorials/version-control.html)
+- Exercises: [git-katas ↗](https://github.com/eficode-academy/git-katas) (basic-commits, basic-staging, basic-branching, ff-merge, 3-way-merge, basic-revert, reset, amend, basic-stashing, ignore, git-tag) and [W3Schools Git exercises ↗](https://www.w3schools.com/git/exercise.asp)
+
+## Which chapter comes from where
+
+| Chapter | Source |
+| --- | --- |
+| [01 · Version control](/devops-notes/en/git/verzionovanie/) | slides pp. 2–13; day 1 — transcript part 1 (final_final, centralised vs. distributed, snapshots) |
+| [02 · Installation and setup](/devops-notes/en/git/instalacia/) | slides pp. 14–18; day 1 — transcript part 1 (Git Bash, terminal, `git config`, vim); the proxy from the instructor's `README.md` |
+| [03 · Staging and commit](/devops-notes/en/git/prvy-commit/) | slides pp. 19–27, 31; day 1 — transcript part 1 (`.git`, `status`, `add`, `commit`, commit messages, `rm`, `mv`) |
+| [04 · Diff and history](/devops-notes/en/git/diff-a-historia/) | slides pp. 28–31; day 1 — transcript part 1 (`diff HEAD`, `log`, `show`) |
+| [05 · .gitignore](/devops-notes/en/git/gitignore/) | slides pp. 11, 32; day 1 — transcript part 1 (the `program.c` demo); task 7 of `1DenUlohy.html` |
+| [06 · Undoing changes](/devops-notes/en/git/vratenie-zmien/) | slides pp. 34–42; day 1 — transcript part 1 (`restore`, `revert HEAD`); tasks 8–10 of `1DenUlohy.html` |
+| [07 · GitHub and GitLab](/devops-notes/en/git/github-a-gitlab/) | day 1 — transcript part 2 (web interface, pipelines, environments, groups, tokens, GitHub Pages, forks); day 2 — transcript part 2 (GitHub Pages) |
+| [08 · SSH, clone, and push](/devops-notes/en/git/ssh-clone-push/) | day 1 — transcript part 2 (`ssh-keygen`, `clone`, `push`, "ahead by") |
+| [09 · Branches](/devops-notes/en/git/vetvy/) | slides pp. 44–49, 57; day 2 — transcript part 1 (`checkout -b`, `switch`, `branch -a`, push with upstream) |
+| [10 · Merge and conflicts](/devops-notes/en/git/merge-a-konflikty/) | slides pp. 50–58; day 2 — transcript part 1 (merging `dev`, a deliberate conflict); `DemoDen2.md` |
+| [11 · Remote, push, and pull](/devops-notes/en/git/remote/) | slides pp. 60–73; day 2 — transcript parts 1 and 2 (Arthur/Brian/Sam, a colleague in a second clone); `2DenUlohy.html` tasks 8–10 |
+| [12 · Stash, tags, and rebase](/devops-notes/en/git/stash-tagy-rebase/) | slides pp. 74–80; day 2 — transcript part 2 (stash, tags, rebase demos) |
+| [13 · Detached HEAD and habits](/devops-notes/en/git/detached-head/) | slides pp. 81–88; `DemoDen2.md` (detached HEAD); `2DenUlohy.html` tasks 13–14 |
+| [Cheat sheet](/devops-notes/en/git/tahak/) | the instructor's `README.md`, `prikazy.txt`, slides pp. 81–82 |
+
+## Corrections to the lecture
+
+Checked on Git 2.50.
+
+- **Commit does not move files into staging.** `git add` puts them there, `git commit` saves them to the local repository, and only `git push` sends them to the server.
+- **`git commit file` without `add`** (slide 24) works only for files Git already tracks. In the course it failed because the file was new: *pathspec 'F3' did not match any file(s) known to git*.
+- **`git show` with two hash characters** did not work and the claim was that you need the full ID. A unique prefix of at least 4 characters is enough.
+- **`.gitignore` does not use regular expressions** but glob patterns. And a pattern without a slash (`program`) applies in every folder, so after moving into `code/` the files stay ignored; root only is `/program`.
+- **`git rebase main` does not combine commits into one.** It moves them onto a new base as new commits (two remained in the demo). Combining is done by `git rebase -i` (squash/fixup) — slide 78.
+- **HTTPS and the account password:** GitHub does not accept the account password for Git; HTTPS uses a personal access token or a credential manager.
+- **`git stash push`** sends nothing to the server — "push" only means putting it on the stack.
+- **`git pull` with diverged branches** in newer Git ends with *Need to specify how to reconcile divergent branches* unless `pull.rebase` is set. The notes use `git pull --no-rebase` (as in the instructor's cheat sheet).
+- In `git show`, an annotated tag differs from a lightweight one by the `tag …`, `Tagger:`, `Date:` header and a message before the commit.
+- Slide 15: `sudo apt-get update && apt-get install git` — the second command needs `sudo` too.

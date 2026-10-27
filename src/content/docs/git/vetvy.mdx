@@ -1,0 +1,257 @@
+---
+title: Vetvy
+description: Na čo sú vetvy, ako Git ukladá históriu (commity s rodičmi, DAG, vetva ako ukazovateľ), vytvorenie a prepínanie vetiev cez checkout a switch, výpis a mazanie vetiev.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · Vetvy
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Vetva (*branch*) = samostatná línia vývoja. Novú funkciu robíš bokom a do hlavnej vetvy ju spojíš, až keď je hotová.
+- Commit má **0 rodičov** (prvý), **1 rodiča** (bežný) alebo **2+ rodičov** (merge). História je **DAG** — orientovaný graf bez cyklov.
+- **Vetva je iba ukazovateľ** na posledný commit. „História vetvy“ neexistuje, existujú iba commity a ich rodičia.
+- Vytvor a prepni: `git checkout -b nazov` alebo novšie `git switch -c nazov`. Prepni: `git checkout nazov` / `git switch nazov`.
+- `git branch` = lokálne vetvy (`*` = aktuálna), `git branch -a` = aj vzdialené. Mazanie: `git branch -d` (iba zlúčenú), `-D` (násilne).
+</KeyPoints>
+
+## Na čo sú vetvy
+
+```text
+main     ●───●───────●───────●──────────●   ← hlavná vetva
+              \               \         /
+malá zmena     ●               \       /
+                                ●───●─●     ← väčšia funkcia
+```
+
+- Viac vývojárov pracuje naraz, každý na svojej vetve, bez toho, aby si navzájom rozbíjali kód.
+- Aj keď pracuješ sám: každú funkciu robíš vo vlastnej vetve. Hlavná vetva ostáva funkčná, kým funkciu nedokončíš.
+- Keď je funkcia hotová, vetvy sa **spoja** (*merge*) — [ďalšia kapitola](/devops-notes/git/merge-a-konflikty/).
+
+Kým feature vetvu nezlúčiš, jej zmeny v hlavnej vetve **nie sú**.
+
+## Ako Git ukladá históriu
+
+Každý commit si pamätá zoznam **rodičovských commitov**:
+
+| Počet rodičov | Commit |
+| --- | --- |
+| 0 | prvý (inicializačný) commit |
+| 1 | bežný commit |
+| 2 a viac | výsledok **merge** |
+
+Takáto štruktúra je **DAG** (*directed acyclic graph*) — orientovaný graf bez cyklov: história ide iba dopredu, nikdy sa nevráti do skoršieho bodu.
+
+- **Vetva je iba ukazovateľ** (pointer) na najnovší commit. Formálna „história vetvy“ neexistuje — iba commity a odkazy na rodičov. Interne Git spracúva vetvy a tagy rovnako.
+- Commit identifikuje **SHA-1 hash** (160 bitov) vypočítaný z commitnutých súborov, metadát (správa, autor…) a **hashov rodičov**. Hash preto spoľahlivo identifikuje obsah aj celú predchádzajúcu históriu.
+- **HEAD** ukazuje na vetvu, na ktorej práve stojíš.
+
+## Vytvorenie vetvy
+
+```bash
+git checkout -b dev
+# Switched to a new branch 'dev'
+```
+
+`-b` vetvu vytvorí a rovno sa na ňu prepne. Nová vetva začína na commite, kde práve stojíš. Voliteľne môžeš určiť začiatok: `git checkout -b hotfix v1.0` (tag, hash alebo iná vetva).
+
+Novší, prehľadnejší príkaz:
+
+```bash
+git switch -c dev        # -c = create
+```
+
+Ihneď po vytvorení ukazujú `main` aj `dev` na **ten istý commit** — vetvy sú zatiaľ totožné. Rozídu sa až prvým commitom na jednej z nich.
+
+:::tip[Názvy vetiev]
+Pomenuj vetvu tak, aby ostatní hneď vedeli, čo v nej je. Bežné sú predpony: `feature/login`, `fix/footer-text`, `hotfix/…`, `docs/…`. Názov nesmie obsahovať medzery.
+:::
+
+## Prepínanie
+
+```bash
+git checkout main
+git switch main          # to isté, novší príkaz
+```
+
+`git checkout` robí veľa vecí naraz (prepína vetvy, obnovuje súbory, presúva sa na commity). Git preto pridal dva jednoúčelové príkazy: **`git switch`** na vetvy a **`git restore`** na súbory.
+
+Pri prepnutí Git **prepíše working tree** podľa cieľovej vetvy: súbor, ktorý existuje iba na `dev`, po `git switch main` z priečinka zmizne a po návrate na `dev` sa znova objaví.
+
+```bash
+git switch -c feature/day2
+echo "# Deň 2" > day2-flow.md
+git add day2-flow.md
+git commit -m "feat: add day 2 flow file"
+ls                        # day2-flow.md je tu
+git switch main
+ls                        # day2-flow.md tu nie je
+git switch feature/day2
+ls                        # a je späť
+```
+
+:::caution[Necommitnuté zmeny pri prepínaní]
+Ak máš rozrobené zmeny v súbore, ktorý sa na cieľovej vetve líši, Git prepnutie odmietne (*Your local changes … would be overwritten*). Zmeny najprv commitni alebo odlož cez [`git stash`](/devops-notes/git/stash-tagy-rebase/).
+:::
+
+## Výpis vetiev
+
+```bash
+git branch
+# * dev
+#   main
+#   test
+
+git branch -a
+# * dev
+#   main
+#   remotes/origin/HEAD -> origin/main
+#   remotes/origin/dev
+#   remotes/origin/main
+```
+
+- `*` označuje aktuálnu vetvu.
+- `remotes/origin/…` sú vetvy na serveri (lokálna kópia ich stavu). `origin/HEAD -> origin/main` znamená, že predvolená vetva servera je `main`.
+
+História ako graf:
+
+```bash
+git log --oneline --graph --all --decorate --max-count=12
+```
+
+```text
+* 910b8a1 (HEAD -> dev) feat: extend day 2 flow
+* 6d9ae80 feat: add day 2 flow file
+| * 853bc7b (main) feat: add main branch note
+|/
+* 1f92450 (origin/main) proxy
+```
+
+## Push novej vetvy
+
+Nová lokálna vetva je na serveri neznáma. Prvý `git push` zlyhá s radou:
+
+```text
+fatal: The current branch dev has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin dev
+```
+
+```bash
+git push -u origin dev     # -u = --set-upstream
+```
+
+`-u` nastaví, že lokálna `dev` **sleduje** `origin/dev`. Odvtedy stačí `git push` a `git pull` bez ďalších argumentov. Na webe sa objaví hláška *dev had recent pushes*.
+
+## Mazanie vetiev
+
+```bash
+git branch -d feature/day2    # zmaže zlúčenú vetvu
+git branch -D experiment      # násilne zmaže aj nezlúčenú
+```
+
+`-d` odmietne zmazať:
+
+- **aktuálnu** vetvu (na ktorej stojíš) — najprv sa prepni inam,
+- vetvu, ktorá ešte **nebola zlúčená** do aktuálnej:
+
+```text
+error: the branch 'experiment' is not fully merged
+hint: If you are sure you want to delete it, run 'git branch -D experiment'
+```
+
+`-D` zmaže aj nezlúčenú vetvu — jej commity potom nemá nič pomenované a ľahko o ne prídeš. Používaj iba vtedy, keď ich naozaj nechceš.
+
+Vetva na serveri sa maže zvlášť: `git push origin --delete feature/day2`.
+
+## Otestuj sa
+
+<Question q="Koľko rodičov má prvý commit, bežný commit a merge commit?">
+0, 1 a 2 (alebo viac).
+</Question>
+
+<Question q="Čo je vetva v Gite technicky?">
+Iba ukazovateľ (pointer) na posledný commit. Pri novom commite sa ukazovateľ posunie dopredu.
+</Question>
+
+<Question q="Aký je rozdiel medzi `git checkout -b dev` a `git switch -c dev`?">
+Žiadny vo výsledku — oba vytvoria vetvu `dev` a prepnú sa na ňu. `switch` je novší príkaz určený iba na prácu s vetvami.
+</Question>
+
+<Question q="Na `dev` si vytvoril a commitol `novy.txt`. Po `git switch main` súbor zmizol. Prišiel si oň?">
+Nie. Je v commite na `dev`; `main` ho ešte nemá. Po `git switch dev` sa vráti.
+</Question>
+
+<Question q="Prečo `git branch -d experiment` hlási *not fully merged*?">
+Vetva má commity, ktoré nie sú v aktuálnej vetve — zmazaním by si o ne mohol prísť. Najprv ju zlúč, alebo ak ju naozaj nechceš, `git branch -D experiment`.
+</Question>
+
+<Question q="Čo robí `-u` v `git push -u origin dev`?">
+Nastaví upstream — lokálna `dev` bude sledovať `origin/dev`, takže ďalšie `git push` a `git pull` fungujú bez argumentov.
+</Question>
+
+## Cvičenia
+
+### 9.1 · Prvá feature vetva
+
+V repozitári z 1. dňa vytvor vetvu `feature/profil`, pridaj na nej `profil.txt`, commitni a vráť sa na hlavnú vetvu. Pozri si graf histórie.
+
+<p class="practises">Precvičíš: `git checkout -b`, `git branch`, `git log --graph`.</p>
+
+<Solution>
+```bash
+git branch
+git checkout -b feature/profil
+echo "Meno: …" > profil.txt
+git add profil.txt
+git commit -m "feat: add profile"
+git checkout main
+ls                                   # profil.txt tu nie je
+git log --oneline --graph --all
+```
+</Solution>
+
+### 9.2 · Prepínanie bez chaosu
+
+Vytvor vetvu `feature/day2-program` so súborom `den2/program.md`, pushni ju na server a sleduj, ako sa mení obsah priečinka pri prepínaní medzi vetvami.
+
+<p class="practises">Precvičíš: `git switch`, `git push -u`, working tree podľa vetvy.</p>
+
+<Solution>
+```bash
+git switch -c feature/day2-program
+mkdir -p den2
+printf '# Program dňa 2\n\n- Branches\n- Merge\n- Stash\n' > den2/program.md
+git add den2/program.md
+git commit -m "feat: add day 2 program"
+git push -u origin feature/day2-program
+git switch main
+ls den2                  # program.md tu nie je (alebo priečinok neexistuje)
+git switch feature/day2-program
+cat den2/program.md
+```
+</Solution>
+
+### 9.3 · Bezpečné mazanie
+
+Vytvor vetvu `experiment` s jedným commitom, vráť sa na hlavnú vetvu a skús ju zmazať cez `-d`. Prečítaj si chybu a vetvu zmaž násilne.
+
+<p class="practises">Precvičíš: `git branch -d`, `git branch -D`.</p>
+
+<Solution>
+```bash
+git checkout -b experiment
+echo "pokus" > experiment.txt
+git add experiment.txt
+git commit -m "feat: add experiment"
+git checkout main
+git branch -d experiment     # error: not fully merged
+git branch -D experiment     # Deleted branch experiment
+```
+</Solution>

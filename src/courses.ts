@@ -24,6 +24,16 @@ export const sectionLabels: Record<string, { sk: string; en: string }> = {
 
 export const courses: Course[] = [
   {
+    id: 'git',
+    abbr: 'Git',
+    status: 'active',
+    label: { sk: 'Git', en: 'Git' },
+    summary: {
+      sk: 'Commity, staging, .gitignore, vrátenie zmien, vetvy, merge a konflikty, GitHub/GitLab, SSH, push a pull, stash, tagy a rebase.',
+      en: 'Commits, staging, .gitignore, undoing changes, branches, merge and conflicts, GitHub/GitLab, SSH, push and pull, stash, tags, and rebase.',
+    },
+  },
+  {
     id: 'python-basics',
     abbr: 'Py',
     status: 'active',
@@ -61,16 +71,6 @@ export const courses: Course[] = [
     summary: {
       sk: 'Pody, deploymenty, služby, konfigurácia a prevádzka kontajnerových aplikácií.',
       en: 'Pods, deployments, services, configuration, and running containerised apps.',
-    },
-  },
-  {
-    id: 'git',
-    abbr: 'Git',
-    status: 'planned',
-    label: { sk: 'Git', en: 'Git' },
-    summary: {
-      sk: 'Commity, vetvy, merge a rebase, konflikty a spolupráca cez remote.',
-      en: 'Commits, branches, merge and rebase, conflicts, and working with remotes.',
     },
   },
   {

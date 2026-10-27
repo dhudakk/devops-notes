@@ -1,0 +1,210 @@
+---
+title: Rozdiely a história
+description: git diff, git diff --staged a git diff HEAD — čo s čím porovnávajú; git log, git log --oneline --graph a git show na prezeranie histórie.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Diff a história
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `git diff` = working tree **oproti indexu** (čo ešte nie je staged). Po `git add` môže byť prázdny!
+- `git diff --staged` = index **oproti poslednému commitu** (čo pôjde do commitu).
+- `git diff HEAD` = **všetky** zmeny oproti poslednému commitu.
+- `git log` = história, `git log --oneline` = jeden riadok na commit, `--graph --all --decorate` = graf vetiev.
+- `git show` = detail commitu (autor, dátum, správa + diff). Commit vyberieš hashom — stačí jeho **začiatok** (aspoň 4 znaky, typicky 7).
+- **HEAD** = posledný commit na vetve, na ktorej stojíš.
+</KeyPoints>
+
+## git diff — čo s čím porovnáva
+
+```text
+ working tree  ◀── git diff ──▶  index  ◀── git diff --staged ──▶  HEAD (posledný commit)
+ working tree  ◀────────────────── git diff HEAD ──────────────────▶  HEAD
+```
+
+| Príkaz | Porovnáva | Kedy použiť |
+| --- | --- | --- |
+| `git diff` | working tree ↔ index | čo som zmenil a ešte nepridal |
+| `git diff --staged` (= `--cached`) | index ↔ HEAD | čo presne pôjde do commitu |
+| `git diff HEAD` | working tree ↔ HEAD | všetko od posledného commitu |
+| `git diff A B` | commit A ↔ commit B | rozdiel medzi dvoma verziami |
+| `git diff -- subor.txt` | iba daný súbor | obmedzenie na cestu |
+
+Všeobecný tvar zo slajdov: `git diff [rev_a [rev_b]] [-- path…]` — bez argumentov je `rev_a` index a `rev_b` working tree.
+
+### Príklad
+
+```bash
+echo "hello" > foo.txt
+git add foo.txt                 # foo je v indexe
+echo "hello" > bar.txt
+git add bar.txt
+echo "world" >> bar.txt         # druhý riadok bar NIE je v indexe
+```
+
+```bash
+git diff
+```
+
+```diff
+diff --git a/bar.txt b/bar.txt
+--- a/bar.txt
++++ b/bar.txt
+@@ -1 +1,2 @@
+ hello
++world
+```
+
+`git diff` ukáže iba riadok `world` — všetko ostatné už je v indexe. `git diff --staged` ukáže nové súbory `foo.txt` a `bar.txt` (s jedným riadkom `hello`). `git diff HEAD` ukáže oboje dokopy.
+
+Ako čítať diff: `---` je stará verzia, `+++` nová, riadok s `+` pribudol, s `-` zmizol, `@@ -1 +1,2 @@` hovorí, ktoré riadky sa porovnávajú.
+
+:::caution[Častá pasca]
+`git diff` bez argumentov **nie je** rozdiel oproti poslednému commitu, ale oproti indexu. Keď si všetko pridal cez `git add`, je prázdny, aj keď zmeny máš. Oproti commitu: `git diff HEAD`.
+:::
+
+## git log — história
+
+```bash
+git log
+```
+
+```text
+commit 7f607c4ace7890638d80f760b6daf803bdff8cf1 (HEAD -> master)
+Author: Meno Priezvisko <meno@example.com>
+Date:   Tue Oct 27 10:15:02 2026 +0100
+
+    fix: inserted text into F2
+```
+
+Najnovší commit je navrchu. Dlhý výpis listuješ šípkami/medzerníkom, odchádzaš klávesom `q`.
+
+| Variant | Čo ukáže |
+| --- | --- |
+| `git log --oneline` | jeden riadok: skrátený hash + správa |
+| `git log -3` | iba posledné 3 commity |
+| `git log --stat` | aj zoznam zmenených súborov |
+| `git log -p` | aj celý diff každého commitu |
+| `git log --oneline --graph --all --decorate` | graf všetkých vetiev s menami vetiev a tagov |
+| `git log -- subor.txt` | iba commity, ktoré menili daný súbor |
+
+Ten dlhý graf budeš na 2. deň používať stále — oplatí sa alias:
+
+```bash
+git config --global alias.lg "log --oneline --graph --all --decorate"
+git lg
+```
+
+## git show — detail commitu
+
+```bash
+git show              # posledný commit (HEAD): metadáta + diff
+git show 7f607c4      # konkrétny commit podľa hashu
+git show HEAD~1       # predposledný commit
+git show --stat HEAD  # iba zoznam súborov, bez celého diffu
+```
+
+### Hash commitu
+
+Každý commit má identifikátor — **SHA-1 hash** (40 hexadecimálnych znakov), vypočítaný z obsahu súborov, metadát (autor, správa, čas) a hashu rodičovského commitu. Preto je jednoznačný a nedá sa nenápadne zmeniť.
+
+Celý hash písať netreba — stačí **jednoznačný začiatok**, minimálne 4 znaky. `git log --oneline` ukazuje 7.
+
+:::note[Oprava z prednášky]
+Na kurze `git show` s dvoma znakmi hashu (`c2`) nefungoval a zaznelo, že treba celé ID. Dva znaky sú príliš málo — Git vyžaduje aspoň 4 a jednoznačné:
+
+```text
+$ git show 7f
+fatal: ambiguous argument '7f': unknown revision or path not in the working tree.
+$ git show 7f607c4      # funguje
+```
+:::
+
+### HEAD
+
+**HEAD** je ukazovateľ na commit, na ktorom práve stojíš — zvyčajne posledný commit aktuálnej vetvy. Keď si na vetve `master`, `HEAD` a `master` ukazujú na ten istý commit. Relatívne odkazy:
+
+- `HEAD~1` (alebo `HEAD~`) — o jeden commit späť,
+- `HEAD~3` — o tri commity späť.
+
+## Otestuj sa
+
+<Question q="Pridal si všetky zmeny cez `git add .`. Čo ukáže `git diff`?">
+Nič — `git diff` porovnáva working tree s indexom a tie sú teraz rovnaké. Staged zmeny ukáže `git diff --staged`, všetky zmeny oproti commitu `git diff HEAD`.
+</Question>
+
+<Question q="Ako si pozrieš, čo presne pôjde do najbližšieho commitu?">
+`git diff --staged` (alebo `--cached`).
+</Question>
+
+<Question q="Ako vypíšeš históriu ako graf všetkých vetiev?">
+`git log --oneline --graph --all --decorate`.
+</Question>
+
+<Question q="Koľko znakov hashu musíš napísať pri `git show`?">
+Stačí jednoznačný začiatok, minimálne 4 znaky (bežne 7, ako ukazuje `git log --oneline`).
+</Question>
+
+<Question q="Z čoho sa počíta hash commitu?">
+Z obsahu commitnutých súborov, metadát (autor, správa, čas) a hashov rodičovských commitov. Zmena čohokoľvek v histórii zmení aj hashe všetkých nasledujúcich commitov.
+</Question>
+
+## Cvičenia
+
+### 4.1 · diff vs. diff --staged
+
+Uprav `README.md`. Pozri si zmenu cez `git diff`, potom ju daj do stagingu a porovnaj výstupy `git diff` a `git diff --staged`. Nakoniec commitni.
+
+<p class="practises">Precvičíš: `git diff`, `git diff --staged`.</p>
+
+<Solution>
+```bash
+echo "Nový riadok" >> README.md
+git diff                # ukáže + Nový riadok
+git add README.md
+git diff                # prázdne
+git diff --staged       # ukáže + Nový riadok
+git commit -m "docs: extend README"
+```
+</Solution>
+
+### 4.2 · Staged aj unstaged naraz
+
+Pridaj do `README.md` riadok a daj ho do stagingu. Potom pridaj druhý riadok a už ho nepridávaj. Zisti, čo ukážu `git status`, `git diff`, `git diff --staged` a `git diff HEAD`.
+
+<p class="practises">Precvičíš: tri varianty diffu, stav súboru v dvoch oblastiach naraz.</p>
+
+<Solution>
+```bash
+echo "Staged zmena" >> README.md
+git add README.md
+echo "Nestaged zmena" >> README.md
+git status          # README.md je v "Changes to be committed" AJ v "Changes not staged"
+git diff            # iba "Nestaged zmena"
+git diff --staged   # iba "Staged zmena"
+git diff HEAD       # obe
+```
+
+Ten istý súbor môže mať časť zmien v indexe a časť iba vo working tree.
+</Solution>
+
+### 4.3 · Hľadanie v histórii
+
+Vypíš históriu v krátkom tvare, vyber si starší commit a zobraz jeho detail aj iba zoznam zmenených súborov.
+
+<p class="practises">Precvičíš: `git log --oneline`, `git show`, `--stat`.</p>
+
+<Solution>
+```bash
+git log --oneline
+git show 3f2a1c9            # hash z výpisu vyššie
+git show --stat 3f2a1c9
+git show HEAD~2
+```
+</Solution>

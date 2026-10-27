@@ -1,0 +1,293 @@
+---
+title: Cheat sheet
+description: Every command from the Git course on one page, typical flows, and traps.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## The daily rhythm
+
+```bash title="The basic cycle" wrap
+git pull                      # start from the current state
+git status                    # where am I, what changed
+git diff                      # what I changed (vs. the index)
+git add <file>                # or git add .
+git diff --staged             # what goes into the commit
+git commit -m "feat: short message"
+git push
+```
+
+## Setup and terminal
+
+<div class="sheet-grid">
+
+```bash title="One-time setup" wrap
+git --version
+git config --global user.name "First Last"
+git config --global user.email "name@example.com"
+git config --global core.editor nano
+git config --global init.defaultBranch main
+git config --global pull.rebase false
+git config --list               # check (~/.gitconfig)
+```
+
+```bash title="Terminal" wrap
+pwd             # where am I
+ls -a           # including hidden (.git)
+cd folder       # in
+cd ..           # one level up
+mkdir name
+cat file.txt
+echo "text" > file.txt      # overwrites
+echo "text" >> file.txt     # appends a line
+```
+
+```bash title="SSH key" wrap
+ssh-keygen                      # Enter, Enter, Enter
+cat ~/.ssh/id_ed25519.pub       # this one → GitHub/GitLab SSH Keys
+ssh -T git@github.com           # check
+```
+
+```text title="vim" wrap
+i        type (INSERT)
+Esc      stop typing
+:wq      save and quit
+:q!      quit without saving
+```
+
+</div>
+
+## Working locally
+
+<div class="sheet-grid">
+
+```bash title="Repository and commit" wrap
+git init name
+git status
+git add file.txt
+git add .
+git commit -m "feat: message"
+git commit -am "fix: …"         # tracked files only
+git commit --amend -m "new message"
+git rm file.txt
+git rm --cached file.txt        # stop tracking, keep on disk
+git mv old.txt new.txt
+```
+
+```bash title="Diff and history" wrap
+git diff                  # working tree ↔ index
+git diff --staged         # index ↔ HEAD
+git diff HEAD             # working tree ↔ HEAD
+git log
+git log --oneline
+git log --oneline --graph --all --decorate --max-count=20
+git show                  # the last commit
+git show 7f607c4 --stat   # at least 4 hash characters
+```
+
+```bash title="Undoing changes" wrap
+git restore file                # discard a change (= git checkout -- file)
+git restore --staged file       # unstage (= git reset -- file)
+git revert HEAD                 # a new commit undoing the last one
+git revert --no-edit <hash>
+git reset --soft HEAD~1         # drop the commit, changes staged
+git reset HEAD~1                # drop the commit, changes in files
+git reset --hard HEAD~1         # drop the commit and its changes (!)
+git reset --hard                # discard everything uncommitted (!)
+```
+
+```text title=".gitignore" wrap
+*.log           everywhere
+build/          a directory
+/program        root only
+program         anywhere, also code/program
+log/*.log.[0-9] globs, not regex
+videos/*        the folder's contents…
+!videos/keep.mp4  …except this
+```
+
+</div>
+
+## Branches and merge
+
+<div class="sheet-grid">
+
+```bash title="Branches" wrap
+git branch                      # local, * = current
+git branch -a                   # also remotes/origin/…
+git checkout -b feature/x       # create and switch
+git switch -c feature/x         # the same, newer
+git checkout main
+git switch main
+git branch -d feature/x         # merged only
+git branch -D feature/x         # forced
+```
+
+```bash title="Merge and conflicts" wrap
+git merge feature/x             # INTO the current branch
+git merge feature/x --no-edit
+git merge feature/x --ff-only
+# CONFLICT → edit the file, remove <<<<<<< ======= >>>>>>>
+git add conflict.txt            # = resolved
+git commit                      # finish the merge
+git merge --abort               # cancel the merge
+git mergetool                   # graphical tool
+```
+
+</div>
+
+## Remote
+
+<div class="sheet-grid">
+
+```bash title="Clone, remote, push" wrap
+git clone git@github.com:name/repo.git
+git remote -v
+git remote add origin git@github.com:name/repo.git
+git branch -M main
+git push -u origin main         # first push of a new branch
+git push
+git push origin --delete feature/x
+```
+
+```bash title="Fetch and pull" wrap
+git fetch origin                # just download, files unchanged
+git status                      # behind 'origin/main' by N
+git pull                        # fetch + merge
+git pull --no-rebase origin main
+git checkout feature/x          # remote branch → local tracking branch
+```
+
+</div>
+
+## Stash, tags, rebase, detached HEAD
+
+<div class="sheet-grid">
+
+```bash title="Stash (local)" wrap
+git stash                       # shelve changes
+git stash push -m "WIP description"
+git stash -u                    # new files too
+git stash list
+git stash pop                   # bring back + remove from the list
+git stash apply                 # bring back, keep in the list
+git stash pop stash@{1}
+```
+
+```bash title="Tags" wrap
+git tag v1.0.0                  # lightweight
+git tag -a v1.0.1 -m "Release"  # annotated (who, when, message)
+git tag
+git show v1.0.1 --stat
+git push origin v1.0.1          # push does not send tags by itself
+git push origin --tags
+git tag -d v1.0.0
+```
+
+```bash title="Rebase" wrap
+git switch feature/x
+git rebase main                 # commits onto a new base (new hashes)
+git switch main
+git merge feature/x --ff-only
+git rebase -i HEAD~3            # pick, reword, squash, fixup, drop
+# never rebase pushed work!
+```
+
+```bash title="Detached HEAD" wrap
+git checkout <hash>             # or HEAD~3, a tag
+git switch -c rescue/x          # rescue the commits with a branch
+git reflog                      # find a lost commit
+git branch rescue/x <hash>
+git switch main                 # back
+```
+
+</div>
+
+## Typical flows
+
+<div class="sheet-grid">
+
+```bash title="Feature branch" wrap
+git switch main && git pull
+git switch -c feature/x
+git add . && git commit -m "feat: …"
+git push -u origin feature/x
+# done:
+git switch main && git pull
+git merge feature/x --no-edit
+git push
+git branch -d feature/x
+```
+
+```bash title="Push rejected (remote is ahead)" wrap
+git push                        # rejected (fetch first)
+git pull --no-rebase
+# resolve a conflict if any, git add, git commit
+git push
+```
+
+```bash title="Hotfix during work in progress" wrap
+git stash push -m "WIP"
+git switch -c hotfix/x
+git commit -am "fix: …"
+git switch main
+git merge hotfix/x --no-edit
+git branch -d hotfix/x
+git stash pop
+```
+
+```bash title="Local project onto a server" wrap
+git init && git add . && git commit -m "feat: init"
+git branch -M main
+git remote add origin git@github.com:name/repo.git
+git push -u origin main
+```
+
+</div>
+
+## Terms
+
+| Term | Meaning |
+| --- | --- |
+| working tree | the files in the folder as you edit them |
+| staging area / index | changes selected for the next commit (`git add`) |
+| repository | the whole history in `.git` |
+| commit | a project snapshot + author, time, message, parent(s); identified by a SHA-1 hash |
+| HEAD | where you are — usually a branch → its latest commit |
+| branch | a pointer to the latest commit of a line of development |
+| tag | a fixed name for a commit (a version) |
+| origin | the default name of the remote repository |
+| `origin/main` | the local copy of `main`'s state on the server |
+| upstream | the remote branch a local branch tracks (`push -u`) |
+| fast-forward | a merge without a new commit — the pointer just moves |
+| detached HEAD | HEAD points at a commit, not at a branch |
+| merge / pull request | a request to merge a branch on GitLab / GitHub |
+| fork | a copy of someone else's repository under your account |
+
+## Exam traps
+
+| Trap | Right way |
+| --- | --- |
+| `git commit` says *no changes added* | `git add` first |
+| `git commit new.txt` → *pathspec did not match* | a new file needs `git add` |
+| `git diff` empty after `git add` | `git diff --staged` or `git diff HEAD` |
+| commit = sending to the server | a commit is local; `git push` sends it |
+| `git show c2` → *ambiguous argument* | at least 4 hash characters |
+| `.gitignore` uses regular expressions | glob patterns (`*`, `?`, `[0-9]`) |
+| the pattern `program` applies only in the root | it applies everywhere; root only is `/program` |
+| `*.log` in `.gitignore` but `app.log` still *modified* | already tracked → `git rm --cached app.log` |
+| `videos/` + `!videos/x.mp4` | `videos/*` + `!videos/x.mp4` |
+| `git restore` / `reset --hard` — "I'll get it back later" | uncommitted changes are gone for good |
+| `reset` on pushed commits | `revert` (history stays) |
+| `git merge x` merges the current branch into `x` | the opposite — `x` **into** the current branch |
+| `git branch -d` on an unmerged branch | refused; `-D` only if you really do not want it |
+| `git fetch` updates my files | only `origin/*`; `pull` changes files |
+| push rejected → `git push --force` | `git pull`, then `git push` |
+| `git pull` → *Need to specify how to reconcile* | `git pull --no-rebase` / `pull.rebase false` |
+| `git stash` goes to the server | the stash is local |
+| `git stash` shelves a new file too | only with `-u` |
+| tags are pushed with `git push` | `git push origin <tag>` / `--tags` |
+| `git rebase main` squashes commits into one | it only moves them; `rebase -i` combines |
+| rebasing a shared branch | rebase only local, unpushed branches |
+| a commit in detached HEAD | `git switch -c …` before leaving, otherwise `git reflog` |

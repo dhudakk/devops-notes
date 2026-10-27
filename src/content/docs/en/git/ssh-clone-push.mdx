@@ -1,0 +1,239 @@
+---
+title: SSH, clone, and push
+description: Creating an SSH key (ssh-keygen), private vs. public key, adding it to GitHub/GitLab, git clone over SSH, the first push, and what "ahead by 2 commits" means.
+kind: chapter
+day: 1
+sidebar:
+  order: 8
+  label: 08 · SSH, clone, and push
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `ssh-keygen` (Enter to every question) creates a **key pair** in `~/.ssh/`: `id_ed25519` (**private — never share it**) and `id_ed25519.pub` (public).
+- `cat ~/.ssh/id_ed25519.pub` → copy → your GitHub/GitLab profile → **SSH Keys** → Add. Once per machine.
+- `git clone git@github.com:name/repo.git` downloads the repository with its history and sets it up as `origin`. Confirm `yes` on the first connection.
+- `git push` sends local commits to the server. `git status` shows *Your branch is ahead of 'origin/main' by N commits* = N commits are not on the server yet.
+- The daily rhythm: `git status` → `git add` → `git commit -m` → `git push`.
+</KeyPoints>
+
+## Why SSH
+
+| | SSH | HTTPS |
+| --- | --- | --- |
+| Address | `git@github.com:name/repo.git` | `https://github.com/name/repo.git` |
+| Authentication | a key on your machine, set up **once** | sign-in (a token) on push, unless Git remembers it |
+| Convenience | nothing to type once set up | depends on the credential manager |
+
+An SSH key is how your machine proves its identity to the server. It works with a **key pair**: you give the server the public key, the private key stays with you. The server checks that you hold the private key without ever seeing it.
+
+## Creating a key
+
+Works in Git Bash, PowerShell, and the Linux or macOS terminal:
+
+```bash
+ssh-keygen
+```
+
+```text
+Generating public/private ed25519 key pair.
+Enter file in which to save the key (/home/name/.ssh/id_ed25519):    ← Enter
+Enter passphrase (empty for no passphrase):                          ← Enter
+Enter same passphrase again:                                         ← Enter
+Your identification has been saved in /home/name/.ssh/id_ed25519
+Your public key has been saved in /home/name/.ssh/id_ed25519.pub
+```
+
+- **Enter** to every question is fine unless you need something special.
+- If you already have a key, it asks whether to overwrite it (*Overwrite?*). Only do so if you do not use it anywhere — the old key would stop working on servers.
+- The **passphrase** protects the private key. In the course it was left empty; on a work machine it is safer to set one.
+
+:::note[Key type]
+Current OpenSSH creates an **ed25519** key by default. Older versions create `id_rsa`. You can force the type: `ssh-keygen -t ed25519 -C "name@example.com"` (`-C` is just a comment at the end of the key so you recognise it on the server).
+:::
+
+```bash
+ls ~/.ssh
+# id_ed25519  id_ed25519.pub  known_hosts
+```
+
+| File | What it is | For whom |
+| --- | --- | --- |
+| `id_ed25519` | the **private** key | nobody — never copy, send, or commit it |
+| `id_ed25519.pub` | the **public** key | the server (GitHub, GitLab) |
+| `known_hosts` | servers you already trust | created automatically |
+
+## Adding the key to your account
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA… name@machine
+```
+
+The key starts with `ssh-ed25519` (or `ssh-rsa`) followed by a long string. Copy the **whole line** and paste it:
+
+- **GitHub:** Settings → SSH and GPG keys → **New SSH key**,
+- **GitLab:** Preferences / Edit profile → **SSH Keys** → Add new key.
+
+Give it a name (e.g. `work-laptop`) and save. Your account is now paired with this machine. Check:
+
+```bash
+ssh -T git@github.com
+# Hi name! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+A detailed guide: [kurzy.kpi.fei.tuke.sk — Version control](https://kurzy.kpi.fei.tuke.sk/zap/tutorials/version-control.html).
+
+## git clone
+
+On the repository page: **Code → SSH** → copy the address.
+
+```bash
+git clone git@github.com:name/git-course.git
+```
+
+```text
+Cloning into 'git-course'...
+The authenticity of host 'github.com (…)' can't be established.
+ED25519 key fingerprint is SHA256:…
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'github.com' to the list of known hosts.
+Receiving objects: 100% (3/3), done.
+```
+
+On the **first** connection to a server type `yes` — the server is saved in `~/.ssh/known_hosts` and you will not be asked again.
+
+Clone creates a folder named after the repository, puts the whole history (`.git`) in it, and sets the server address under the name **`origin`**:
+
+```bash
+cd git-course
+ls -a              # .git  README.md
+git remote -v
+# origin  git@github.com:name/git-course.git (fetch)
+# origin  git@github.com:name/git-course.git (push)
+```
+
+Into a different folder: `git clone <url> my-name`.
+
+## The first push
+
+```bash
+touch 1.txt
+git add 1.txt
+git commit -m "feat: init repository"
+git status
+```
+
+```text
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+```
+
+**Ahead by 1 commit** = you have one more commit locally than the server. So far the commit is only on your machine.
+
+```bash
+touch 2.txt
+git add 2.txt
+git commit -m "feat: add second file"
+git status          # ahead by 2 commits
+git push
+```
+
+After `git push` the commits are on the server — on the web you see the new files, each with the message of the commit that added it. `git status` reports *Your branch is up to date with 'origin/main'*.
+
+You do not have to push after every commit. Local commits are worth it anyway — they make the history easier to search. But push regularly so you do not drift too far from the team.
+
+## The daily rhythm
+
+> "The most important thing when working with Git is to make these few commands automatic."
+
+```bash
+git pull                       # get what is new (day 2)
+git status                     # what did I change
+git add .                      # stage the changes
+git commit -m "feat: …"        # save locally
+git push                       # send to the server
+```
+
+`git config`, `ssh-keygen`, and `git clone` happen only once per project.
+
+## Test yourself
+
+<Question q="Which of `id_ed25519` and `id_ed25519.pub` do you paste into GitHub?">
+The public `id_ed25519.pub`. The private `id_ed25519` never leaves your machine.
+</Question>
+
+<Question q="Why does the first `git clone` over SSH ask *Are you sure you want to continue connecting?*">
+The server is new and its fingerprint is not in `~/.ssh/known_hosts` yet. After `yes` it is saved and you are not asked again. It protects you from an impostor server.
+</Question>
+
+<Question q="What does *Your branch is ahead of 'origin/main' by 2 commits* mean?">
+You have two local commits that are not on the server yet. Send them with `git push`.
+</Question>
+
+<Question q="What does `git clone` do?">
+Creates a folder, downloads the whole repository history, sets the server as the remote `origin`, and checks out the default branch (`main`/`master`).
+</Question>
+
+<Question q="How do you check that your SSH key works with GitHub?">
+`ssh -T git@github.com` — it answers *Hi name! You've successfully authenticated*.
+</Question>
+
+## Exercises
+
+### 8.1 · An SSH key
+
+Create an SSH key, print the public part, add it to your account, and test the connection.
+
+<p class="practises">Practises: `ssh-keygen`, `cat`, `ssh -T`.</p>
+
+<Solution>
+```bash
+ssh-keygen                     # Enter, Enter, Enter
+cat ~/.ssh/id_ed25519.pub      # copy the whole line
+# GitHub: Settings → SSH and GPG keys → New SSH key → paste → Add
+ssh -T git@github.com
+```
+</Solution>
+
+### 8.2 · Clone and push
+
+Create a repository on the web (with a README), clone it over SSH, add two files in two commits, watch `git status`, and push. Check the result on the web.
+
+<p class="practises">Practises: `git clone`, `git push`, "ahead by".</p>
+
+<Solution>
+```bash
+git clone git@github.com:name/git-course.git
+cd git-course
+echo "1" > 1.txt && git add 1.txt && git commit -m "feat: add first file"
+echo "2" > 2.txt && git add 2.txt && git commit -m "feat: add second file"
+git status            # ahead of 'origin/main' by 2 commits
+git push
+git status            # up to date with 'origin/main'
+```
+
+On the web you see `1.txt` and `2.txt`, each with its commit message.
+</Solution>
+
+### 8.3 · Course tasks in your own repository
+
+Download the task files from the instructor's repository [marek-horvath/git](https://github.com/marek-horvath/git) (*Download ZIP* is enough), copy them into your clone, and push them in one commit.
+
+<p class="practises">Practises: `git add .`, committing several files, push.</p>
+
+<Solution>
+```bash
+cd git-course
+cp ~/Downloads/git-main/*.html .
+git status            # the new files are untracked
+git add .
+git status            # all green
+git commit -m "feat: add training tasks"
+git push
+```
+</Solution>

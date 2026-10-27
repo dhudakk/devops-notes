@@ -1,0 +1,195 @@
+---
+title: .gitignore
+description: Tracked, untracked a ignorované súbory, vzory v .gitignore (hviezdička, lomítko, negácia) a čo robiť so súborom, ktorý už Git sleduje.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · .gitignore
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Súbor je pre Git **tracked** (už bol commitnutý alebo staged), **untracked** (nový) alebo **ignored** (zakázaný v `.gitignore`).
+- `.gitignore` je skrytý súbor v koreni repozitára, **jeden vzor na riadok**. Commituje sa — pravidlá platia pre celý tím.
+- Vzory sú **glob**, nie regulárne výrazy: `*.log`, `build/`, `/program`, `log/*.log.[0-9]`, `!vynimka`.
+- Vzor **bez lomítka** (`program`) platí v **každom** priečinku. S lomítkom na začiatku (`/program`) iba v koreni. S lomítkom na konci (`build/`) iba na priečinok.
+- `.gitignore` nepôsobí na súbory, ktoré už Git sleduje — tie najprv `git rm --cached subor`.
+</KeyPoints>
+
+## Tri druhy súborov
+
+| Stav | Význam | V `git status` |
+| --- | --- | --- |
+| **tracked** | súbor už bol staged alebo commitnutý | *modified*, *deleted*… |
+| **untracked** | nový súbor, Git ho ešte nesleduje | *Untracked files* |
+| **ignored** | Git má výslovne povedané, aby si ho nevšímal | vôbec sa nezobrazí |
+
+Bez `.gitignore` by ti `git status` stále ponúkal výstupy kompilácie, logy či dočasné súbory editora — a `git add .` by ich pribalil do commitu.
+
+## Ako `.gitignore` funguje
+
+Vytvoríš v koreni repozitára súbor `.gitignore` (bodka na začiatku = skrytý, `ls -a` ho ukáže):
+
+```bash
+touch program.c program program.o
+git status --short
+# ?? program
+# ?? program.c
+# ?? program.o
+```
+
+`program` a `program.o` sú výstupy kompilácie — kolega si ich vytvorí sám z `program.c`. Do `.gitignore` napíšeme:
+
+```text title=".gitignore"
+program
+*.o
+```
+
+```bash
+git status --short
+# ?? .gitignore
+# ?? program.c
+```
+
+Ignorované súbory zmizli z výpisu. Keď riadok z `.gitignore` zmažeš, Git ich znova ponúkne. `.gitignore` samotný **commitni** — pravidlá potom platia pre každého, kto si repozitár naklonuje.
+
+## Vzory
+
+| Vzor | Čo ignoruje |
+| --- | --- |
+| `*.zip` | všetky súbory končiace na `.zip` v ktoromkoľvek priečinku |
+| `program` | súbor alebo priečinok `program` **kdekoľvek** (aj `code/program`) |
+| `/program` | iba `program` v koreni repozitára |
+| `build/` | priečinok `build` (kdekoľvek) a všetko v ňom |
+| `log/*.log` | `.log` súbory priamo v priečinku `log` |
+| `log/*.log.[0-9]` | `app.log.1` … `app.log.9` v `log` (`[0-9]` = jeden znak z rozsahu) |
+| `**/temp` | `temp` v ľubovoľnej hĺbke |
+| `# komentár` | riadok s komentárom |
+| `!vzor` | **výnimka** — tento súbor neignoruj, aj keď ho zachytil skorší vzor |
+
+### Negácia — všetko okrem
+
+```text title=".gitignore"
+videos/*
+!videos/iphone_*.mp4
+```
+
+Ignoruje celý obsah `videos/` **okrem** súborov `iphone_….mp4`. Poradie riadkov záleží — výnimka musí byť **za** vzorom, ktorý ruší.
+
+:::caution[Výnimka v ignorovanom priečinku nefunguje]
+Keď napíšeš `videos/` (celý priečinok), Git doň vôbec nevojde a `!videos/iphone_*.mp4` nemá čo zachrániť. Preto `videos/*` — ignoruje obsah, nie samotný priečinok.
+:::
+
+:::note[Oprava z prednášky]
+Na kurze zaznelo, že `.gitignore` používa regulárne výrazy — sú to **glob vzory** (ako v shelli: `*`, `?`, `[0-9]`). A tiež, že po presune `program` a `program.o` do priečinka `code/` ich vzor `program` už nezachytí. Nie je to tak — vzor **bez lomítka** platí v každom priečinku, takže `code/program` ostane ignorovaný. Ak chceš ignorovať iba súbor v koreni, napíš `/program`. Ktorý riadok súbor zachytil, ukáže `git check-ignore -v code/program`.
+:::
+
+## Súbor, ktorý Git už sleduje
+
+`.gitignore` platí iba pre **untracked** súbory. Keď si `program.o` omylom commitol, pridanie `*.o` do `.gitignore` nepomôže — Git ho sleduje ďalej a zmeny hlási ako *modified*. Riešenie:
+
+```bash
+git rm --cached program.o      # prestaň sledovať, súbor nechaj na disku
+git commit -m "chore: stop tracking build output"
+```
+
+Od tohto commitu ho už `.gitignore` zachytí.
+
+## Hotové šablóny
+
+Pri zakladaní repozitára na GitHube/GitLabe si môžeš vybrať hotový `.gitignore` pre jazyk (Python, Java, Node…). Kolekcia šablón: [github.com/github/gitignore](https://github.com/github/gitignore).
+
+```text title=".gitignore pre Python"
+__pycache__/
+*.pyc
+venv/
+.env
+```
+
+Do `.gitignore` patria aj súbory s **tajomstvami** (`.env` s heslami, kľúče) — čo raz commitneš a pushneš, ostane v histórii.
+
+## Otestuj sa
+
+<Question q="Aké tri stavy môže mať súbor z pohľadu Gitu?">
+Tracked (sledovaný), untracked (nový, nesledovaný) a ignored (zakázaný v `.gitignore`).
+</Question>
+
+<Question q="Aký je rozdiel medzi vzormi `program`, `/program` a `program/`?">
+`program` zachytí súbor alebo priečinok s týmto menom kdekoľvek. `/program` iba v koreni repozitára. `program/` iba priečinok (kdekoľvek).
+</Question>
+
+<Question q="Chceš ignorovať všetko v `videos/` okrem `intro.mp4`. Prečo nefunguje `videos/` + `!videos/intro.mp4`?">
+Keď je ignorovaný celý priečinok, Git do neho nevojde a výnimku nemá na čo použiť. Treba `videos/*` (ignoruj obsah) a potom `!videos/intro.mp4`.
+</Question>
+
+<Question q="Pridal si `*.log` do `.gitignore`, ale `app.log` sa v `git status` stále ukazuje ako *modified*. Prečo a čo s tým?">
+`app.log` už Git sleduje (bol commitnutý) a `.gitignore` na sledované súbory nepôsobí. `git rm --cached app.log` a commit — od vtedy je ignorovaný.
+</Question>
+
+<Question q="Má sa `.gitignore` commitovať?">
+Áno. Pravidlá tak platia pre všetkých, ktorí s repozitárom pracujú.
+</Question>
+
+## Cvičenia
+
+### 5.1 · Ignorovanie logov a buildu
+
+Vytvor súbor `debug.log` a priečinok `build` so súborom `app.bin`. Nastav repozitár tak, aby ich Git neponúkal na commit, a `.gitignore` commitni.
+
+<p class="practises">Precvičíš: `.gitignore`, vzory `*.log` a `build/`.</p>
+
+<Solution>
+```bash
+echo "log" > debug.log
+mkdir build && echo "bin" > build/app.bin
+git status                # debug.log a build/ sú untracked
+printf 'build/\n*.log\n' > .gitignore
+git status                # ponúka už iba .gitignore
+git add .gitignore
+git commit -m "chore: add gitignore"
+```
+</Solution>
+
+### 5.2 · Všetko okrem
+
+V priečinku `assets/` máš `a.png`, `b.png` a `logo.png`. Nastav `.gitignore` tak, aby sa z `assets/` commitoval iba `logo.png`. Over cez `git status` a `git check-ignore -v`.
+
+<p class="practises">Precvičíš: negácia `!`, rozdiel `dir/` vs. `dir/*`.</p>
+
+<Solution>
+```text title=".gitignore"
+assets/*
+!assets/logo.png
+```
+
+```bash
+git status --short -uall      # ?? assets/logo.png
+git check-ignore -v assets/a.png
+# .gitignore:1:assets/*	assets/a.png
+```
+</Solution>
+
+### 5.3 · Omylom commitnutý súbor
+
+Commitni súbor `secret.env`, potom ho dodatočne začni ignorovať tak, aby ostal na disku, ale zmizol z repozitára.
+
+<p class="practises">Precvičíš: `git rm --cached`, `.gitignore` a sledované súbory.</p>
+
+<Solution>
+```bash
+echo "PASSWORD=<PASSWORD>" > secret.env
+git add secret.env && git commit -m "add env"   # omyl
+echo "*.env" >> .gitignore
+git rm --cached secret.env
+git add .gitignore
+git commit -m "chore: stop tracking secret.env"
+ls                     # secret.env stále na disku
+git status             # a Git ho nevidí
+```
+
+Pozor: v **starších commitoch** súbor ostáva. Ak išlo o skutočné heslo a už bolo pushnuté, treba ho zmeniť.
+</Solution>

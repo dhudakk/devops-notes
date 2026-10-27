@@ -1,0 +1,33 @@
+---
+title: Git
+description: A two-day Git course (taught by Marek). From version control and the first commit through GitHub/GitLab and SSH to branches, merge, conflicts, teamwork, stash, tags, and rebase.
+kind: overview
+sidebar:
+  order: 0
+  label: Course overview
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../../components/ChapterList.astro';
+
+## Chapters
+
+<ChapterList course="git" />
+
+## Revision
+
+<CardGrid>
+  <LinkCard title="Cheat sheet" description="Every command from the course on one page, typical flows (feature branch, hotfix, rejected push), and traps." href="/devops-notes/en/git/tahak/" />
+  <LinkCard title="Sources" description="Slides, the instructor's repository with tasks, and which chapter came from which material." href="/devops-notes/en/git/zdroje/" />
+</CardGrid>
+
+## Course outline
+
+1. **Day 1** — what version control is, installing Git and `git config`, working locally: `init`, `status`, `add`, `commit`, `diff`, `log`, `show`, `rm`, `mv`, `.gitignore`, undoing changes (`restore`, `revert`, `reset`). In the afternoon: the GitHub/GitLab web interface, SSH keys, `clone`, and `push`.
+2. **Day 2** — branches (`checkout -b`, `switch`), `merge` and resolving conflicts, working through a remote (`fetch`, `pull`, a rejected push, simulating a colleague with a second clone), `stash`, tags, `rebase`, and detached HEAD.
+
+:::tip[Five commands for every day]
+> "For real work you only need a handful of commands."
+
+`git status` → `git add` → `git commit -m "…"` → `git push`, and `git pull` before you start. You can always look the rest up — what matters is understanding what they do.
+:::

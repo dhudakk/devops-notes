@@ -1,0 +1,257 @@
+---
+title: Branches
+description: What branches are for, how Git stores history (commits with parents, a DAG, a branch as a pointer), creating and switching branches with checkout and switch, listing and deleting branches.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · Branches
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A branch is a separate line of development. You build a feature on the side and merge it into the main branch only when it is done.
+- A commit has **0 parents** (the first one), **1 parent** (ordinary), or **2+ parents** (a merge). History is a **DAG** — a directed acyclic graph.
+- **A branch is just a pointer** to the latest commit. There is no "branch history", only commits and their parents.
+- Create and switch: `git checkout -b name` or the newer `git switch -c name`. Switch: `git checkout name` / `git switch name`.
+- `git branch` = local branches (`*` = current), `git branch -a` = remote ones too. Delete: `git branch -d` (merged only), `-D` (forced).
+</KeyPoints>
+
+## What branches are for
+
+```text
+main     ●───●───────●───────●──────────●   ← main branch
+              \               \         /
+small change   ●               \       /
+                                ●───●─●     ← bigger feature
+```
+
+- Several developers work at once, each on their own branch, without breaking each other's code.
+- Even when you work alone: build each feature on its own branch. The main branch keeps working until the feature is finished.
+- When a feature is done, branches are **merged** — [next chapter](/devops-notes/en/git/merge-a-konflikty/).
+
+Until you merge a feature branch, its changes are **not** in the main branch.
+
+## How Git stores history
+
+Every commit remembers a list of **parent commits**:
+
+| Number of parents | Commit |
+| --- | --- |
+| 0 | the first (initial) commit |
+| 1 | an ordinary commit |
+| 2 or more | the result of a **merge** |
+
+Such a structure is a **DAG** (*directed acyclic graph*): history only moves forward and never loops back to an earlier point.
+
+- **A branch is just a pointer** to the latest commit. There is no formal "branch history" — only commits and their parent references. Internally Git handles branches and tags the same way.
+- A commit is identified by a **SHA-1 hash** (160 bits) computed from the committed files, the metadata (message, author…), and the **parents' hashes**. The hash therefore reliably identifies the content and the whole history before it.
+- **HEAD** points to the branch you are on.
+
+## Creating a branch
+
+```bash
+git checkout -b dev
+# Switched to a new branch 'dev'
+```
+
+`-b` creates the branch and switches to it. The new branch starts at the commit you are on. You can choose a starting point: `git checkout -b hotfix v1.0` (a tag, hash, or another branch).
+
+The newer, clearer command:
+
+```bash
+git switch -c dev        # -c = create
+```
+
+Right after creation `main` and `dev` point to **the same commit** — the branches are still identical. They diverge only with the first commit on one of them.
+
+:::tip[Branch names]
+Name a branch so others know immediately what is in it. Prefixes are common: `feature/login`, `fix/footer-text`, `hotfix/…`, `docs/…`. Names cannot contain spaces.
+:::
+
+## Switching
+
+```bash
+git checkout main
+git switch main          # the same, newer command
+```
+
+`git checkout` does many things (switches branches, restores files, moves to commits). Git therefore added two single-purpose commands: **`git switch`** for branches and **`git restore`** for files.
+
+Switching **rewrites the working tree** to match the target branch: a file that exists only on `dev` disappears from the folder after `git switch main` and reappears when you go back to `dev`.
+
+```bash
+git switch -c feature/day2
+echo "# Day 2" > day2-flow.md
+git add day2-flow.md
+git commit -m "feat: add day 2 flow file"
+ls                        # day2-flow.md is here
+git switch main
+ls                        # day2-flow.md is not here
+git switch feature/day2
+ls                        # and it is back
+```
+
+:::caution[Uncommitted changes when switching]
+If you have changes in a file that differs on the target branch, Git refuses to switch (*Your local changes … would be overwritten*). Commit them first or set them aside with [`git stash`](/devops-notes/en/git/stash-tagy-rebase/).
+:::
+
+## Listing branches
+
+```bash
+git branch
+# * dev
+#   main
+#   test
+
+git branch -a
+# * dev
+#   main
+#   remotes/origin/HEAD -> origin/main
+#   remotes/origin/dev
+#   remotes/origin/main
+```
+
+- `*` marks the current branch.
+- `remotes/origin/…` are branches on the server (a local copy of their state). `origin/HEAD -> origin/main` means the server's default branch is `main`.
+
+History as a graph:
+
+```bash
+git log --oneline --graph --all --decorate --max-count=12
+```
+
+```text
+* 910b8a1 (HEAD -> dev) feat: extend day 2 flow
+* 6d9ae80 feat: add day 2 flow file
+| * 853bc7b (main) feat: add main branch note
+|/
+* 1f92450 (origin/main) proxy
+```
+
+## Pushing a new branch
+
+A new local branch is unknown to the server. The first `git push` fails with a hint:
+
+```text
+fatal: The current branch dev has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin dev
+```
+
+```bash
+git push -u origin dev     # -u = --set-upstream
+```
+
+`-u` makes the local `dev` **track** `origin/dev`. From then on plain `git push` and `git pull` are enough. The web shows *dev had recent pushes*.
+
+## Deleting branches
+
+```bash
+git branch -d feature/day2    # deletes a merged branch
+git branch -D experiment      # force-deletes even an unmerged one
+```
+
+`-d` refuses to delete:
+
+- the **current** branch (the one you are on) — switch elsewhere first,
+- a branch **not yet merged** into the current one:
+
+```text
+error: the branch 'experiment' is not fully merged
+hint: If you are sure you want to delete it, run 'git branch -D experiment'
+```
+
+`-D` deletes even an unmerged branch — nothing named points to its commits afterwards and you can easily lose them. Use it only when you really do not want them.
+
+A branch on the server is deleted separately: `git push origin --delete feature/day2`.
+
+## Test yourself
+
+<Question q="How many parents do the first commit, an ordinary commit, and a merge commit have?">
+0, 1, and 2 (or more).
+</Question>
+
+<Question q="What is a branch in Git technically?">
+Just a pointer to the latest commit. With a new commit the pointer moves forward.
+</Question>
+
+<Question q="What is the difference between `git checkout -b dev` and `git switch -c dev`?">
+None in the result — both create branch `dev` and switch to it. `switch` is the newer command meant only for branches.
+</Question>
+
+<Question q="On `dev` you created and committed `new.txt`. After `git switch main` the file disappeared. Is it lost?">
+No. It is in a commit on `dev`; `main` does not have it yet. After `git switch dev` it comes back.
+</Question>
+
+<Question q="Why does `git branch -d experiment` say *not fully merged*?">
+The branch has commits that are not in the current branch — deleting it could lose them. Merge it first or, if you really do not want it, `git branch -D experiment`.
+</Question>
+
+<Question q="What does `-u` do in `git push -u origin dev`?">
+Sets the upstream — the local `dev` will track `origin/dev`, so later `git push` and `git pull` work without arguments.
+</Question>
+
+## Exercises
+
+### 9.1 · The first feature branch
+
+In the repository from day 1, create branch `feature/profile`, add `profile.txt` on it, commit, and go back to the main branch. Look at the history graph.
+
+<p class="practises">Practises: `git checkout -b`, `git branch`, `git log --graph`.</p>
+
+<Solution>
+```bash
+git branch
+git checkout -b feature/profile
+echo "Name: …" > profile.txt
+git add profile.txt
+git commit -m "feat: add profile"
+git checkout main
+ls                                   # profile.txt is not here
+git log --oneline --graph --all
+```
+</Solution>
+
+### 9.2 · Switching without chaos
+
+Create branch `feature/day2-program` with `day2/program.md`, push it to the server, and watch how the folder changes as you switch between branches.
+
+<p class="practises">Practises: `git switch`, `git push -u`, the working tree per branch.</p>
+
+<Solution>
+```bash
+git switch -c feature/day2-program
+mkdir -p day2
+printf '# Day 2 programme\n\n- Branches\n- Merge\n- Stash\n' > day2/program.md
+git add day2/program.md
+git commit -m "feat: add day 2 program"
+git push -u origin feature/day2-program
+git switch main
+ls day2                  # program.md is not here (or the folder does not exist)
+git switch feature/day2-program
+cat day2/program.md
+```
+</Solution>
+
+### 9.3 · Safe deletion
+
+Create branch `experiment` with one commit, go back to the main branch, and try deleting it with `-d`. Read the error and force-delete the branch.
+
+<p class="practises">Practises: `git branch -d`, `git branch -D`.</p>
+
+<Solution>
+```bash
+git checkout -b experiment
+echo "attempt" > experiment.txt
+git add experiment.txt
+git commit -m "feat: add experiment"
+git checkout main
+git branch -d experiment     # error: not fully merged
+git branch -D experiment     # Deleted branch experiment
+```
+</Solution>

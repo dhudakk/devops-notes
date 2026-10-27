@@ -1,0 +1,301 @@
+---
+title: Repozitár, staging a commit
+description: git init, skrytý priečinok .git, tri oblasti (working tree, staging area, repozitár), git status, add, commit, dobré commit správy, git rm a git mv.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Staging a commit
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `git init nazov` vytvorí priečinok s repozitárom. Celá história je v skrytom **`.git/`** — nemaž ho.
+- Tri oblasti: **working tree** (súbory, ktoré upravuješ) → `git add` → **staging area / index** (čo pôjde do commitu) → `git commit` → **repozitár** (história).
+- `git commit` ukladá **lokálne**. Na server ide až `git push`.
+- **`git status` používaj stále** — ukáže vetvu, stav súborov a aj radí, aký príkaz použiť ďalej.
+- Commit správa: `typ: popis` — napr. `feat: add login page`, `fix: correct footer text`. Tímy to často kontrolujú v pipeline.
+- `git rm subor` zmaže súbor z disku aj z indexu, `git mv stary novy` premenuje/presunie.
+</KeyPoints>
+
+## Vytvorenie repozitára
+
+```bash
+git init my-repository
+cd my-repository
+ls -a
+# .  ..  .git
+```
+
+`git init` vytvorí priečinok `my-repository/` (pracovná kópia, zatiaľ prázdna) a v ňom **`.git/`** — samotný repozitár s celou históriou a nastaveniami. V Git Bash sa po vstupe do repozitára objaví v prompte názov vetvy, napr. `(master)`.
+
+:::note[`master` alebo `main`?]
+Novší Git pri `git init` vypíše radu, že predvolená vetva sa volá `master` a dá sa zmeniť. GitHub zakladá repozitáre s vetvou `main`, starší GitLab s `master`. Funkčne je to jedno — v príkazoch iba nahraď názov. Predvolený názov pre nové repozitáre: `git config --global init.defaultBranch main`.
+:::
+
+Čo je v `.git`:
+
+| Položka | Význam |
+| --- | --- |
+| `HEAD` | ukazuje, na ktorej vetve (commite) práve si |
+| `config` | nastavenia tohto repozitára (napr. adresa servera) |
+| `objects/` | uložené snímky súborov a commity |
+| `refs/` | vetvy a tagy — ukazovatele na commity |
+
+Do `.git` bežne nechodíš, ale je dobré vedieť, že tam je.
+
+:::tip[Existujúci projekt do Gitu]
+Lektor: keď mám projekt rozrobený mimo Gitu, často si repozitár založím cez web, naklonujem ho a priečinok `.git` presuniem do priečinka s existujúcimi súbormi. Bežnejší a čistejší postup je `git init` priamo v priečinku projektu a `git remote add origin <url>` — pozri [Spolupráca cez remote](/devops-notes/git/remote/).
+:::
+
+V praxi `git init` nepoužiješ často — väčšinou sa repozitár založí na webe (GitHub/GitLab) a ty si ho stiahneš cez `git clone`.
+
+## Tri oblasti
+
+```text
+ working tree        staging area (index)        repozitár (.git)
+ ────────────        ────────────────────        ────────────────
+ upravuješ súbory ──git add──▶ pripravené na ──git commit──▶ uložený snímok
+                              ďalší commit                   v histórii
+```
+
+| Oblasť | Čo obsahuje |
+| --- | --- |
+| **Working tree** (pracovná kópia) | súbory v priečinku, ako ich práve vidíš a upravuješ |
+| **Staging area** (index) | zmeny vybrané do **nasledujúceho** commitu |
+| **Repozitár** | všetky commity — celá história projektu |
+
+Staging area je medzistupeň, ktorý iné systémy nemajú. Vďaka nemu si vyberieš, **ktoré** zmeny pôjdu do commitu — aj keď ich máš rozpracovaných viac.
+
+Súbor môže byť:
+
+- **untracked** — nový, Git ho ešte nesleduje (červený v `git status`),
+- **staged** — pridaný cez `git add`, pripravený na commit (zelený),
+- **committed** — uložený v repozitári,
+- **modified** — sledovaný súbor zmenený od posledného commitu.
+
+## Prvý commit krok za krokom
+
+```bash
+echo "Ahoj" > F1
+echo "Druhý súbor" > F2.txt
+git status
+```
+
+```text
+On branch master
+
+No commits yet
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	F1
+	F2.txt
+```
+
+Pridáme iba `F1`:
+
+```bash
+git add F1
+git status
+```
+
+```text
+Changes to be committed:
+  (use "git rm --cached <file>..." to unstage)
+	new file:   F1
+
+Untracked files:
+	F2.txt
+```
+
+Všimni si, že **Git radí**, ako krok vrátiť. Príkazy si preto nemusíš pamätať naspamäť — stačí čítať výstup.
+
+```bash
+git rm --cached F1    # vyberie F1 zo stagingu (súbor ostane na disku)
+git add .             # pridá všetko v aktuálnom priečinku
+git commit -m "feat: initialize project"
+```
+
+```text
+[master (root-commit) 3f2a1c9] feat: initialize project
+ 2 files changed, 2 insertions(+)
+ create mode 100644 F1
+ create mode 100644 F2.txt
+```
+
+Po commite je `git status` čistý: *nothing to commit, working tree clean*.
+
+:::caution[Commit ≠ odoslanie na server]
+Na kurze zaznelo, že commit „presunie súbory do stagingu“. Presnejšie: do stagingu ich dáva **`git add`**, `git commit` ich z indexu uloží ako nový snímok do **lokálneho** repozitára a `git push` ich až potom pošle na server.
+:::
+
+### Zmena existujúceho súboru
+
+```bash
+echo "test" >> F2.txt
+git status
+```
+
+```text
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   F2.txt
+```
+
+Teraz je súbor **modified**, nie untracked. Máš dve možnosti:
+
+- `git add F2.txt` a potom `git commit` — zmenu uložíš,
+- `git restore F2.txt` — zmenu **zahodíš** a súbor sa vráti do stavu posledného commitu.
+
+Keď skúsiš `git commit` bez `git add`, Git odpovie *no changes added to commit* — index sa nezmenil, nie je čo commitnúť.
+
+:::note[`git rm --cached` vs. `git restore --staged`]
+Pred prvým commitom Git radí `git rm --cached <file>`, po ňom `git restore --staged <file>`. Oboje vyberie súbor zo stagingu a zmenu nechá na disku. Rozdiel: `git rm --cached` pri už commitnutom súbore zároveň **prestane súbor sledovať** (pri ďalšom commite ho z repozitára odstráni) — na bežné „odstagovanie“ použi `git restore --staged`.
+:::
+
+### Commit bez `git add`
+
+```bash
+git commit F2.txt -m "fix: update F2"
+```
+
+Takto sa commitne súbor priamo z working tree, obíde sa index. Funguje to **iba pre súbory, ktoré Git už sleduje**. Na kurze to zlyhalo, lebo súbor bol nový:
+
+```text
+$ git commit F3 -m "x"
+error: pathspec 'F3' did not match any file(s) known to git
+```
+
+Podobne `git commit -a -m "…"` commitne všetky zmenené sledované súbory naraz. Lektor odporúča radšej `add` + `commit` — lepšie vidíš, čo do commitu ide.
+
+## Dobrá commit správa
+
+Názov commitu je to, čo neskôr uvidíš v histórii aj na webe pri každom súbore. „update“ alebo „zmeny“ ti o pol roka nepovedia nič. Tímy preto často používajú konvenciu (*Conventional Commits*):
+
+```text
+typ: krátky popis v rozkazovacom spôsobe
+```
+
+| Typ | Kedy |
+| --- | --- |
+| `feat` | nová funkcia (`feat: add login page`) |
+| `fix` | oprava chyby (`fix: correct footer text`) |
+| `docs` | dokumentácia (`docs: add changelog`) |
+| `refactor` | úprava kódu bez zmeny správania |
+| `test`, `chore` | testy, údržba (závislosti, build) |
+
+> „Keď pošlete commit, ktorý nemá správnu štruktúru, pravdepodobne vám spadne pipeline a dostanete e-mail, že commit nebol správne zaregistrovaný.“
+
+V správe vysvetli hlavne **prečo** si zmenu robil — to je často dôležitejšie ako samotná zmena. VS Code má rozšírenia, ktoré správu v tomto formáte pomôžu napísať.
+
+## Mazanie a presúvanie súborov
+
+```bash
+git rm hello.txt          # zmaže súbor z disku aj z indexu
+git commit -m "chore: remove hello.txt"
+
+git mv F1 F4              # premenuje F1 na F4
+git mv F4 code/F1         # presunie do priečinka code
+git commit -m "refactor: move F1 into code"
+```
+
+`git rm` a `git mv` sú skratky: súbor zmažú/presunú a zmenu rovno pripravia do stagingu. Keď súbor zmažeš obyčajným `rm`, musíš ešte spraviť `git add` (alebo `git rm`), aby Git zmazanie zaznamenal.
+
+## Otestuj sa
+
+<Question q="Aké sú tri oblasti lokálneho Gitu a ktoré príkazy medzi nimi presúvajú zmeny?">
+Working tree → `git add` → staging area (index) → `git commit` → repozitár. Na server sa commity dostanú až cez `git push`.
+</Question>
+
+<Question q="Upravil si `README.md` a spustil `git commit -m 'update'`. Git hlási *no changes added to commit*. Prečo?">
+Zmena je iba vo working tree. Commit berie obsah zo staging area — najprv `git add README.md`.
+</Question>
+
+<Question q="Čo spraví `git restore subor.txt`?">
+Zahodí necommitnuté zmeny v súbore a vráti ho do stavu v indexe (ak nie je nič staged, tak do stavu posledného commitu). Zmenu potom už nevrátiš.
+</Question>
+
+<Question q="Prečo zlyhá `git commit novy.txt -m 'x'` pri novom súbore?">
+Commit so zoznamom súborov funguje iba pre súbory, ktoré Git už sleduje. Nový súbor treba najprv pridať cez `git add`.
+</Question>
+
+<Question q="Čo je v priečinku `.git` a čo sa stane, keď ho zmažeš?">
+Celá história, commity, vetvy a nastavenia repozitára. Zmazaním prídeš o históriu — ostanú iba aktuálne súbory ako obyčajný priečinok.
+</Question>
+
+<Question q="Ktorá commit správa je lepšia: `zmeny` alebo `fix: handle empty city name`?">
+Druhá — povie typ zmeny aj čo presne sa opravilo. V histórii a na webe pri súbore hneď vieš, prečo sa menil.
+</Question>
+
+## Cvičenia
+
+### 3.1 · Prvý repozitár
+
+Vytvor repozitár `git-den1`, v ňom `README.md` s nadpisom a krátkym opisom projektu a sprav prvý commit. Over, že história má jeden commit a working tree je čistý.
+
+<p class="practises">Precvičíš: `git init`, `git add`, `git commit`, `git log --oneline`.</p>
+
+<Solution>
+```bash
+git init git-den1
+cd git-den1
+echo "# Môj projekt" > README.md
+echo "Skúšobný repozitár z kurzu Git." >> README.md
+git status
+git add README.md
+git commit -m "docs: add README"
+git log --oneline
+git status
+```
+
+`git log --oneline` ukáže jeden riadok, `git status` hlási *working tree clean*.
+</Solution>
+
+### 3.2 · Commit iba vybraného súboru
+
+Vytvor `plan.txt` a `poznamky.txt`. Prvý commit má obsahovať iba `plan.txt`, druhý iba `poznamky.txt`.
+
+<p class="practises">Precvičíš: staging area, `git status`.</p>
+
+<Solution>
+```bash
+echo "plán" > plan.txt
+echo "poznámky" > poznamky.txt
+git add plan.txt
+git status            # plan.txt zelený, poznamky.txt červený
+git commit -m "docs: add plan"
+git add poznamky.txt
+git commit -m "docs: add notes"
+git log --oneline
+```
+
+Commit berie iba to, čo je v stagingu.
+</Solution>
+
+### 3.3 · Tri commity, premenovanie a zmazanie
+
+V tom istom repozitári sprav tri samostatné commity: pridaj súbor `a.txt`, premenuj ho na `b.txt` cez `git mv` a nakoniec ho zmaž cez `git rm`. Po každom kroku sa pozri na `git status`.
+
+<p class="practises">Precvičíš: `git mv`, `git rm`, `git status`.</p>
+
+<Solution>
+```bash
+echo "obsah" > a.txt
+git add a.txt
+git commit -m "feat: add a.txt"
+
+git mv a.txt b.txt
+git status            # renamed: a.txt -> b.txt
+git commit -m "refactor: rename a.txt to b.txt"
+
+git rm b.txt
+git status            # deleted: b.txt
+git commit -m "chore: remove b.txt"
+git log --oneline
+```
+</Solution>

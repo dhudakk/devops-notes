@@ -48,7 +48,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'DevOps Notes',
-      description: 'Osobné študijné poznámky k DevOps skúške: Python, Docker, Kubernetes a ďalšie.',
+      description: 'Osobné študijné poznámky k DevOps skúške: Git, Python, Docker, Kubernetes a ďalšie.',
       defaultLocale: 'root',
       locales: {
         root: { label: 'Slovenčina', lang: 'sk' },

@@ -1,0 +1,209 @@
+---
+title: Detached HEAD and good habits
+description: What detached HEAD is, how not to lose commits in it and how to rescue them (also with reflog), advice for working with Git, and common traps.
+kind: chapter
+day: 2
+sidebar:
+  order: 13
+  label: 13 · Detached HEAD and habits
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Detached HEAD** = HEAD points directly at a commit, not at a branch. It happens with `git checkout <hash>`, `<tag>`, `HEAD~3`, or `origin/main`.
+- In detached HEAD you can look around and even commit, but the new commits belong to no branch — they get "lost" once you leave.
+- Rescue: while you are there, `git switch -c rescue/name`. Once you have left, find the hash in `git reflog`.
+- Habits: commit often and small, `git diff` before committing, explain **why** in the message, do not forget `git push`, generated files into `.gitignore`, `git pull` often.
+- Git is not forgiving: read its warnings and do not use `--force` / `reset --hard` until you know exactly what they do.
+</KeyPoints>
+
+## Detached HEAD
+
+Normally HEAD points to a **branch** and the branch to a commit:
+
+```text
+HEAD → main → E
+```
+
+When you `git checkout` something that is **not a branch** (a hash, a tag, `HEAD~3`, a remote branch), HEAD points **directly at a commit**:
+
+```text
+A───B───C───D───E  ← main
+        ↑
+       HEAD          (detached)
+```
+
+```bash
+git checkout HEAD~3
+```
+
+```text
+Note: switching to 'HEAD~3'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+...
+HEAD is now at 1f92450 proxy
+```
+
+What it is good for: seeing what the project looked like in an old version, running it, finding when something broke.
+
+### Committing in detached HEAD
+
+You can commit:
+
+```bash
+echo "Created in detached HEAD." > detached-demo.txt
+git add detached-demo.txt
+git commit -m "demo: commit in detached HEAD"
+```
+
+```text
+A───B───C───D───E  ← main
+        \
+         X          ← HEAD (no branch)
+```
+
+When you now switch away (`git switch main`), nothing named points at commit `X`. Git warns:
+
+```text
+Warning: you are leaving 1 commit behind, not connected to
+any of your branches:
+
+  4e5f6a7 demo: commit in detached HEAD
+
+If you want to keep it by creating a new branch, this may be a good time
+to do so with:
+
+ git branch <new-branch-name> 4e5f6a7
+```
+
+### Rescue
+
+While still in detached HEAD, give the commits a branch:
+
+```bash
+git switch -c rescue/detached-demo     # a branch right here
+git switch main
+git merge rescue/detached-demo --no-edit
+git branch -d rescue/detached-demo
+```
+
+If you have already left and did not note the hash, **`git reflog`** helps — a log of every move of HEAD:
+
+```bash
+git reflog
+# a1b2c3d HEAD@{0}: checkout: moving from 4e5f6a7… to main
+# 4e5f6a7 HEAD@{1}: commit: demo: commit in detached HEAD
+git branch rescue/detached-demo 4e5f6a7
+```
+
+Git deletes abandoned commits after a while (weeks, by default). The reflog is local only.
+
+Back to a normal branch: `git switch main` (or `git checkout main`).
+
+## Good habits
+
+Advice from the slides and the lecture:
+
+1. **Commit often** and keep independent changes in separate commits.
+2. Run **`git diff`** (and `git diff --staged`) and **`git status`** before committing — know what you commit.
+3. In the commit message describe the **reason** for the change — it is often more important than the change itself.
+4. **Do not forget `git push`** — until the commit is on the server, colleagues do not have it and there is no backup.
+5. Put generated files (`*.o`, `*.a`, `build/`…) in **`.gitignore`**.
+6. **Do not drift away from the team** — `git pull` often enough that conflicts do not pile up.
+
+### Common traps
+
+| Trap | Right way |
+| --- | --- |
+| `git diff` is empty although I have changes | it compares with the index → `git diff HEAD` (or `--staged`) |
+| `git reset` did not restore the files | it only changes the index → `git reset --hard` to discard file changes too |
+| I skipped Git's warning | Git is not forgiving — read the output; it usually suggests the exact command |
+| `--force` "to make it work" | only if you know exactly why; it overwrites other people's work |
+| Git history is immutable | it is not — `amend`, `rebase`, `reset` rewrite it |
+| a commit made in detached HEAD vanished | give it a branch (`git switch -c …`) or find it in `git reflog` |
+
+## Test yourself
+
+<Question q="When do you end up in detached HEAD?">
+When you switch to something that is not a local branch: a specific commit (hash, `HEAD~3`), a tag, or a remote branch (`origin/main`).
+</Question>
+
+<Question q="You made a commit in detached HEAD. How do you rescue it?">
+While there: `git switch -c new-branch` (or `git branch new-branch`). If you have already left: find the hash in `git reflog` and run `git branch new-branch <hash>`.
+</Question>
+
+<Question q="What is `git reflog`?">
+A local log of every move of HEAD (commits, checkouts, resets, rebases). You can find commits there that no branch points to any more.
+</Question>
+
+<Question q="Why is *why* more important than *what* in a commit message?">
+The diff shows *what* changed. *Why* cannot be read from the code — in six months the message will be the only trace of the reason.
+</Question>
+
+## Exercises
+
+### 13.1 · A trip to the past and a rescue
+
+Switch to commit `HEAD~3`, check `git status`, make a commit there, and rescue it with a new branch. Then merge it into the main branch.
+
+<p class="practises">Practises: detached HEAD, `git switch -c`, merge.</p>
+
+<Solution>
+```bash
+git checkout main
+git log --oneline --decorate --max-count=10
+git checkout HEAD~3
+git status                          # HEAD detached at …
+echo "Created in detached HEAD." > detached-demo.txt
+git add detached-demo.txt
+git commit -m "demo: commit in detached HEAD"
+git switch -c rescue/detached-demo
+git status                          # On branch rescue/detached-demo
+git checkout main
+git merge rescue/detached-demo --no-edit
+git branch -d rescue/detached-demo
+```
+</Solution>
+
+### 13.2 · Rescue with reflog
+
+Repeat the previous exercise, but leave detached HEAD **without** creating a branch. Then find the commit and rescue it.
+
+<p class="practises">Practises: `git reflog`, `git branch <name> <hash>`.</p>
+
+<Solution>
+```bash
+git checkout HEAD~2
+echo "lost" > lost.txt
+git add lost.txt && git commit -m "demo: lost commit"
+git switch main                    # Warning: you are leaving 1 commit behind
+git reflog                         # find the line "commit: demo: lost commit"
+git branch rescue/lost <hash>
+git log --oneline rescue/lost -1
+```
+</Solution>
+
+### 13.3 · A final changelog
+
+Create `CHANGELOG.md` listing what you tried on day 2. Use `git log` and `git show` to help. Check `git diff --staged` before committing, then commit and push.
+
+<p class="practises">Practises: the whole rhythm `status` → `diff` → `add` → `diff --staged` → `commit` → `push`.</p>
+
+<Solution>
+```bash
+git status
+git log --oneline --graph --all --decorate --max-count=30
+printf '# Changelog\n\n## Day 2\n\n- branches and merge\n- resolved conflict\n- stash\n- remote workflow\n- tags\n- rebase\n' > CHANGELOG.md
+git add CHANGELOG.md
+git diff --staged
+git commit -m "docs: add day 2 changelog"
+git push
+git show HEAD --stat
+```
+</Solution>

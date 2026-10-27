@@ -1,0 +1,301 @@
+---
+title: Spolupráca cez remote
+description: Remote repozitár a origin, git remote add, push s upstream, fetch vs. pull, odmietnutý push, stiahnutie vzdialenej vetvy, čo robí git clone a simulácia kolegu druhým clonom.
+kind: chapter
+day: 2
+sidebar:
+  order: 11
+  label: 11 · Remote, push a pull
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Remote** = vzdialený (zdieľaný) repozitár. Hlavný sa volá **`origin`**. Vzdialené vetvy vidíš lokálne ako `origin/main`.
+- `git push` pošle commity na server. **Odmietne sa**, ak má server commity, ktoré ty nemáš → najprv `git pull`.
+- `git fetch` iba stiahne informácie (posunie `origin/main`), **súbory nemení**. `git pull` = `fetch` + `merge` do aktuálnej vetvy.
+- `git clone` = `init` + `remote add origin` + `fetch` + `checkout main`.
+- V tíme: **pull často, push často**. Čím dlhšie si mimo synchronizácie, tým viac konfliktov.
+</KeyPoints>
+
+## Ako tím spolupracuje
+
+Každý má na svojom počítači úplný repozitár. Synchronizujú sa cez **spoločný (shared) repozitár** na serveri — GitLab, GitHub:
+
+```text
+              ┌────────────────────┐
+              │ shared repozitár   │
+              │ (GitLab / GitHub)  │
+              └────────────────────┘
+          push ▲  │ pull     push ▲  │ pull
+               │  ▼               │  ▼
+          Arthur (frontend)    Brian (backend)    Sam (databáza)
+```
+
+Príklad z prednášky:
+
+1. **Sam** dokončí databázu a pushne ju.
+2. **Brian** dokončí backend a chce pushnúť — **server ho odmietne**, lebo má Samove commity, ktoré Brian nemá.
+3. Brian spraví `git pull` → Samove zmeny sa zlúčia s jeho. Sam robil na iných súboroch, takže konflikt nevznikne. Teraz Brian pushne.
+4. **Arthur** musí spraviť to isté: pull (databáza + backend), merge so svojím frontendom, push.
+5. Sam a Brian si potom pullnú, aby mali všetci rovnaký stav.
+
+## Remote a origin
+
+- Repozitár môže mať **viac** remote; každý má lokálny alias. Pri jednom sa bežne volá **`origin`**.
+- Vzdialené vetvy sú v Gite **zrkadlené** v samostatnom mennom priestore:
+  - `main` — tvoja lokálna vetva,
+  - `origin/main` — posledný známy stav vetvy `main` na serveri `origin` (aktualizuje sa pri `fetch`/`pull`/`push`).
+
+```bash
+git remote -v                 # aké remote mám a ich adresy
+git remote add origin git@github.com:meno/repo.git     # pridanie remote
+```
+
+### Lokálny projekt na server
+
+Keď si začal cez `git init` a až neskôr chceš projekt na server (na webe si vytvoríš **prázdny** repozitár bez README):
+
+```bash
+git init
+git add .
+git commit -m "feat: initial commit"
+git branch -M main                                # premenuj vetvu na main
+git remote add origin git@github.com:meno/repo.git
+git push -u origin main
+```
+
+Samotné `git push` by tu nevedelo, kam a čo poslať — nová vetva nemá upstream. Preto prvýkrát `git push -u origin main`.
+
+### Čo robí git clone
+
+`git clone url [priečinok]` je skratka za:
+
+```bash
+git init priečinok
+cd priečinok
+git remote add origin url
+git fetch
+git checkout main        # alebo master
+```
+
+V praxi `git init`, `git remote` a `git fetch` priamo používaš zriedka — projekt si vyklikáš na webe, dáš `git clone` a potom už iba `pull` a `push`.
+
+## git push
+
+```bash
+git push                        # aktuálna vetva → jej upstream
+git push origin main            # explicitne: vetva main na origin
+git push -u origin feature/x    # nová vetva + nastavenie upstream
+git push origin v1.0            # tag
+git push origin --delete feature/x    # zmazanie vetvy na serveri
+```
+
+Ak vetva nemá upstream (je nová, lokálna), `git push` nepošle nič — nové vetvy sú predvolene „súkromné“.
+
+### Odmietnutý push
+
+```text
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'github.com:meno/repo.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+```
+
+Server má commit, ktorý ty nemáš — kolega pushol skôr. Riešenie: `git pull`, prípadne vyrieš konflikt, potom znova `git push`. **Nepoužívaj `git push --force`** — prepísal by si kolegovu prácu.
+
+## git fetch vs. git pull
+
+| | `git fetch` | `git pull` |
+| --- | --- | --- |
+| Stiahne nové commity zo servera | áno | áno |
+| Aktualizuje `origin/main` | áno | áno |
+| Zmení tvoju vetvu a súbory | **nie** | **áno** — zlúči (`merge`) do aktuálnej vetvy |
+
+`fetch` je bezpečný — iba sa pozrieš, čo je nové:
+
+```bash
+git fetch origin
+git log --oneline --graph --all --decorate    # origin/main je pred main
+git status                                    # Your branch is behind 'origin/main' by 1 commit
+git pull                                      # teraz zmeny zapracuj
+```
+
+`git pull` = `git fetch` + `git merge origin/main`.
+
+:::caution[`fatal: Need to specify how to reconcile divergent branches`]
+Novší Git pri `git pull` odmietne pokračovať, keď majú lokálna aj vzdialená vetva nové commity a nemáš nastavené, ako ich spojiť. Zvoľ merge (ako na kurze):
+
+```bash
+git pull --no-rebase                          # jednorazovo
+git config --global pull.rebase false         # natrvalo
+```
+
+Výsledkom je merge commit *Merge branch 'main' of github.com:…*.
+:::
+
+## Vzdialená vetva od kolegu
+
+Kolega pushol novú vetvu `feature/remote-report`. U teba:
+
+```bash
+git fetch origin
+git branch -a                          # remotes/origin/feature/remote-report
+git checkout feature/remote-report     # alebo git switch feature/remote-report
+# branch 'feature/remote-report' set up to track 'origin/feature/remote-report'.
+```
+
+Ak lokálna vetva s takým menom neexistuje, Git ju nájde medzi vzdialenými, **vytvorí** lokálnu a nastaví, že sleduje vzdialenú.
+
+## Simulácia kolegu druhým clonom
+
+Na kurze lektor „hral“ dvoch ľudí naraz — ten istý repozitár naklonoval do dvoch priečinkov:
+
+```bash
+cd ..
+git clone git@github.com:meno/repo.git kolega-copy
+```
+
+```bash
+# kolega (kolega-copy)
+echo "Toto pridal kolega." > kolega.txt
+git add kolega.txt && git commit -m "feat: add colleague file"
+git push
+
+# ja (pôvodný priečinok), bez pullu
+echo "Toto pridal kolega 2." > kolega2.txt
+git add kolega2.txt && git commit -m "feat: add second colleague file"
+git push                    # REJECTED — server má kolegov commit
+git pull --no-rebase        # stiahne kolega.txt a spraví merge commit
+git push                    # teraz prejde
+
+# kolega
+git pull                    # má aj kolega2.txt — obaja sú synchronizovaní
+```
+
+## Otestuj sa
+
+<Question q="Čo je `origin` a čo `origin/main`?">
+`origin` je alias (meno) vzdialeného repozitára, z ktorého si klonoval. `origin/main` je lokálna kópia stavu vetvy `main` na tomto serveri — aktualizuje sa pri `fetch`, `pull` a `push`.
+</Question>
+
+<Question q="Aký je rozdiel medzi `git fetch` a `git pull`?">
+`fetch` iba stiahne nové commity a posunie `origin/*`, tvoju vetvu ani súbory nemení. `pull` = `fetch` + `merge` vzdialených zmien do aktuálnej vetvy.
+</Question>
+
+<Question q="Push skončil *rejected (fetch first)*. Čo sa stalo a čo urobíš?">
+Na serveri je commit, ktorý lokálne nemáš (niekto pushol skôr). `git pull` (pri potrebe vyrieš konflikt), potom znova `git push`. Nie `--force`.
+</Question>
+
+<Question q="Aké príkazy v sebe skrýva `git clone url`?">
+`git init`, `git remote add origin url`, `git fetch` a `git checkout` predvolenej vetvy.
+</Question>
+
+<Question q="Kolega pushol vetvu `feature/x`. Ako ju dostaneš k sebe?">
+`git fetch` a potom `git checkout feature/x` (alebo `git switch feature/x`) — Git vytvorí lokálnu vetvu, ktorá sleduje `origin/feature/x`.
+</Question>
+
+<Question q="Prečo nepoužiť `git push --force` po odmietnutom pushi?">
+Prepísal by vzdialenú vetvu tvojou verziou a kolegove commity by zo servera zmizli.
+</Question>
+
+## Cvičenia
+
+### 11.1 · Lokálny repozitár na server
+
+Vytvor lokálne repozitár cez `git init`, sprav commit, na GitHube vytvor **prázdny** repozitár a lokálny projekt doň pushni.
+
+<p class="practises">Precvičíš: `git remote add`, `git push -u`.</p>
+
+<Solution>
+```bash
+git init lokalny-projekt
+cd lokalny-projekt
+echo "# Lokálny projekt" > README.md
+git add README.md
+git commit -m "docs: add README"
+git branch -M main
+git remote add origin git@github.com:meno/lokalny-projekt.git
+git remote -v
+git push -u origin main
+```
+</Solution>
+
+### 11.2 · fetch, potom pull
+
+V druhom clone (alebo cez web) urob zmenu a pushni ju. V pôvodnom clone najprv `git fetch`, pozri históriu a stav, až potom `git pull`.
+
+<p class="practises">Precvičíš: `git fetch`, `origin/main`, `git pull`.</p>
+
+<Solution>
+```bash
+git clone git@github.com:meno/repo.git ../kolega-copy
+cd ../kolega-copy
+echo "Toto pridal druhý clone." > kolega.md
+git add kolega.md && git commit -m "feat: add colleague note"
+git push
+
+cd ../repo
+git fetch origin
+git log --oneline --graph --all --decorate    # origin/main je o commit vpredu
+git status                                    # behind 'origin/main' by 1 commit
+ls                                            # kolega.md ešte nie je
+git pull
+ls                                            # už je
+```
+</Solution>
+
+### 11.3 · Odmietnutý push
+
+V druhom clone pushni zmenu. V pôvodnom clone bez pullu sprav iný commit a skús push. Vyrieš to cez `git pull --no-rebase` a pushni znova.
+
+<p class="practises">Precvičíš: rejected push, merge commit z pullu.</p>
+
+<Solution>
+```bash
+cd ../kolega-copy
+echo "Remote zmena." > remote-first.md
+git add remote-first.md && git commit -m "feat: add remote first note"
+git push
+
+cd ../repo
+echo "Lokálna zmena bez pullu." > local-after-remote.md
+git add local-after-remote.md && git commit -m "feat: add local note"
+git push                        # rejected
+git pull --no-rebase origin main
+git log --oneline --graph --all --decorate --max-count=10
+git push
+```
+</Solution>
+
+### 11.4 · Vetva od kolegu
+
+V druhom clone vytvor vetvu `feature/remote-checklist` so súborom `checklist.md` a pushni ju. V pôvodnom clone ju stiahni, zlúč do hlavnej vetvy, pushni a vetvu zmaž lokálne aj na serveri.
+
+<p class="practises">Precvičíš: vzdialená vetva, `git branch -a`, `push --delete`.</p>
+
+<Solution>
+```bash
+cd ../kolega-copy
+git pull
+git checkout -b feature/remote-checklist
+printf '# Checklist\n\n- status\n- diff\n- commit\n- push\n- pull\n' > checklist.md
+git add checklist.md && git commit -m "feat: add remote checklist"
+git push -u origin feature/remote-checklist
+
+cd ../repo
+git fetch origin
+git branch -a
+git checkout feature/remote-checklist
+cat checklist.md
+git checkout main
+git merge feature/remote-checklist --no-edit
+git push origin main
+git push origin --delete feature/remote-checklist
+git branch -d feature/remote-checklist
+```
+</Solution>

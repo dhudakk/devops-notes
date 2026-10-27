@@ -1,0 +1,33 @@
+---
+title: Git
+description: Dvojdňové školenie Gitu (lektor Marek). Od verzionovania a prvého commitu cez GitHub/GitLab a SSH až po vetvy, merge, konflikty, prácu v tíme, stash, tagy a rebase.
+kind: overview
+sidebar:
+  order: 0
+  label: Prehľad kurzu
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../components/ChapterList.astro';
+
+## Kapitoly
+
+<ChapterList course="git" />
+
+## Na opakovanie
+
+<CardGrid>
+  <LinkCard title="Ťahák" description="Všetky príkazy z kurzu na jednej stránke, typické postupy (feature branch, hotfix, odmietnutý push) a pasce." href="/devops-notes/git/tahak/" />
+  <LinkCard title="Zdroje" description="Slajdy, lektorov repozitár s úlohami a z čoho vznikla ktorá kapitola." href="/devops-notes/git/zdroje/" />
+</CardGrid>
+
+## Priebeh kurzu
+
+1. **Deň 1** — čo je verzionovací systém, inštalácia a `git config`, lokálna práca: `init`, `status`, `add`, `commit`, `diff`, `log`, `show`, `rm`, `mv`, `.gitignore`, vrátenie zmien (`restore`, `revert`, `reset`). Poobede webové rozhranie GitHub/GitLab, SSH kľúč, `clone` a `push`.
+2. **Deň 2** — vetvy (`checkout -b`, `switch`), `merge` a riešenie konfliktov, spolupráca cez remote (`fetch`, `pull`, odmietnutý push, simulácia kolegu druhým clonom), `stash`, tagy, `rebase` a detached HEAD.
+
+:::tip[Päť príkazov na každý deň]
+> „Na reálnu prácu potrebujete iba pár príkazov.“
+
+`git status` → `git add` → `git commit -m "…"` → `git push`, a pred prácou `git pull`. Ostatné si vždy vieš dohľadať — dôležité je rozumieť, čo robia.
+:::

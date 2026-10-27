@@ -1,0 +1,301 @@
+---
+title: Working with a remote
+description: Remote repositories and origin, git remote add, pushing with an upstream, fetch vs. pull, a rejected push, getting a remote branch, what git clone does, and simulating a colleague with a second clone.
+kind: chapter
+day: 2
+sidebar:
+  order: 11
+  label: 11 · Remote, push, and pull
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **remote** is a remote (shared) repository. The main one is called **`origin`**. You see remote branches locally as `origin/main`.
+- `git push` sends commits to the server. It is **rejected** if the server has commits you do not → `git pull` first.
+- `git fetch` only downloads information (moves `origin/main`) and **does not change files**. `git pull` = `fetch` + `merge` into the current branch.
+- `git clone` = `init` + `remote add origin` + `fetch` + `checkout main`.
+- In a team: **pull often, push often**. The longer you stay out of sync, the more conflicts.
+</KeyPoints>
+
+## How a team works together
+
+Everyone has a complete repository on their machine. They synchronise through a **shared repository** on a server — GitLab, GitHub:
+
+```text
+              ┌────────────────────┐
+              │ shared repository  │
+              │ (GitLab / GitHub)  │
+              └────────────────────┘
+          push ▲  │ pull     push ▲  │ pull
+               │  ▼               │  ▼
+          Arthur (frontend)    Brian (backend)    Sam (database)
+```
+
+The example from the lecture:
+
+1. **Sam** finishes the database and pushes it.
+2. **Brian** finishes the backend and wants to push — **the server rejects it**, because it has Sam's commits that Brian does not.
+3. Brian runs `git pull` → Sam's changes are merged with his. Sam worked on other files, so there is no conflict. Now Brian pushes.
+4. **Arthur** has to do the same: pull (database + backend), merge with his frontend, push.
+5. Then Sam and Brian pull so everyone has the same state.
+
+## Remotes and origin
+
+- A repository can have **several** remotes; each has a local alias. With one it is usually called **`origin`**.
+- Remote branches are **mirrored** in Git in a separate namespace:
+  - `main` — your local branch,
+  - `origin/main` — the last known state of `main` on the server `origin` (updated by `fetch`/`pull`/`push`).
+
+```bash
+git remote -v                 # which remotes I have and their addresses
+git remote add origin git@github.com:name/repo.git     # adding a remote
+```
+
+### A local project onto a server
+
+When you started with `git init` and only later want the project on a server (create an **empty** repository on the web, without a README):
+
+```bash
+git init
+git add .
+git commit -m "feat: initial commit"
+git branch -M main                                # rename the branch to main
+git remote add origin git@github.com:name/repo.git
+git push -u origin main
+```
+
+Plain `git push` would not know where and what to send — a new branch has no upstream. So the first time it is `git push -u origin main`.
+
+### What git clone does
+
+`git clone url [folder]` is a shortcut for:
+
+```bash
+git init folder
+cd folder
+git remote add origin url
+git fetch
+git checkout main        # or master
+```
+
+In practice you rarely use `git init`, `git remote`, and `git fetch` directly — you create the project on the web, `git clone` it, and from then on only `pull` and `push`.
+
+## git push
+
+```bash
+git push                        # current branch → its upstream
+git push origin main            # explicitly: branch main to origin
+git push -u origin feature/x    # a new branch + setting the upstream
+git push origin v1.0            # a tag
+git push origin --delete feature/x    # deleting a branch on the server
+```
+
+If a branch has no upstream (it is new and local), `git push` sends nothing — new branches are "private" by default.
+
+### A rejected push
+
+```text
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'github.com:name/repo.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+```
+
+The server has a commit you do not — a colleague pushed first. The fix: `git pull`, resolve a conflict if any, then `git push` again. **Do not use `git push --force`** — it would overwrite your colleague's work.
+
+## git fetch vs. git pull
+
+| | `git fetch` | `git pull` |
+| --- | --- | --- |
+| Downloads new commits from the server | yes | yes |
+| Updates `origin/main` | yes | yes |
+| Changes your branch and files | **no** | **yes** — merges into the current branch |
+
+`fetch` is safe — you just look at what is new:
+
+```bash
+git fetch origin
+git log --oneline --graph --all --decorate    # origin/main is ahead of main
+git status                                    # Your branch is behind 'origin/main' by 1 commit
+git pull                                      # now bring the changes in
+```
+
+`git pull` = `git fetch` + `git merge origin/main`.
+
+:::caution[`fatal: Need to specify how to reconcile divergent branches`]
+Newer Git refuses to continue `git pull` when both the local and remote branch have new commits and you have not said how to combine them. Choose merge (as in the course):
+
+```bash
+git pull --no-rebase                          # once
+git config --global pull.rebase false         # permanently
+```
+
+The result is a merge commit *Merge branch 'main' of github.com:…*.
+:::
+
+## A colleague's remote branch
+
+A colleague pushed a new branch `feature/remote-report`. On your side:
+
+```bash
+git fetch origin
+git branch -a                          # remotes/origin/feature/remote-report
+git checkout feature/remote-report     # or git switch feature/remote-report
+# branch 'feature/remote-report' set up to track 'origin/feature/remote-report'.
+```
+
+If no local branch with that name exists, Git finds it among the remote ones, **creates** a local branch, and makes it track the remote one.
+
+## Simulating a colleague with a second clone
+
+In the course the instructor "played" two people at once — he cloned the same repository into two folders:
+
+```bash
+cd ..
+git clone git@github.com:name/repo.git colleague-copy
+```
+
+```bash
+# colleague (colleague-copy)
+echo "Added by a colleague." > colleague.txt
+git add colleague.txt && git commit -m "feat: add colleague file"
+git push
+
+# me (the original folder), without pulling
+echo "Added by colleague 2." > colleague2.txt
+git add colleague2.txt && git commit -m "feat: add second colleague file"
+git push                    # REJECTED — the server has the colleague's commit
+git pull --no-rebase        # gets colleague.txt and makes a merge commit
+git push                    # now it goes through
+
+# colleague
+git pull                    # has colleague2.txt too — both are in sync
+```
+
+## Test yourself
+
+<Question q="What is `origin` and what is `origin/main`?">
+`origin` is the alias (name) of the remote repository you cloned from. `origin/main` is the local copy of the state of the `main` branch on that server — updated by `fetch`, `pull`, and `push`.
+</Question>
+
+<Question q="What is the difference between `git fetch` and `git pull`?">
+`fetch` only downloads new commits and moves `origin/*`; it changes neither your branch nor your files. `pull` = `fetch` + `merge` of the remote changes into the current branch.
+</Question>
+
+<Question q="A push ended with *rejected (fetch first)*. What happened and what do you do?">
+The server has a commit you do not have locally (someone pushed first). `git pull` (resolve a conflict if needed), then `git push` again. Not `--force`.
+</Question>
+
+<Question q="Which commands does `git clone url` hide?">
+`git init`, `git remote add origin url`, `git fetch`, and `git checkout` of the default branch.
+</Question>
+
+<Question q="A colleague pushed branch `feature/x`. How do you get it?">
+`git fetch` and then `git checkout feature/x` (or `git switch feature/x`) — Git creates a local branch tracking `origin/feature/x`.
+</Question>
+
+<Question q="Why not use `git push --force` after a rejected push?">
+It would overwrite the remote branch with your version and your colleague's commits would disappear from the server.
+</Question>
+
+## Exercises
+
+### 11.1 · A local repository onto a server
+
+Create a local repository with `git init`, make a commit, create an **empty** repository on GitHub, and push the local project into it.
+
+<p class="practises">Practises: `git remote add`, `git push -u`.</p>
+
+<Solution>
+```bash
+git init local-project
+cd local-project
+echo "# Local project" > README.md
+git add README.md
+git commit -m "docs: add README"
+git branch -M main
+git remote add origin git@github.com:name/local-project.git
+git remote -v
+git push -u origin main
+```
+</Solution>
+
+### 11.2 · fetch, then pull
+
+In a second clone (or on the web) make a change and push it. In the original clone first `git fetch`, look at the history and status, and only then `git pull`.
+
+<p class="practises">Practises: `git fetch`, `origin/main`, `git pull`.</p>
+
+<Solution>
+```bash
+git clone git@github.com:name/repo.git ../colleague-copy
+cd ../colleague-copy
+echo "Added by the second clone." > colleague.md
+git add colleague.md && git commit -m "feat: add colleague note"
+git push
+
+cd ../repo
+git fetch origin
+git log --oneline --graph --all --decorate    # origin/main is one commit ahead
+git status                                    # behind 'origin/main' by 1 commit
+ls                                            # colleague.md is not here yet
+git pull
+ls                                            # now it is
+```
+</Solution>
+
+### 11.3 · A rejected push
+
+Push a change from the second clone. In the original clone, without pulling, make another commit and try to push. Fix it with `git pull --no-rebase` and push again.
+
+<p class="practises">Practises: a rejected push, a merge commit from pull.</p>
+
+<Solution>
+```bash
+cd ../colleague-copy
+echo "Remote change." > remote-first.md
+git add remote-first.md && git commit -m "feat: add remote first note"
+git push
+
+cd ../repo
+echo "Local change without pull." > local-after-remote.md
+git add local-after-remote.md && git commit -m "feat: add local note"
+git push                        # rejected
+git pull --no-rebase origin main
+git log --oneline --graph --all --decorate --max-count=10
+git push
+```
+</Solution>
+
+### 11.4 · A colleague's branch
+
+In the second clone create branch `feature/remote-checklist` with `checklist.md` and push it. In the original clone fetch it, merge it into the main branch, push, and delete the branch locally and on the server.
+
+<p class="practises">Practises: a remote branch, `git branch -a`, `push --delete`.</p>
+
+<Solution>
+```bash
+cd ../colleague-copy
+git pull
+git checkout -b feature/remote-checklist
+printf '# Checklist\n\n- status\n- diff\n- commit\n- push\n- pull\n' > checklist.md
+git add checklist.md && git commit -m "feat: add remote checklist"
+git push -u origin feature/remote-checklist
+
+cd ../repo
+git fetch origin
+git branch -a
+git checkout feature/remote-checklist
+cat checklist.md
+git checkout main
+git merge feature/remote-checklist --no-edit
+git push origin main
+git push origin --delete feature/remote-checklist
+git branch -d feature/remote-checklist
+```
+</Solution>

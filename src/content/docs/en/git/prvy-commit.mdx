@@ -1,0 +1,301 @@
+---
+title: Repository, staging, and commit
+description: git init, the hidden .git folder, the three areas (working tree, staging area, repository), git status, add, commit, good commit messages, git rm, and git mv.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Staging and commit
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `git init name` creates a folder with a repository. The whole history lives in the hidden **`.git/`** — do not delete it.
+- Three areas: **working tree** (files you edit) → `git add` → **staging area / index** (what goes into the commit) → `git commit` → **repository** (history).
+- `git commit` saves **locally**. Only `git push` sends it to the server.
+- **Use `git status` all the time** — it shows the branch, the state of files, and even suggests the next command.
+- Commit message: `type: description` — e.g. `feat: add login page`, `fix: correct footer text`. Teams often check this in a pipeline.
+- `git rm file` removes a file from disk and the index; `git mv old new` renames/moves.
+</KeyPoints>
+
+## Creating a repository
+
+```bash
+git init my-repository
+cd my-repository
+ls -a
+# .  ..  .git
+```
+
+`git init` creates the folder `my-repository/` (the working copy, empty for now) and inside it **`.git/`** — the repository itself, with the whole history and settings. In Git Bash the prompt shows the branch name once you are inside a repository, e.g. `(master)`.
+
+:::note[`master` or `main`?]
+Newer Git prints a hint on `git init` that the default branch is called `master` and can be renamed. GitHub creates repositories with `main`, older GitLab with `master`. Functionally it does not matter — just swap the name in commands. Default for new repositories: `git config --global init.defaultBranch main`.
+:::
+
+What is inside `.git`:
+
+| Item | Meaning |
+| --- | --- |
+| `HEAD` | which branch (commit) you are on |
+| `config` | settings of this repository (e.g. the server address) |
+| `objects/` | stored file snapshots and commits |
+| `refs/` | branches and tags — pointers to commits |
+
+You normally never go into `.git`, but it is good to know it is there.
+
+:::tip[An existing project into Git]
+The instructor: when a project already exists outside Git, I often create the repository on the web, clone it, and move its `.git` folder into the folder with the existing files. The more common and cleaner way is `git init` right in the project folder plus `git remote add origin <url>` — see [Working with a remote](/devops-notes/en/git/remote/).
+:::
+
+In practice you rarely use `git init` — usually the repository is created on the web (GitHub/GitLab) and you get it with `git clone`.
+
+## The three areas
+
+```text
+ working tree        staging area (index)        repository (.git)
+ ────────────        ────────────────────        ─────────────────
+ you edit files ──git add──▶ ready for the ──git commit──▶ snapshot saved
+                             next commit                   in history
+```
+
+| Area | What it holds |
+| --- | --- |
+| **Working tree** (working copy) | the files in the folder as you see and edit them |
+| **Staging area** (index) | changes selected for the **next** commit |
+| **Repository** | all commits — the whole project history |
+
+The staging area is an extra step other systems do not have. It lets you choose **which** changes go into a commit — even when you have several in progress.
+
+A file can be:
+
+- **untracked** — new, Git does not follow it yet (red in `git status`),
+- **staged** — added with `git add`, ready to commit (green),
+- **committed** — stored in the repository,
+- **modified** — a tracked file changed since the last commit.
+
+## The first commit, step by step
+
+```bash
+echo "Hello" > F1
+echo "Second file" > F2.txt
+git status
+```
+
+```text
+On branch master
+
+No commits yet
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	F1
+	F2.txt
+```
+
+Add only `F1`:
+
+```bash
+git add F1
+git status
+```
+
+```text
+Changes to be committed:
+  (use "git rm --cached <file>..." to unstage)
+	new file:   F1
+
+Untracked files:
+	F2.txt
+```
+
+Notice that **Git tells you** how to undo the step. You do not need to memorise commands — read the output.
+
+```bash
+git rm --cached F1    # takes F1 out of staging (the file stays on disk)
+git add .             # adds everything in the current folder
+git commit -m "feat: initialize project"
+```
+
+```text
+[master (root-commit) 3f2a1c9] feat: initialize project
+ 2 files changed, 2 insertions(+)
+ create mode 100644 F1
+ create mode 100644 F2.txt
+```
+
+After the commit `git status` is clean: *nothing to commit, working tree clean*.
+
+:::caution[Commit ≠ sending to the server]
+The lecture said that commit "moves files into staging". More precisely: **`git add`** puts them into staging, `git commit` saves the index as a new snapshot in the **local** repository, and only `git push` sends it to the server.
+:::
+
+### Changing an existing file
+
+```bash
+echo "test" >> F2.txt
+git status
+```
+
+```text
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   F2.txt
+```
+
+Now the file is **modified**, not untracked. Two options:
+
+- `git add F2.txt` and then `git commit` — keep the change,
+- `git restore F2.txt` — **throw away** the change; the file goes back to the last commit.
+
+If you try `git commit` without `git add`, Git says *no changes added to commit* — the index has not changed, so there is nothing to commit.
+
+:::note[`git rm --cached` vs. `git restore --staged`]
+Before the first commit Git suggests `git rm --cached <file>`, after it `git restore --staged <file>`. Both take a file out of staging and leave the change on disk. The difference: for an already committed file `git rm --cached` also **stops tracking** it (the next commit removes it from the repository) — for plain unstaging use `git restore --staged`.
+:::
+
+### Committing without `git add`
+
+```bash
+git commit F2.txt -m "fix: update F2"
+```
+
+This commits a file straight from the working tree, bypassing the index. It works **only for files Git already tracks**. In the lecture it failed because the file was new:
+
+```text
+$ git commit F3 -m "x"
+error: pathspec 'F3' did not match any file(s) known to git
+```
+
+Similarly `git commit -a -m "…"` commits all modified tracked files at once. The instructor recommends `add` + `commit` instead — you see better what goes in.
+
+## A good commit message
+
+The commit message is what you later see in the history and next to every file on the web. "update" or "changes" tells you nothing six months later. Teams therefore often use a convention (*Conventional Commits*):
+
+```text
+type: short description in the imperative mood
+```
+
+| Type | When |
+| --- | --- |
+| `feat` | a new feature (`feat: add login page`) |
+| `fix` | a bug fix (`fix: correct footer text`) |
+| `docs` | documentation (`docs: add changelog`) |
+| `refactor` | code change without changing behaviour |
+| `test`, `chore` | tests, maintenance (dependencies, build) |
+
+> "If you push a commit that does not follow the structure, your pipeline will probably fail and you will get an e-mail that the commit was not registered correctly."
+
+Explain mainly **why** you made the change — that is often more important than the change itself. VS Code has extensions that help write messages in this format.
+
+## Removing and moving files
+
+```bash
+git rm hello.txt          # removes the file from disk and the index
+git commit -m "chore: remove hello.txt"
+
+git mv F1 F4              # renames F1 to F4
+git mv F4 code/F1         # moves it into the code folder
+git commit -m "refactor: move F1 into code"
+```
+
+`git rm` and `git mv` are shortcuts: they remove/move the file and stage the change right away. If you delete a file with plain `rm`, you still need `git add` (or `git rm`) for Git to record the deletion.
+
+## Test yourself
+
+<Question q="What are the three areas of local Git and which commands move changes between them?">
+Working tree → `git add` → staging area (index) → `git commit` → repository. Commits reach the server only with `git push`.
+</Question>
+
+<Question q="You edited `README.md` and ran `git commit -m 'update'`. Git says *no changes added to commit*. Why?">
+The change is only in the working tree. A commit takes the content of the staging area — run `git add README.md` first.
+</Question>
+
+<Question q="What does `git restore file.txt` do?">
+It discards uncommitted changes in the file and restores it to the state in the index (if nothing is staged, the last commit). You cannot get the change back afterwards.
+</Question>
+
+<Question q="Why does `git commit new.txt -m 'x'` fail for a new file?">
+Committing a list of files only works for files Git already tracks. A new file must be added with `git add` first.
+</Question>
+
+<Question q="What is in the `.git` folder and what happens if you delete it?">
+The whole history, commits, branches, and repository settings. Deleting it loses the history — only the current files remain as a plain folder.
+</Question>
+
+<Question q="Which commit message is better: `changes` or `fix: handle empty city name`?">
+The second — it says the type of change and what exactly was fixed. In the history and next to the file on the web you immediately see why it changed.
+</Question>
+
+## Exercises
+
+### 3.1 · The first repository
+
+Create a repository `git-day1` with a `README.md` containing a heading and a short description, and make the first commit. Check that the history has one commit and the working tree is clean.
+
+<p class="practises">Practises: `git init`, `git add`, `git commit`, `git log --oneline`.</p>
+
+<Solution>
+```bash
+git init git-day1
+cd git-day1
+echo "# My project" > README.md
+echo "Practice repository from the Git course." >> README.md
+git status
+git add README.md
+git commit -m "docs: add README"
+git log --oneline
+git status
+```
+
+`git log --oneline` shows one line, `git status` reports *working tree clean*.
+</Solution>
+
+### 3.2 · Committing only a selected file
+
+Create `plan.txt` and `notes.txt`. The first commit must contain only `plan.txt`, the second only `notes.txt`.
+
+<p class="practises">Practises: the staging area, `git status`.</p>
+
+<Solution>
+```bash
+echo "plan" > plan.txt
+echo "notes" > notes.txt
+git add plan.txt
+git status            # plan.txt green, notes.txt red
+git commit -m "docs: add plan"
+git add notes.txt
+git commit -m "docs: add notes"
+git log --oneline
+```
+
+A commit takes only what is staged.
+</Solution>
+
+### 3.3 · Three commits: add, rename, delete
+
+In the same repository make three separate commits: add `a.txt`, rename it to `b.txt` with `git mv`, and finally delete it with `git rm`. Check `git status` after each step.
+
+<p class="practises">Practises: `git mv`, `git rm`, `git status`.</p>
+
+<Solution>
+```bash
+echo "content" > a.txt
+git add a.txt
+git commit -m "feat: add a.txt"
+
+git mv a.txt b.txt
+git status            # renamed: a.txt -> b.txt
+git commit -m "refactor: rename a.txt to b.txt"
+
+git rm b.txt
+git status            # deleted: b.txt
+git commit -m "chore: remove b.txt"
+git log --oneline
+```
+</Solution>

@@ -1,0 +1,195 @@
+---
+title: .gitignore
+description: Tracked, untracked, and ignored files, .gitignore patterns (star, slash, negation), and what to do with a file Git already tracks.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · .gitignore
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- To Git a file is **tracked** (already committed or staged), **untracked** (new), or **ignored** (excluded by `.gitignore`).
+- `.gitignore` is a hidden file in the repository root, **one pattern per line**. It is committed — the rules apply to the whole team.
+- Patterns are **globs**, not regular expressions: `*.log`, `build/`, `/program`, `log/*.log.[0-9]`, `!exception`.
+- A pattern **without a slash** (`program`) matches in **every** folder. With a leading slash (`/program`) only in the root. With a trailing slash (`build/`) only directories.
+- `.gitignore` does not affect files Git already tracks — run `git rm --cached file` first.
+</KeyPoints>
+
+## Three kinds of files
+
+| State | Meaning | In `git status` |
+| --- | --- | --- |
+| **tracked** | the file was staged or committed before | *modified*, *deleted*… |
+| **untracked** | a new file Git does not follow yet | *Untracked files* |
+| **ignored** | Git has been told explicitly to ignore it | not shown at all |
+
+Without `.gitignore`, `git status` would keep offering build output, logs, or editor temp files — and `git add .` would put them into the commit.
+
+## How `.gitignore` works
+
+Create a `.gitignore` file in the repository root (the leading dot makes it hidden; `ls -a` shows it):
+
+```bash
+touch program.c program program.o
+git status --short
+# ?? program
+# ?? program.c
+# ?? program.o
+```
+
+`program` and `program.o` are build output — a colleague builds them from `program.c`. Into `.gitignore`:
+
+```text title=".gitignore"
+program
+*.o
+```
+
+```bash
+git status --short
+# ?? .gitignore
+# ?? program.c
+```
+
+The ignored files disappeared from the output. Delete the line from `.gitignore` and Git offers them again. **Commit** `.gitignore` itself — then the rules apply to everyone who clones the repository.
+
+## Patterns
+
+| Pattern | Ignores |
+| --- | --- |
+| `*.zip` | every file ending in `.zip` in any folder |
+| `program` | a file or folder `program` **anywhere** (also `code/program`) |
+| `/program` | only `program` in the repository root |
+| `build/` | the `build` folder (anywhere) and everything in it |
+| `log/*.log` | `.log` files directly in the `log` folder |
+| `log/*.log.[0-9]` | `app.log.1` … `app.log.9` in `log` (`[0-9]` = one character from the range) |
+| `**/temp` | `temp` at any depth |
+| `# comment` | a comment line |
+| `!pattern` | an **exception** — do not ignore this, even if an earlier pattern matched it |
+
+### Negation — everything except
+
+```text title=".gitignore"
+videos/*
+!videos/iphone_*.mp4
+```
+
+Ignores the whole content of `videos/` **except** the `iphone_….mp4` files. Order matters — the exception must come **after** the pattern it overrides.
+
+:::caution[An exception inside an ignored folder does not work]
+If you write `videos/` (the whole folder), Git never looks inside it and `!videos/iphone_*.mp4` has nothing to rescue. Hence `videos/*` — it ignores the contents, not the folder itself.
+:::
+
+:::note[Correction to the lecture]
+The lecture said `.gitignore` uses regular expressions — they are **glob patterns** (as in the shell: `*`, `?`, `[0-9]`). It also said that after moving `program` and `program.o` into `code/`, the pattern `program` no longer matches them. That is not so — a pattern **without a slash** applies in every folder, so `code/program` stays ignored. To ignore only the file in the root, write `/program`. `git check-ignore -v code/program` shows which line matched.
+:::
+
+## A file Git already tracks
+
+`.gitignore` applies only to **untracked** files. If you committed `program.o` by mistake, adding `*.o` to `.gitignore` does not help — Git keeps tracking it and reports changes as *modified*. The fix:
+
+```bash
+git rm --cached program.o      # stop tracking, keep the file on disk
+git commit -m "chore: stop tracking build output"
+```
+
+From this commit on, `.gitignore` catches it.
+
+## Ready-made templates
+
+When creating a repository on GitHub/GitLab you can pick a ready-made `.gitignore` for a language (Python, Java, Node…). A collection of templates: [github.com/github/gitignore](https://github.com/github/gitignore).
+
+```text title=".gitignore for Python"
+__pycache__/
+*.pyc
+venv/
+.env
+```
+
+Files with **secrets** (`.env` with passwords, keys) belong in `.gitignore` too — whatever you commit and push stays in the history.
+
+## Test yourself
+
+<Question q="What three states can a file have from Git's point of view?">
+Tracked, untracked (new, not followed), and ignored (excluded by `.gitignore`).
+</Question>
+
+<Question q="What is the difference between the patterns `program`, `/program`, and `program/`?">
+`program` matches a file or folder with that name anywhere. `/program` only in the repository root. `program/` only a directory (anywhere).
+</Question>
+
+<Question q="You want to ignore everything in `videos/` except `intro.mp4`. Why does `videos/` + `!videos/intro.mp4` not work?">
+When the whole folder is ignored, Git does not look inside it and the exception has nothing to apply to. Use `videos/*` (ignore the contents) and then `!videos/intro.mp4`.
+</Question>
+
+<Question q="You added `*.log` to `.gitignore`, but `app.log` still shows as *modified* in `git status`. Why, and what do you do?">
+Git already tracks `app.log` (it was committed), and `.gitignore` does not apply to tracked files. Run `git rm --cached app.log` and commit — from then on it is ignored.
+</Question>
+
+<Question q="Should `.gitignore` be committed?">
+Yes. Then the rules apply to everyone working with the repository.
+</Question>
+
+## Exercises
+
+### 5.1 · Ignoring logs and build output
+
+Create `debug.log` and a folder `build` with a file `app.bin`. Make Git stop offering them for commit, and commit `.gitignore`.
+
+<p class="practises">Practises: `.gitignore`, the patterns `*.log` and `build/`.</p>
+
+<Solution>
+```bash
+echo "log" > debug.log
+mkdir build && echo "bin" > build/app.bin
+git status                # debug.log and build/ are untracked
+printf 'build/\n*.log\n' > .gitignore
+git status                # only .gitignore is offered now
+git add .gitignore
+git commit -m "chore: add gitignore"
+```
+</Solution>
+
+### 5.2 · Everything except
+
+In `assets/` you have `a.png`, `b.png`, and `logo.png`. Set up `.gitignore` so only `logo.png` is committed from `assets/`. Check with `git status` and `git check-ignore -v`.
+
+<p class="practises">Practises: negation `!`, `dir/` vs. `dir/*`.</p>
+
+<Solution>
+```text title=".gitignore"
+assets/*
+!assets/logo.png
+```
+
+```bash
+git status --short -uall      # ?? assets/logo.png
+git check-ignore -v assets/a.png
+# .gitignore:1:assets/*	assets/a.png
+```
+</Solution>
+
+### 5.3 · A file committed by mistake
+
+Commit a file `secret.env`, then start ignoring it so it stays on disk but disappears from the repository.
+
+<p class="practises">Practises: `git rm --cached`, `.gitignore` and tracked files.</p>
+
+<Solution>
+```bash
+echo "PASSWORD=<PASSWORD>" > secret.env
+git add secret.env && git commit -m "add env"   # mistake
+echo "*.env" >> .gitignore
+git rm --cached secret.env
+git add .gitignore
+git commit -m "chore: stop tracking secret.env"
+ls                     # secret.env is still on disk
+git status             # and Git does not see it
+```
+
+Careful: the file stays in **older commits**. If it was a real password and was already pushed, change it.
+</Solution>

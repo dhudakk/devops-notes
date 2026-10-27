@@ -1,0 +1,182 @@
+---
+title: Inštalácia a nastavenie
+description: Inštalácia Gitu a Git Bash, základné príkazy terminálu, nastavenie mena, e-mailu a editora cez git config a ako odísť z vimu.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Inštalácia a nastavenie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Windows: [gitforwindows.org](https://gitforwindows.org/) → pracuješ v **Git Bash**. Linux: `sudo apt-get install git`. Overenie: `git --version`.
+- Prvý krok na každom počítači: `git config --global user.name "…"` a `user.email "…"`. Tieto údaje sa zapisujú do každého commitu — **neoverujú sa**.
+- `--global` = raz pre celý počítač (súbor `~/.gitconfig`). Kontrola: `git config --list`.
+- Predvolený editor je **vim**: `i` = písanie, `Esc` = koniec písania, `:wq` = ulož a odíď. Zmena: `git config --global core.editor nano`.
+- Terminál: `pwd` (kde som), `ls` / `ls -a` (obsah, aj skryté), `cd priečinok`, `cd ..` (o úroveň vyššie), **Tab** dopĺňa názvy.
+</KeyPoints>
+
+## Inštalácia
+
+| Systém | Postup |
+| --- | --- |
+| **Windows** | [gitforwindows.org](https://gitforwindows.org/) (alebo prenosná verzia *PortableGit* z [GitHub releases](https://github.com/git-for-windows/git/releases)). Spolu s Gitom sa nainštaluje **Git Bash** — terminál s Bashom. |
+| **Linux** (Debian/Ubuntu) | `sudo apt-get update && sudo apt-get install git` |
+| **macOS** | Git je súčasťou Xcode Command Line Tools — prvé spustenie `git` ponúkne inštaláciu. Alebo `brew install git`. |
+
+Overenie, že Git funguje:
+
+```bash
+git --version
+# git version 2.43.0
+```
+
+Na Windowse otvoríš Git Bash v konkrétnom priečinku cez **Shift + pravé tlačidlo → Open Git Bash here**. Existujú aj grafické nástroje ([zoznam na git-scm.com](https://git-scm.com/downloads/guis)), ale v praxi sa s Gitom pracuje v termináli.
+
+:::tip[Bez inštalácie]
+Ak si nemôžeš Git nainštalovať, poslúži online terminál, napr. Google Cloud Shell — Git v ňom už je. Na reálnu prácu si ho ale nastav u seba.
+:::
+
+## Základy terminálu
+
+Git Bash je obyčajný Bash. Na kurz stačí pár príkazov:
+
+| Príkaz | Čo robí |
+| --- | --- |
+| `pwd` | vypíše cestu, kde sa práve nachádzaš (*print working directory*) |
+| `ls` | vypíše súbory v aktuálnom priečinku |
+| `ls -a` | vypíše aj **skryté** súbory a priečinky (začínajú bodkou, napr. `.git`) |
+| `cd nazov` | prejde do priečinka |
+| `cd ..` | prejde o úroveň vyššie |
+| `mkdir nazov` | vytvorí priečinok |
+| `cat subor.txt` | vypíše obsah súboru |
+| `echo "text" > subor.txt` | vytvorí (alebo **prepíše**) súbor s jedným riadkom |
+| `echo "text" >> subor.txt` | **pridá** riadok na koniec súboru |
+| `touch subor.txt` | vytvorí prázdny súbor |
+| `clear` | vyčistí obrazovku |
+
+**Tab** dopĺňa názvy: napíšeš `cd fir` + Tab a terminál doplní `cd first/`, ak je iba jeden priečinok začínajúci na `fir`.
+
+## Počiatočná konfigurácia
+
+Git pri každom commite zapíše, **kto** ho urobil. Meno a e-mail si preto nastavíš ako prvé:
+
+```bash
+git config --global user.name "Meno Priezvisko"
+git config --global user.email "meno@example.com"
+```
+
+- Môže tam byť čokoľvek — iba krstné meno, prezývka, pracovný alebo súkromný e-mail. Git to **neoveruje**, iba to uloží do commitu. Na GitHube/GitLabe sa podľa e-mailu commit priradí k tvojmu účtu.
+- `--global` znamená, že nastavenie platí pre všetky repozitáre tvojho používateľa na tomto počítači. Uloží sa do súboru **`~/.gitconfig`**. Stačí to urobiť raz.
+- Bez `--global` (spustené vo vnútri repozitára) platí nastavenie iba pre ten jeden projekt — hodí sa, keď chceš mať v pracovnom projekte iný e-mail.
+
+Kontrola nastavení:
+
+```bash
+git config --list            # všetky nastavenia (aj systémové a repozitára)
+git config --global --list   # iba tvoje globálne
+git config user.email        # jedna konkrétna hodnota
+```
+
+:::caution[Commit bez nastaveného mena]
+Keď meno a e-mail nenastavíš, Git pri prvom commite skončí s chybou *Please tell me who you are* a vypíše presne tie dva príkazy vyššie. Lektorovi sa to stalo pri ukážke v novom shelli — nastav to hneď po inštalácii.
+:::
+
+## Editor
+
+Niektoré príkazy otvoria textový editor: `git commit` bez `-m`, `git revert`, merge s novým commitom. Predvolený je **vim**. Ak ti nevyhovuje:
+
+```bash
+git config --global core.editor nano
+# alebo VS Code:
+git config --global core.editor "code --wait"
+```
+
+### Ako odísť z vimu
+
+Vim má **režimy** — aktuálny vidíš v spodnom riadku.
+
+| Kláves | Čo robí |
+| --- | --- |
+| `i` | prepne do režimu **INSERT** — môžeš písať |
+| `Esc` | ukončí písanie (normálny režim) |
+| `:wq` + Enter | **ulož a odíď** (*write, quit*) |
+| `:q!` + Enter | odíď **bez uloženia** |
+
+Pri `git revert` alebo merge je správa už predvyplnená — stačí `Esc`, `:wq`, Enter.
+
+## Proxy vo firemnej sieti
+
+Ak firemná sieť nepustí Git priamo na GitHub, nastav proxy v aktuálnom okne Git Bash:
+
+```bash
+export HTTP_PROXY=http://<PROXY>:8080/
+export HTTPS_PROXY=http://<PROXY>:8080/
+```
+
+Platí iba pre toto otvorené okno terminálu. Adresu proxy ti dá IT oddelenie.
+
+## Otestuj sa
+
+<Question q="Čo spraví `git config --global user.email ja@example.com` a kam sa to uloží?">
+Nastaví e-mail autora commitov pre všetky repozitáre tvojho používateľa na tomto počítači. Uloží sa do `~/.gitconfig`.
+</Question>
+
+<Question q="Overuje Git, že e-mail v `user.email` je skutočne tvoj?">
+Nie. Git ho iba zapíše do commitu. Preto si tam môžeš dať čokoľvek — a preto sa na overovanie autorstva používajú iné mechanizmy (napr. podpisovanie commitov).
+</Question>
+
+<Question q="Ako zistíš, aké meno a e-mail má Git nastavené?">
+`git config --list` (alebo `git config --global --list`), prípadne `git config user.name`.
+</Question>
+
+<Question q="Ako odídeš z vimu a uložíš správu?">
+`Esc` (ukonči písanie), potom `:wq` a Enter. Bez uloženia `:q!`.
+</Question>
+
+<Question q="Ako vypíšeš aj skrytý priečinok `.git`?">
+`ls -a` — skryté súbory a priečinky začínajú bodkou a obyčajné `ls` ich nezobrazí.
+</Question>
+
+## Cvičenia
+
+### 2.1 · Overenie a konfigurácia
+
+Over, že máš Git nainštalovaný, nastav meno a e-mail a skontroluj, že sa uložili.
+
+<p class="practises">Precvičíš: `git --version`, `git config`.</p>
+
+<Solution>
+```bash
+git --version
+git config --global user.name "Meno Priezvisko"
+git config --global user.email "meno@example.com"
+git config --global --list
+```
+
+Vo výstupe má byť `user.name=…` a `user.email=…`. Tie isté riadky nájdeš v súbore `~/.gitconfig` (`cat ~/.gitconfig`).
+</Solution>
+
+### 2.2 · Prechádzka terminálom
+
+Zisti, kde sa nachádzaš, vytvor priečinok `git-kurz`, vojdi doň, vytvor v ňom súbor `poznamky.txt` s dvoma riadkami a vypíš ho. Potom sa vráť o úroveň vyššie.
+
+<p class="practises">Precvičíš: `pwd`, `mkdir`, `cd`, `echo >`, `echo >>`, `cat`.</p>
+
+<Solution>
+```bash
+pwd
+mkdir git-kurz
+cd git-kurz
+echo "prvý riadok" > poznamky.txt
+echo "druhý riadok" >> poznamky.txt
+cat poznamky.txt
+cd ..
+```
+
+Pozor na rozdiel: `>` súbor prepíše, `>>` pridá na koniec.
+</Solution>
