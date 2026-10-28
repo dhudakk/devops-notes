@@ -1,0 +1,36 @@
+---
+title: Docker
+description: Štvordňový kurz Docker 101 a 202 (lektor Mirek). Od toho, čo je kontajner, cez zväzky, siete a Docker Compose až po vlastné obrazy, bezpečnosť, Portainer a vlastný register.
+kind: overview
+sidebar:
+  order: 0
+  label: Prehľad kurzu
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../components/ChapterList.astro';
+
+## Kapitoly
+
+<ChapterList course="docker" />
+
+## Na opakovanie a mimo osnovy
+
+<CardGrid>
+  <LinkCard title="Ťahák" description="Všetky príkazy z kurzu na jednej stránke: kontajnery, obrazy, zväzky, siete, Compose, Dockerfile, kontexty a pasce." href="/devops-notes/docker/tahak/" />
+  <LinkCard title="Mirekove múdrosti" description="História, nástroje a postrehy lektora, ktoré nie sú priamo látkou kurzu." href="/devops-notes/docker/mudrosti/historia/" />
+  <LinkCard title="Zdroje" description="Slajdy z jednotlivých dní, labáky a z čoho vznikla ktorá kapitola." href="/devops-notes/docker/zdroje/" />
+</CardGrid>
+
+## Priebeh kurzu
+
+1. **Deň 1** — odkiaľ sa vzali kontajnery, obraz vs. kontajner, kontajner vs. virtuálny stroj. Prvé kontajnery: `run`, `ls`, `stop`, `logs`, `attach`, `rm`, `--rm`, `-d`, `-it`. Konfigurácia cez premenné prostredia a `.env` súbor, publikovanie portov, `inspect` a stavy kontajnera.
+2. **Deň 2** — perzistencia dát: anonymné a pomenované zväzky, bind mounty, používateľ v kontajneri. Prepojenie kontajnerov (MySQL + Adminer) a **Docker Compose** (WordPress).
+3. **Deň 3** — reštartovacie politiky a vlastné obrazy: `Dockerfile`, vrstvy a cache, push do registra (`ttl.sh`). Balenie vlastnej Python aplikácie podľa best practices: linter, správny základný obraz, multi-stage build, skenovanie zraniteľností, používateľ bez root práv, healthcheck.
+4. **Deň 4** — aliasy, Docker kontexty, obmedzenie zdrojov. Nástroje na správu (dry, Portainer), vlastný register, Traefik, Watchtower.
+
+:::tip[Dlhá syntax]
+> „Ja ako učiteľ vám budem ukazovať tento explicitný zápis. A vy ako ľudia z praxe si kľudne komplikujte život krátkym zápisom.“
+
+V poznámkach je preto všade `docker container run`, `docker container ls`, `docker image ls` namiesto `docker run`, `docker ps`, `docker images`. Prečo, je v kapitole [Prvé kontajnery](/devops-notes/docker/prve-kontajnery/).
+:::

@@ -1,0 +1,288 @@
+---
+title: Dockerfile a vlastný obraz
+description: Prečo sa zmeny v kontajneri nezachovajú, prečo nepoužívať docker commit, životný cyklus obrazu, Dockerfile od FROM scratch, ADD, RUN, CMD a LABEL, docker image build, vrstvy a cache.
+kind: chapter
+day: 3
+sidebar:
+  order: 10
+  label: 10 · Dockerfile
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Obraz je **nemenný** — čo nainštaluješ v kontajneri, v novom kontajneri nebude. Zmenu urobíš **novým obrazom**.
+- `docker container commit` (snímka kontajnera) **nepoužívaj** na tvorbu obrazov — nie je **replikovateľná**. Postup patrí do **Dockerfile** v Gite.
+- Dockerfile: `FROM` (základný obraz, „rodič“), `ADD`/`COPY` (súbory), `RUN` (príkaz pri builde), `LABEL` (metadáta), `CMD` (predvolený príkaz pri `run`).
+- `docker image build --tag meno .` — bodka je **kontext** (priečinok so súbormi). Bez `--tag` vznikne obraz `<none>`.
+- Obraz sa skladá z **vrstiev**. Nezmenené kroky sa berú z **cache**; od prvej zmeny sa všetko builduje znova → zriedka meniace sa kroky daj **hore**, aplikáciu **dole**.
+</KeyPoints>
+
+## Problém: nainštaloval som bash
+
+```bash
+docker container run -it alpine bash      # bash v Alpine nie je
+docker container run -it alpine sh
+apk add bash                              # Alpine má balíčkovač apk (nie apt)
+bash                                      # funguje
+exit
+
+docker container run -it alpine bash      # zase nie je!
+```
+
+Každý `run` spustí **nový** kontajner z **nemenného** obrazu — čistý, bez tvojej inštalácie. Bash ostal iba v starom, zastavenom kontajneri. Ak chceš zmenu natrvalo, treba **nový obraz**.
+
+## Čo vieme o obrazoch
+
+- obraz je **šablóna** na vytváranie kontajnerov; kontajner je **inštancia** obrazu,
+- z jedného obrazu spustíš ľubovoľne veľa kontajnerov,
+- obraz je **nemenný**,
+- postup, ako obraz vznikne, je v **Dockerfile**; hotový obraz sa ukladá do **registra**.
+
+```bash
+docker image ls
+```
+
+| Stĺpec | Význam |
+| --- | --- |
+| `IMAGE` | meno a tag |
+| `ID` | identifikátor obrazu |
+| `DISK USAGE` | koľko zaberá rozbalený na disku |
+| `CONTENT SIZE` | veľkosť vrstiev a metadát (komprimovaná) — preto menšia |
+| `EXTRA` | `U` = obraz práve používa nejaký kontajner |
+
+### Životný cyklus obrazu
+
+```text
+ Dockerfile ──build──▶ obraz ──run──▶ kontajner (start, stop, restart…)
+                        │  ▲
+                   tag  │  │ pull
+                        ▼  │
+                     push ──▶ register (Docker Hub, firemný, ttl.sh)
+            save ▼ ▲ load
+              súbor .tar
+```
+
+Plné meno obrazu má aj **register**: `register/menný_priestor/repozitár:tag` (napr. `ttl.sh/mirek/nyancat:30m`, `localhost:5000/bletvaska/nyancat:latest`). Bez registra = Docker Hub.
+
+### Prečo nie `docker container commit`
+
+`commit` urobí z bežiaceho kontajnera **snímku** — nový obraz. Problém s bashom by vyriešil, ale:
+
+- postup **nie je replikovateľný** — kde máš zapísané, čo všetko si v kontajneri nainštaloval? Čo keď niečo zabudneš?
+- softvér v obraze zastaráva, nové verzie a bezpečnostné opravy znamenajú obraz zostaviť **znova od začiatku**.
+
+Postup zostavenia patrí do **Dockerfile** verzovaného v Gite. `commit` má zmysel iba výnimočne — napr. uložiť stav kontajnera, ktorý spadol, aby si sa k chybe vedel vracať.
+
+## Dockerfile
+
+Najlepší spôsob, ako sa to naučiť: pozri sa, **ako to robia iní**. Pri oficiálnych obrazoch na Docker Hube vedie z tagu odkaz na Dockerfile.
+
+Dockerfile je textový súbor. Každý riadok je **inštrukcia** (veľkými písmenami) a jej parametre.
+
+### FROM — základný obraz
+
+```dockerfile
+FROM alpine:3.24
+```
+
+`FROM` určuje **základný obraz** (*base image*), na ktorom stavíš — ako dedenie od rodičovskej triedy: máš všetko, čo má rodič, a pridáš svoje. O základ (súborový systém, bezpečnostné opravy) sa stará niekto iný.
+
+Rodokmeň oficiálneho `nginx:alpine`:
+
+```text
+nginx:alpine  ──FROM──▶  alpine:3.24  ──FROM──▶  scratch
+```
+
+**`scratch`** je špeciálny prázdny obraz — úplný predok, nad ním už nič nie je (ako `Object` v Jave).
+
+### Minimálny obraz od nuly
+
+Takto vyzerá Dockerfile samotného obrazu `alpine`:
+
+```dockerfile title="Dockerfile"
+FROM scratch
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /
+CMD ["/bin/sh"]
+```
+
+```bash
+wget https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.2-x86_64.tar.gz
+```
+
+*miniroot filesystem* zo stránky [alpinelinux.org/downloads](https://alpinelinux.org/downloads/) je celý súborový systém Alpine (~3,6 MB). Všetky príkazy v `/bin` sú odkazy na **busybox** — jednu binárku so základnými príkazmi.
+
+| Inštrukcia | Čo robí |
+| --- | --- |
+| `FROM scratch` | začni z ničoho |
+| `ADD archív.tar.gz /` | skopíruj do obrazu — **archív zároveň rozbalí** (vie aj stiahnuť URL alebo Git repozitár) |
+| `CMD ["/bin/sh"]` | predvolený príkaz pri `docker container run` |
+
+### Build krok za krokom
+
+```bash
+docker image build --tag mini .
+```
+
+- `--tag` (`-t`) obraz pomenuje; bez neho vznikne obraz `<none>` (ukáže ho `docker image ls --all`).
+- `.` je **kontext** — priečinok so súbormi, ktoré Dockerfile kopíruje.
+- Súbor sa musí volať `Dockerfile`; iný názov (`Dockerfile.alpine`, `Dockerfile.debian`) zadáš cez `--file` (`-f`).
+
+Čo sa stane, keď Dockerfile postupne dopĺňaš:
+
+| Dockerfile | `docker container run mini` |
+| --- | --- |
+| iba `FROM scratch` | *no command specified* — obraz má ~500 B (iba metadáta) |
+| `FROM scratch` + `docker container run mini /bin/sh` | *exec: "/bin/sh": no such file* — v obraze nič nie je |
+| + `ADD …tar.gz /` | s `/bin/sh` funguje, obraz má ~13 MB |
+| + `CMD ["/bin/sh"]` | funguje aj bez príkazu |
+
+Z tvojho počítača je archív potrebný iba pri **builde**. Hotový obraz ho už v sebe má rozbalený.
+
+## Vrstvy a cache
+
+Obraz sa skladá z **vrstiev** ako cibuľa (alebo zlobri v Shrekovi). Každý krok, ktorý mení súbory (`ADD`, `COPY`, `RUN`), vytvorí vrstvu — súbory, ktoré sa „rozbalia“ nad predchádzajúce.
+
+```text
+WordPress ─┐
+           ├─ nginx ─┐
+                     ├─ Ubuntu (vrstvy A, B, C)
+```
+
+Ubuntu stiahneš raz a používa ho nginx aj WordPress.
+
+Pri builde Docker pre každý krok porovná, či sa zmenil (text inštrukcie, pri `ADD`/`COPY` obsah súborov):
+
+- nezmenený krok → `CACHED`, vrstva sa vezme z cache,
+- **od prvého zmeneného kroku sa všetko builduje znova**.
+
+```dockerfile
+FROM scratch
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /      # CACHED
+RUN sleep 5                                       # nový → 5 s
+CMD ["/bin/sh"]
+```
+
+Druhý build trvá 0 s — všetko je v cache. Keď pridáš `RUN sleep 5` aj **pred** prvý `sleep`, build trvá 10 s: zmena hore zneplatní všetko pod ňou. Inštrukcie, ktoré menia iba metadáta (`LABEL`, `CMD`), vrstvu so súbormi netvoria.
+
+:::tip[Poradie inštrukcií]
+Na začiatok daj **systémové veci, ktoré sa menia zriedka** (základ, systémové balíky), na koniec **aplikáciu**, ktorá sa mení pri každom release. Zbytočne sa tak nebuilduje celý obraz.
+:::
+
+Cache vrstiev je spoločná pre všetky obrazy na stroji — keď nový Dockerfile začína rovnakými krokmi ako iný, prvé kroky sú hneď `CACHED`.
+
+## Lab: Nyancat
+
+Obraz, ktorý v termináli spustí animáciu [nyancat](https://pkgs.alpinelinux.org/packages?name=nyancat).
+
+Postup „najprv vyskúšaj, potom zapíš“: spusti kontajner z rozpracovaného obrazu, skúšaj príkazy a každý funkčný pridaj do Dockerfile.
+
+```bash
+docker container run --rm -it mini
+apk add nyancat
+nyancat              # funguje
+which nyancat        # /usr/bin/nyancat
+```
+
+```dockerfile title="Dockerfile"
+FROM scratch
+LABEL maintainer="mirek"
+LABEL description="Nyancat in console."
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+```
+
+```bash
+docker image build --tag nyancat .
+docker container run --rm -it nyancat        # -it kvôli farbám
+```
+
+`ADD` sa vezme z cache, aj keď builduješ nový obraz — tú istú vrstvu už vytvoril obraz `mini`.
+
+### Jednoduchšie: od `alpine`
+
+Prvé tri riadky (`FROM scratch`, `ADD`, `CMD`) sú presne Dockerfile oficiálneho `alpine`. Nemusíš ich opakovať ani držať archív v Gite:
+
+```dockerfile title="Dockerfile"
+FROM alpine:3.24
+LABEL maintainer="mirek"
+LABEL description="Nyancat in console."
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+```
+
+Ak obsahuje Dockerfile viac `CMD`, platí **posledné**.
+
+## Otestuj sa
+
+<Question q="Prečo bash nainštalovaný v kontajneri chýba v ďalšom kontajneri z rovnakého obrazu?">
+Obraz je nemenný. Každý `run` vytvorí nový kontajner z pôvodného obrazu; inštalácia ostala iba v starom kontajneri.
+</Question>
+
+<Question q="Prečo nevytvárať obrazy cez `docker container commit`?">
+Snímka nie je replikovateľná — postup nie je nikde zapísaný a obraz sa nedá znova zostaviť (napr. s novšími verziami a opravami). Postup patrí do Dockerfile v Gite.
+</Question>
+
+<Question q="Čo je `FROM scratch`?">
+Začiatok od prázdneho obrazu. `scratch` je predok všetkých základných obrazov, nad ním nič nie je.
+</Question>
+
+<Question q="Aký je rozdiel medzi `RUN` a `CMD`?">
+`RUN` sa vykoná pri **builde** a jeho výsledok sa uloží do vrstvy obrazu. `CMD` je predvolený príkaz, ktorý sa spustí až pri `docker container run`.
+</Question>
+
+<Question q="Čo znamená bodka v `docker image build --tag mini .`?">
+Kontext buildu — aktuálny priečinok, odkiaľ Dockerfile kopíruje súbory (a kde hľadá `Dockerfile`).
+</Question>
+
+<Question q="Zmeníš príkaz v strede Dockerfile. Ktoré kroky sa zbuildujú znova?">
+Zmenený krok a všetky kroky pod ním. Kroky nad ním sa vezmú z cache.
+</Question>
+
+<Question q="Prečo dávať inštaláciu systémových balíkov pred kopírovanie aplikácie?">
+Systémové balíky sa menia zriedka, aplikácia často. Zmena aplikácie tak zneplatní iba posledné kroky a systémová vrstva sa vezme z cache.
+</Question>
+
+## Cvičenia
+
+### 10.1 · Mini a nyancat
+
+Stiahni Alpine miniroot filesystem, zostav obraz `mini` od `FROM scratch` a over, že v ňom funguje `sh`. Potom zostav `nyancat` od `alpine:3.24` a spusti ho.
+
+<p class="practises">Precvičíš: `FROM`, `ADD`, `RUN`, `CMD`, `LABEL`, `docker image build`.</p>
+
+<Solution>
+```bash
+mkdir mini && cd mini
+wget https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.2-x86_64.tar.gz
+printf 'FROM scratch\nADD alpine-minirootfs-3.24.2-x86_64.tar.gz /\nCMD ["/bin/sh"]\n' > Dockerfile
+docker image build --tag mini .
+docker container run --rm -it mini        # / #
+cd ..
+
+mkdir nyancat && cd nyancat
+cat > Dockerfile <<'EOF'
+FROM alpine:3.24
+LABEL description="Nyancat in console."
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+EOF
+docker image build --tag nyancat .
+docker container run --rm -it nyancat
+```
+</Solution>
+
+### 10.2 · Pozoruj cache
+
+Do Dockerfile `mini` pridaj na koniec `RUN sleep 5` a zbuilduj dvakrát. Potom pridaj ďalší `RUN date` pred `sleep` a zbuilduj znova. Ako dlho trval každý build?
+
+<p class="practises">Precvičíš: vrstvy, `CACHED`, poradie inštrukcií.</p>
+
+<Solution>
+1. build: ~5 s (`ADD` je CACHED, `sleep` nový).
+2. build: ~0 s — všetko CACHED.
+3. build po pridaní `RUN date` pred `sleep`: `date` je nový krok, takže aj `sleep` pod ním sa vykoná znova — ~5 s.
+</Solution>

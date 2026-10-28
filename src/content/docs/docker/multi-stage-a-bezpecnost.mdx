@@ -1,0 +1,292 @@
+---
+title: Multi-stage build, bezpečnosť a healthcheck
+description: Multi-stage build zmenší obraz z 1,9 GB na 280 MB, WORKDIR, skenovanie zraniteľností nástrojom grype, používateľ bez root práv, bezpečnostné aktualizácie, HEALTHCHECK a autoheal.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Multi-stage a bezpečnosť
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Multi-stage build**: viac `FROM` v jednom Dockerfile. V stage `builder` kompiluješ, do finálneho obrazu skopíruješ iba výsledok (`COPY --from=builder /app/venv /app/venv`). Weather: z **1,9 GB na 278 MB**.
+- `WORKDIR /app` — pracovný priečinok aplikácie (poriadok namiesto všetkého v `/`).
+- **grype** (alebo Trivy) skenuje obraz na známe zraniteľnosti — systémové balíky aj Python knižnice. `--fail-on high` → exit kód ≠ 0 a CI/CD pipeline sa zastaví.
+- **Nespúšťaj ako root**: `groupadd` + `useradd` v obraze a `USER pythonista`. Priečinky, kam aplikácia zapisuje, musia patriť tomuto používateľovi.
+- `HEALTHCHECK --interval --timeout --retries --start-period CMD …` → stav `starting` / `healthy` / `unhealthy`. Docker iba označí, reštart zariadi až napr. **autoheal**.
+</KeyPoints>
+
+## Multi-stage build
+
+V jednom Dockerfile môže byť viac `FROM` — každý začína novú **stage**. Do finálneho obrazu ide iba posledná; z predchádzajúcich si skopíruješ, čo potrebuješ.
+
+```dockerfile title="Dockerfile"
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+COPY weather-2024.4-py3-none-any.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+
+FROM python:3.13-slim AS main
+
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+EXPOSE 8000
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+- **builder** nainštaluje kompilátor, vytvorí virtuálne prostredie a nainštaluje doň aplikáciu so všetkými závislosťami (pendulum sa skompiluje).
+- **main** začne znova od čistého `python:3.13-slim` a prevezme iba priečinok `/app/venv`. Kompilátor, hlavičky, katalóg balíkov ani medzivýsledky kompilácie doň nejdú.
+
+```bash
+docker image build --tag weather:debian .
+docker image ls weather       # 278 MB namiesto 1,9 GB
+```
+
+Druhá možnosť: v builderi pripraviť iba **wheely** všetkých závislostí (`pip download --dest /tmp/wheels …` / `pip wheel`) a v main stage ich nainštalovať. Kopírovať hotové virtuálne prostredie je jednoduchšie.
+
+Rovnaký prístup sa hodí všade, kde sa kompiluje: Java aplikácia potrebuje na build celé **JDK**, na beh už iba runtime a jeden `.war`/`.jar`.
+
+:::note[Oprava materiálu]
+V ukážke z kurzu builder vytváral `/venv`, ale finálna stage kopírovala `/app/venv`. Cesty musia sedieť — v Dockerfile vyššie je všade `/app/venv`.
+:::
+
+### WORKDIR
+
+`WORKDIR /app` je ako `cd /app` pre všetky ďalšie inštrukcie, a posledný `WORKDIR` je aj priečinok, v ktorom sa spustí kontajner (aplikácia tam napr. ukladá svoju SQLite databázu). Konvencia: všetko tvoje v jednom priečinku (`/app`), nie rozhádzané po koreni medzi systémovými priečinkami.
+
+### Upratanie po buildoch
+
+Medzivrstvy a build cache zaberajú miesto:
+
+```bash
+docker system df              # koľko zaberajú obrazy, kontajnery, zväzky, cache
+docker system prune           # zastavené kontajnery, nepoužívané siete, <none> obrazy, build cache
+docker system prune --all     # aj všetky nepoužívané obrazy a celú cache
+```
+
+## 3. Skenovanie zraniteľností
+
+Aj oficiálne obrazy obsahujú balíky so známymi zraniteľnosťami (CVE). Skener si stiahne **databázu zraniteľností** a porovná ju so všetkým v obraze — systémové balíky (deb, apk) aj balíky jazykov (Python):
+
+```bash
+grype weather:debian
+```
+
+```text
+NAME       INSTALLED  FIXED-IN  TYPE    VULNERABILITY   SEVERITY  EPSS  RISK
+starlette  0.37.2     0.47.2    python  GHSA-…          Medium    …     …
+perl-base  5.36.0-7   (won't fix) deb   CVE-…           High      …     …
+```
+
+- **FIXED-IN** — verzia, ktorá chybu opravuje (`won't fix` = oprava nebude),
+- **SEVERITY** — závažnosť (Negligible, Low, Medium, High, Critical).
+
+Často ide o balík, ktorý tvoja aplikácia vôbec nepoužíva (napr. Perl v základnom systéme) — ďalší dôvod na menšie obrazy a distroless.
+
+```bash
+grype weather:debian --fail-on high
+echo $?                       # ≠ 0, ak našiel High alebo Critical
+```
+
+Bez `--fail-on` skončí grype vždy s 0, aj keď nájde sto kritických chýb. S ním ho zaradíš do **CI/CD pipeline** pred push obrazu — pri závažnej zraniteľnosti sa pipeline zastaví a nová verzia nevyjde.
+
+Alternatívou ku [grype](https://github.com/anchore/grype) je [Trivy](https://github.com/aquasecurity/trivy).
+
+:::caution[Miesto na disku]
+Databáza grype má stovky MB a rozbalená okolo 3 GB v `~/.cache/grype`. Keď dochádza miesto, zmaž ju: `rm -rf ~/.cache/grype`.
+:::
+
+## 4. Nespúšťaj ako root
+
+```bash
+docker container run --rm -it weather:debian whoami     # root
+docker container run -d alpine sleep 20
+ps -eo user,pid,cmd | grep sleep                        # root … sleep 20 — aj na hostiteľovi!
+```
+
+Proces v kontajneri beží ako root a na hostiteľovi ho vidíš tiež ako roota. Keby sa útočník z kontajnera dostal von, má rootovské práva. V obraze preto vytvor **vlastného používateľa**:
+
+```dockerfile
+RUN groupadd --gid 1000 pythonista \
+    && useradd --uid 1000 --gid 1000 --no-create-home pythonista
+
+# … inštalácia ako root …
+
+USER pythonista
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+Od `USER` beží všetko (aj spustený kontajner) ako `pythonista` (UID 1000).
+
+:::caution[Práva na zápis]
+Na kurze aplikácia potom spadla na *unable to open database file*: priečinok `/app` vytvoril root a `pythonista` doň nemohol zapisovať (SQLite databáza). Priečinky, kam aplikácia zapisuje, daj používateľovi — napr. `RUN mkdir -p /app && chown pythonista:pythonista /app` alebo `COPY --chown=pythonista:pythonista …`.
+:::
+
+## 5. Bezpečnostné aktualizácie
+
+Softvér zastaráva. Obraz pravidelne **zostav znova** na aktuálnom základnom obraze a s aktualizovanými balíkmi (`apt-get upgrade` v builde, nový tag základu), skontroluj grype a vydaj novú verziu. Automatické nasadenie novej verzie rieši napr. [Watchtower](/devops-notes/docker/register-a-automatizacia/).
+
+## Healthcheck
+
+To, že proces beží, ešte neznamená, že aplikácia funguje (zasekla sa, nevie sa pripojiť k databáze). **Healthcheck** pravidelne overuje, či je zdravá:
+
+```dockerfile
+HEALTHCHECK \
+    --interval=10s \
+    --timeout=3s \
+    --retries=3 \
+    --start-period=30s \
+    CMD curl -f http://localhost:8000 || exit 1
+```
+
+| Voľba | Význam |
+| --- | --- |
+| `--interval=10s` | kontrola každých 10 sekúnd |
+| `--timeout=3s` | na odpoveď čaká najviac 3 s, potom je kontrola neúspešná |
+| `--retries=3` | až **3 neúspechy za sebou** = `unhealthy` (jeden úspech stav vráti na `healthy`) |
+| `--start-period=30s` | počas štartu sa neúspechy nerátajú — aplikácia sa môže pokojne rozbiehať |
+
+Bez `--start-period` by pomaly štartujúca aplikácia (Java aj minútu) bola `unhealthy` ešte pred nabehnutím — a keby ju niekto pri `unhealthy` reštartoval, nikdy by nenabehla. Nastav ho asi na **dvojnásobok** bežného času štartu.
+
+```bash
+docker container ls
+# STATUS: Up 5 seconds (health: starting)
+# STATUS: Up 1 minute (healthy)
+```
+
+### Príkaz kontroly
+
+Healthcheck berie iba exit kódy **0** (zdravý) a **1** (nezdravý); **2** je rezervované. Preto `|| exit 1`:
+
+- `curl -f` (`--fail`) pri HTTP chybe (4xx, 5xx) skončí s nenulovým kódom (22) — bez `-f` by skončil s 0, aj keby server vrátil 500,
+- `|| exit 1` zmení akýkoľvek neúspech na 1.
+
+Ako kontrolovať, závisí od aplikácie:
+
+- HTTP **health endpoint** (napr. `/health`, v Jave Spring Boot Actuator) — vracia 200, keď je aplikácia zdravá, a sama rozhodne, čo „zdravá“ znamená (beží HTTP, funguje pripojenie k databáze…),
+- otvorenie TCP spojenia (napr. FTP server),
+- pribalený program, ktorý stav skontroluje a vráti exit kód.
+
+:::caution[curl v obraze]
+Na kurze bol kontajner hneď `unhealthy` — v `python:3.13-slim` **nie je `curl`**. Buď ho doinštaluj, alebo kontroluj nástrojom, ktorý v obraze je, napr. Pythonom: `CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000')" || exit 1`.
+:::
+
+### Kto reštartuje unhealthy kontajner
+
+**Docker nie** — iba ho označí. Reštartovacia politika reaguje na skončenie procesu, nie na `unhealthy`. Riešením je kontajner [autoheal](https://github.com/willfarrell/docker-autoheal) (sleduje kontajnery cez `docker.sock` a `unhealthy` reštartuje), alebo Kubernetes so sondami.
+
+## Výsledný Dockerfile
+
+```dockerfile title="Dockerfile"
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+COPY weather-2024.4-py3-none-any.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+
+FROM python:3.13-slim AS main
+
+RUN groupadd --gid 1000 pythonista \
+    && useradd --uid 1000 --gid 1000 --no-create-home pythonista
+
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+RUN chown pythonista:pythonista /app
+ENV PATH="/app/venv/bin:$PATH"
+
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=30s \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000')" || exit 1
+
+EXPOSE 8000
+USER pythonista
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+hadolint na ňom hlási už iba nepripnuté verzie systémových balíkov (`DL3008`).
+
+## Otestuj sa
+
+<Question q="Ako multi-stage build zmenší obraz?">
+Kompilácia a inštalácia prebehne v stage `builder`. Finálna stage začne z čistého základu a skopíruje si iba výsledok (`COPY --from=builder`), bez kompilátorov a medzivýsledkov.
+</Question>
+
+<Question q="Na čo je `WORKDIR`?">
+Nastaví pracovný priečinok pre ďalšie inštrukcie a pre spustený kontajner. Aplikácia má všetko v jednom priečinku (napr. `/app`).
+</Question>
+
+<Question q="Ako zastavíš CI/CD pipeline, keď obraz obsahuje zraniteľnosť High?">
+`grype obraz --fail-on high` — pri nájdení skončí s nenulovým exit kódom.
+</Question>
+
+<Question q="Prečo nespúšťať aplikáciu v kontajneri ako root?">
+Root v kontajneri je root aj na hostiteľovi — ak sa útočník dostane z kontajnera, má plné práva. Vlastný používateľ (`USER`) to obmedzí.
+</Question>
+
+<Question q="Čo znamená `--retries=3` a `--start-period=30s` v HEALTHCHECK?">
+`unhealthy` až po 3 neúspechoch za sebou; počas prvých 30 s po štarte sa neúspechy nerátajú.
+</Question>
+
+<Question q="Prečo `curl -f … || exit 1`?">
+`-f` urobí z HTTP chyby nenulový exit kód; `|| exit 1` ho zmení na 1, lebo healthcheck pozná iba 0 a 1.
+</Question>
+
+<Question q="Reštartuje Docker kontajner, ktorý je `unhealthy`?">
+Nie, iba ho označí. Reštart zariadi napr. autoheal alebo Kubernetes.
+</Question>
+
+## Cvičenia
+
+### 13.1 · Z 1,9 GB na 280 MB
+
+Prepíš Dockerfile pre weather z predchádzajúcej kapitoly na multi-stage build a porovnaj veľkosti obrazov.
+
+<p class="practises">Precvičíš: `AS builder`, `COPY --from`, `WORKDIR`.</p>
+
+<Solution>
+Dockerfile z časti *Multi-stage build*, potom:
+
+```bash
+docker image build --tag weather:multistage .
+docker image ls weather
+# weather:debian      1.9GB
+# weather:multistage  278MB
+docker container run --rm -it -p 8000:8000 weather:multistage
+```
+</Solution>
+
+### 13.2 · Bezpečný a zdravý
+
+Doplň do obrazu používateľa `pythonista`, healthcheck a over: `whoami` v kontajneri, stav v `docker container ls` po minúte a výsledok `grype --fail-on critical`.
+
+<p class="practises">Precvičíš: `USER`, `HEALTHCHECK`, grype.</p>
+
+<Solution>
+Výsledný Dockerfile vyššie, potom:
+
+```bash
+docker image build --tag weather:secure .
+docker container run -d --name weather -p 8000:8000 weather:secure
+docker container exec weather whoami          # pythonista
+docker container ls                           # (health: starting) → (healthy)
+grype weather:secure --fail-on critical; echo $?
+```
+</Solution>

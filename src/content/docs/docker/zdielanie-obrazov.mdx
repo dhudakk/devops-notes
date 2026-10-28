@@ -1,0 +1,159 @@
+---
+title: Zdieľanie obrazov
+description: Tagovanie obrazov, push a pull cez anonymný register ttl.sh a Docker Hub, viac tagov pre jeden obraz, mazanie a prune, vrstvy a jeden RUN s &&, nástroj dive.
+kind: chapter
+day: 3
+sidebar:
+  order: 11
+  label: 11 · Zdieľanie obrazov
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Kam sa obraz pošle, určuje **meno**: `docker image tag nyancat ttl.sh/mirek/nyancat:30m` a potom `docker image push ttl.sh/mirek/nyancat:30m`.
+- Jeden obraz môže mať **viac tagov** — majú rovnaké `IMAGE ID` (ako hard linky na jeden súbor). `push --all-tags` pošle všetky.
+- **ttl.sh** je anonymný register bez účtu: tag = ako dlho tam obraz vydrží (`30m`, `1h`, max. 24 h).
+- `docker image rm` zmaže obraz (tag), `docker image prune` obrazy `<none>`. `docker image ls --all` ukáže aj neotagované.
+- Oficiálne Dockerfiles spájajú príkazy do **jedného `RUN` cez `&&`** — menej vrstiev a reťaz skončí pri prvej chybe. Vrstvy si prezrieš cez `docker image history` alebo **dive**.
+</KeyPoints>
+
+## Tagovanie
+
+```bash
+docker image tag nyancat ttl.sh/mirek/nyancat:30m
+docker image ls
+# nyancat:latest              ID e15e…
+# ttl.sh/mirek/nyancat:30m    ID e15e…
+```
+
+`docker image tag ZDROJ CIEĽ` pridá obrazu ďalšie meno. Obraz je v Dockeri **jeden**, odkazujú naň dve mená — rovnaké `IMAGE ID`. Ako dve referencie na jeden objekt v pamäti alebo hard linky na jeden súbor.
+
+Takto sú tagované aj oficiálne obrazy — `nginx:latest`, `nginx:1.31`, `nginx:1.31.6` môžu byť ten istý obraz.
+
+## ttl.sh — anonymný register
+
+[ttl.sh](https://ttl.sh/) je register, kam pošleš obraz **bez účtu a prihlásenia**. Tag hovorí, ako dlho tam vydrží (`5m`, `30m`, `1h`, `24h`; predvolená 1 hodina, maximum 24 hodín). Hodí sa na rýchle zdieľanie a na vyskúšanie push/pull.
+
+```bash
+docker image push ttl.sh/mirek/nyancat:30m
+```
+
+Kontrola — zmaž obraz lokálne a stiahni ho späť:
+
+```bash
+docker image rm ttl.sh/mirek/nyancat:30m nyancat
+docker image pull ttl.sh/mirek/nyancat:30m
+docker container run --rm -it ttl.sh/mirek/nyancat:30m
+```
+
+Pri pulle môžeš vidieť *Already exists* pri niektorej vrstve — tú vrstvu máš lokálne (napr. z obrazu `alpine`).
+
+:::note[Oprava zo slajdov]
+Slajdy uvádzajú `docker image run ttl.sh/bletvaska/matrix`. Taký príkaz neexistuje — kontajner sa spúšťa cez `docker container run`.
+:::
+
+## Docker Hub
+
+Do Docker Hubu potrebuješ účet a prihlásenie:
+
+```bash
+docker login                     # prihlásenie (relácia ostane uložená)
+docker image tag mini bletvaska/mini
+docker image push bletvaska/mini
+docker image tag mini bletvaska/mini:2020.01
+docker image push --all-tags bletvaska/mini
+docker logout                    # po skončení sa odhlás
+```
+
+Menný priestor (`bletvaska`) je meno tvojho účtu. `--all-tags` pošle všetky tagy obrazu naraz.
+
+## Mazanie a upratovanie
+
+```bash
+docker image rm nyancat              # zmaže tag (obraz, ak to bol posledný tag)
+docker image ls --all                # aj <none> obrazy
+docker image prune                   # zmaže <none> (neotagované) obrazy
+```
+
+`<none>` obrazy vznikajú pri builde bez `--tag` alebo keď nový build „zoberie“ tag starému obrazu. `prune` nezmaže obrazy, ktoré používa nejaký kontajner (`EXTRA: U`).
+
+### save a load
+
+```bash
+docker image save nyancat -o nyancat.tar
+docker image load -i nyancat.tar
+```
+
+Obraz uložený do archívu prenesieš aj na stroj bez prístupu do registra alebo internetu.
+
+## Jeden RUN s `&&`
+
+V oficiálnych Dockerfiles (`nginx`, `mysql`) býva jeden obrovský `RUN` namiesto desiatok krátkych:
+
+```dockerfile
+RUN set -x \
+    && groupadd --system nginx \
+    && useradd --system --gid nginx nginx \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes nginx \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+- Každý `RUN` je **vrstva** a každá vrstva má réžiu (metadáta, spracovanie pri builde aj pulle). Menej vrstiev = rýchlejšie.
+- `&&` spustí ďalší príkaz iba vtedy, keď predchádzajúci skončil s **exit kódom 0**. `RUN`, ktorý skončí s chybou, zastaví celý build — reťaz sa nevykoná napoly.
+- Upratanie (`rm -rf /var/lib/apt/lists/*`) musí byť v **tom istom** `RUN` — keby bolo v ďalšom, dáta by v predchádzajúcej vrstve ostali.
+
+## Prezeranie vrstiev
+
+```bash
+docker image history nyancat
+dive ttl.sh/mirek/nyancat:30m
+```
+
+[dive](https://github.com/wagoodman/dive) je interaktívny nástroj: vľavo vrstvy, vpravo súborový systém, a farebne ukáže, **čo ktorá vrstva zmenila** (pri nyancat pribudla binárka `/usr/bin/nyancat` a aktualizovala sa databáza balíkov v `/lib/apk`). `Ctrl+Space` prepína zobrazenie. Hodí sa na kontrolu, či build urobil, čo mal, a čo zbytočne zväčšuje obraz.
+
+## Otestuj sa
+
+<Question q="Ako pošleš obraz `nyancat` do registra `ttl.sh` na 30 minút?">
+`docker image tag nyancat ttl.sh/mirek/nyancat:30m` a `docker image push ttl.sh/mirek/nyancat:30m`.
+</Question>
+
+<Question q="Prečo majú `nyancat:latest` a `ttl.sh/mirek/nyancat:30m` rovnaké IMAGE ID?">
+Je to ten istý obraz s dvoma menami (tagmi). Tag je iba odkaz na obraz.
+</Question>
+
+<Question q="Čo zmaže `docker image prune`?">
+Neotagované obrazy (`<none>`), ktoré nepoužíva žiadny kontajner.
+</Question>
+
+<Question q="Prečo spájať príkazy do jedného `RUN` cez `&&`?">
+Každý `RUN` je vrstva s réžiou. `&&` navyše zastaví reťaz pri prvej chybe a upratanie v tom istom `RUN` naozaj zmenší vrstvu.
+</Question>
+
+<Question q="Na čo je nástroj dive?">
+Interaktívne prezeranie vrstiev obrazu — ktorá vrstva čo zmenila v súborovom systéme a čo zaberá miesto.
+</Question>
+
+## Cvičenia
+
+### 11.1 · Push a pull cez ttl.sh
+
+Obraz `nyancat` otaguj dvoma tagmi pre ttl.sh (`30m` a `1h`) so svojím menným priestorom a pošli oba. Lokálne ho zmaž, stiahni a spusti.
+
+<p class="practises">Precvičíš: `image tag`, `image push`, `image rm`, `image pull`.</p>
+
+<Solution>
+```bash
+docker image tag nyancat ttl.sh/jano/nyancat:30m
+docker image tag nyancat ttl.sh/jano/nyancat:1h
+docker image ls | grep nyancat           # rovnaké IMAGE ID
+docker image push ttl.sh/jano/nyancat:30m
+docker image push ttl.sh/jano/nyancat:1h
+docker image rm nyancat ttl.sh/jano/nyancat:30m ttl.sh/jano/nyancat:1h
+docker image pull ttl.sh/jano/nyancat:30m
+docker container run --rm -it ttl.sh/jano/nyancat:30m
+```
+</Solution>

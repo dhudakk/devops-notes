@@ -1,0 +1,313 @@
+---
+title: Docker Compose
+description: Kompozícia viacerých kontajnerov v súbore compose.yaml — služby, zväzky, siete, premenné, docker compose up a down, menný priestor projektu, príkazy na správu a poradie spúšťania cez depends_on.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · Docker Compose
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Compose** = kompozícia viacerých kontajnerov v jednom súbore **`compose.yaml`** (alebo `docker-compose.yaml`). Dlhé `docker container run` prepíšeš do YAML — dá sa verzovať v Gite.
+- Hlavný kľúč **`services`** (nie *containers* — ten istý súbor používa aj Docker Swarm, kde služba môže bežať v N kópiách). Pri službe: `image`, `volumes`, `environment`, `env_file`, `ports`, `networks`, `restart`, `depends_on`.
+- Pomenované zväzky a siete vymenuj aj na **najvyššej úrovni** (`volumes:`, `networks:`), voliteľne s nastaveniami (`{}` = predvolené).
+- `docker compose up` (`-d` na pozadí) vytvorí siete, zväzky a spustí služby. `docker compose down` zastaví a zmaže kontajnery aj siete.
+- Mená sú v **mennom priestore projektu** = názov priečinka: kontajner `rustfs-rustfs-1`, zväzok `rustfs_storage`. Preto služba môže pokojne volať `db`.
+</KeyPoints>
+
+## Prečo Compose
+
+Spúšťať niekoľko kontajnerov dlhými príkazmi s desiatkami volieb, v správnom poradí a s editorom vedľa je nepraktické. **Compose** (*kompozícia, skladba*) spustí viacero kontajnerov naraz podľa jedného súboru.
+
+## YAML
+
+Súbor je vo formáte **YAML**. JSON aj YAML sú strojovo čitateľné; JSON je vhodnejší na prenos po sieti, **YAML na čítanie a písanie ľuďmi** — preto ho používajú konfiguračné súbory. Odsadenie medzerami určuje štruktúru, `-` je položka zoznamu, `kľúč: hodnota` je slovník.
+
+## Z príkazu do kompozície
+
+```bash
+docker container run --rm -it --name rustfs \
+  --volume storage:/data \
+  --env RUSTFS_ACCESS_KEY=admin \
+  --env RUSTFS_SECRET_KEY=secret123 \
+  --env RUSTFS_CONSOLE_ENABLE=true \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  --network storage \
+  rustfs/rustfs
+```
+
+```yaml title="compose.yaml"
+services:
+  rustfs:
+    image: rustfs/rustfs
+    volumes:
+      - storage:/data
+    environment:
+      - RUSTFS_ACCESS_KEY=admin
+      - RUSTFS_SECRET_KEY=secret123
+      - RUSTFS_CONSOLE_ENABLE=true
+    env_file:
+      - rustfs.env
+    ports:
+      - 9000:9000
+      - 9001:9001
+    networks:
+      - storage
+
+networks:
+  storage: {}
+
+volumes:
+  storage: {}
+```
+
+| Voľba `docker container run` | Kľúč v Compose |
+| --- | --- |
+| meno obrazu | `image:` |
+| `--name` | meno služby (`rustfs:`) |
+| `--volume` | `volumes:` (zoznam) |
+| `--env` | `environment:` (zoznam `KĽÚČ=hodnota`) |
+| `--env-file` | `env_file:` (zoznam — súborov môže byť viac) |
+| `--publish` | `ports:` (zoznam) |
+| `--network` | `networks:` (zoznam) |
+| `--restart` | `restart:` |
+
+### Siete a zväzky na najvyššej úrovni
+
+Pomenované siete a zväzky sa vymenujú aj na **najvyššej úrovni**. Compose ich vytvorí skôr, než začne spúšťať služby, a nastavenia (driver, existujúci zväzok…) zapíšeš **iba raz** — služby sa na ne iba odkážu menom (DRY).
+
+`{}` je prázdny objekt = predvolené nastavenia. Na kurze kompozícia fungovala aj bez `{}` (`storage:` bez hodnoty), ale *explicit is better than implicit*.
+
+Na zväzok, ktorý už existuje mimo kompozície, sa odkážeš cez `external: true`:
+
+```yaml
+volumes:
+  wp_db:
+    external: true
+```
+
+## Spustenie a zastavenie
+
+```bash
+docker compose up             # spusti všetko, logy na popredí
+docker compose up --detach    # -d: na pozadí
+docker compose down           # zastav a zmaž kontajnery a siete
+```
+
+Spúšťaš v priečinku so súborom `compose.yaml` / `docker-compose.yaml` — iný názov treba zadať cez `docker compose -f súbor.yaml up`.
+
+- `up` vytvorí siete a zväzky, potom spustí služby. Logy všetkých služieb sú farebne odlíšené.
+- `Ctrl+C` služby zastaví. Počas behu na popredí `d` prepne na pozadie.
+- `down` zastaví a **zmaže kontajnery aj siete**. Pomenované zväzky ostanú (zmaže ich až `down --volumes`).
+
+Kedysi to bol samostatný program `docker-compose`, dnes je Compose súčasťou Dockera ako `docker compose`.
+
+## Menný priestor projektu
+
+```bash
+docker container ls
+# NAMES: rustfs-rustfs-1
+docker volume ls
+# rustfs_storage
+docker network ls
+# rustfs_storage
+```
+
+Meno kontajnera = **`priečinok-služba-číslo`**:
+
+- **priečinok** (projekt) — tu `rustfs`,
+- **služba** — `rustfs`,
+- **číslo inštancie** — v Swarme môže bežať služba v desiatich kópiách (`-1` až `-10`).
+
+Zväzky a siete majú tiež predponu projektu. Prečo: keby 13 ľudí na jednom serveri spustilo databázu s menom `db`, uspel by iba prvý. S menným priestorom stačí, aby sa líšil priečinok — preto ho pomenuj podľa projektu.
+
+:::note[Existujúci zväzok sa nepoužil]
+Po prepise WordPressu do Compose sa nepoužil zväzok `wp_db` z ručného spúšťania — kompozícia vytvorila nový `wordpress_wp_db` (s predponou projektu). Na pôvodný sa odkážeš cez `external: true`.
+:::
+
+## Správa kompozície
+
+Väčšina príkazov z `docker container` má obdobu v `docker compose` — namiesto mena kontajnera píšeš **meno služby**:
+
+| Príkaz | Čo robí |
+| --- | --- |
+| `docker compose ls` | bežiace kompozície na celom stroji (odkiaľkoľvek) |
+| `docker compose ps` | kontajnery tejto kompozície |
+| `docker compose logs rustfs` | logy služby (`-f` sleduje) |
+| `docker compose exec rustfs sh` | príkaz v bežiacej službe |
+| `docker compose images` | obrazy použité v kompozícii |
+| `docker compose volumes` | zväzky kompozície |
+| `docker compose stop` / `start` / `restart` | bez mazania kontajnerov |
+| `docker compose up -d rustfs` | iba jedna služba |
+
+## Lab: WordPress v Compose
+
+```yaml title="compose.yaml"
+services:
+  db:
+    image: mysql
+    volumes:
+      - wp_db:/var/lib/mysql
+    env_file:
+      - mysql.env
+    networks:
+      - wordpress
+
+  ui:
+    image: adminer
+    networks:
+      - wordpress
+    ports:
+      - 8080:8080
+
+  wp:
+    image: wordpress
+    volumes:
+      - wp_wordpress:/var/www/html
+    env_file:
+      - wp.env
+    networks:
+      - wordpress
+    ports:
+      - 80:80
+
+networks:
+  wordpress: {}
+
+volumes:
+  wp_db: {}
+  wp_wordpress: {}
+```
+
+`mysql.env` a `wp.env` sú z [predchádzajúcej kapitoly](/devops-notes/docker/siete/). `docker compose up`, inštalácia na `http://localhost`, `docker compose down` + `up` — web aj článok ostanú.
+
+## Poradie spúšťania: `depends_on`
+
+Služby nie sú spúšťané v poradí, v akom sú napísané. WordPress však potrebuje bežiacu databázu:
+
+```yaml
+services:
+  wp:
+    image: wordpress
+    depends_on:
+      - db
+```
+
+Krátky zápis zaručí iba **poradie štartu**: najprv sa naštartuje `db`, potom `wp`. Nečaká sa, kým databáza naozaj nabehne a prijíma spojenia (Java aplikácia môže štartovať aj 30 s).
+
+Dlhý zápis s podmienkou:
+
+```yaml
+services:
+  wp:
+    image: wordpress
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+```
+
+| `condition` | Čaká, kým závislosť… |
+| --- | --- |
+| `service_started` | sa spustí (ako krátky zápis) |
+| `service_healthy` | je **healthy** podľa healthchecku |
+| `service_completed_successfully` | skončí s exit kódom 0 (napr. inicializačný kontajner) |
+
+`restart: true` reštartuje službu aj vtedy, keď Compose reštartuje jej závislosť.
+
+Obraz `mysql` **nemá healthcheck**, takže `service_healthy` skončí chybou *dependency failed to start: container … has no healthcheck configured*. Healthcheck treba doplniť do kompozície (`healthcheck:`) alebo do obrazu — pozri [3. deň](/devops-notes/docker/multi-stage-a-bezpecnost/).
+
+:::note[Docker vs. Kubernetes]
+Docker iba **označí** kontajner ako `unhealthy` — nikto ho automaticky nereštartuje. Kubernetes to rieši sondami (*readiness*, *liveness*). Docker je preto skvelý na lokálny vývoj a menšie nasadenia, na produkčné riešenia s vysokou dostupnosťou sa používa Kubernetes.
+:::
+
+## Otestuj sa
+
+<Question q="Prečo sa hlavný kľúč volá `services`, a nie `containers`?">
+Ten istý súbor slúži aj pre Docker Swarm, kde služba môže bežať vo viacerých inštanciách (kontajneroch).
+</Question>
+
+<Question q="Prečo sa kontajner služby `rustfs` volá `rustfs-rustfs-1`?">
+Meno je `projekt-služba-číslo`. Projekt je predvolene názov priečinka (`rustfs`), služba `rustfs`, `1` je číslo inštancie.
+</Question>
+
+<Question q="Čo zmaže `docker compose down` a čo nie?">
+Zastaví a zmaže kontajnery a siete kompozície. Pomenované zväzky ostanú (zmaže ich `down --volumes`).
+</Question>
+
+<Question q="Prečo vymenúvať siete a zväzky aj na najvyššej úrovni súboru?">
+Compose ich vytvorí pred spustením služieb a prípadné nastavenia sa zapíšu iba raz — služby sa na ne odkážu menom.
+</Question>
+
+<Question q="Zaručí `depends_on: [db]`, že databáza prijíma spojenia, keď štartuje WordPress?">
+Nie. Zaručí iba poradie štartu. Na čakanie treba `condition: service_healthy` a healthcheck v databáze.
+</Question>
+
+<Question q="Prečo po prepise do Compose nevidíš dáta z ručne vytvoreného zväzku `wp_db`?">
+Compose pridal predponu projektu a vytvoril nový zväzok (napr. `wordpress_wp_db`). Pôvodný použiješ cez `external: true`.
+</Question>
+
+## Cvičenia
+
+### 9.1 · RustFS ako kompozícia
+
+Prepíš RustFS (zväzok `storage`, porty 9000 a 9001, premenné zo súboru `rustfs.env`) do `compose.yaml`. Spusti ho na pozadí, pozri logy služby, vstúp do nej a nakoniec kompozíciu zastav. Over, že zväzok ostal.
+
+<p class="practises">Precvičíš: `services`, `volumes`, `env_file`, `ports`, `up -d`, `logs`, `exec`, `down`.</p>
+
+<Solution>
+```yaml title="rustfs/compose.yaml"
+services:
+  rustfs:
+    image: rustfs/rustfs
+    volumes:
+      - storage:/data
+    env_file:
+      - rustfs.env
+    ports:
+      - 9000:9000
+      - 9001:9001
+
+volumes:
+  storage: {}
+```
+
+```bash
+cd rustfs
+docker compose up --detach
+docker compose ps
+docker compose logs -f rustfs
+docker compose exec rustfs sh
+docker compose down
+docker volume ls          # rustfs_storage ostal
+```
+</Solution>
+
+### 9.2 · WordPress s poradím
+
+Vytvor kompozíciu WordPress z labu a doplň `depends_on`, aby `wp` aj `ui` štartovali až po `db`. Over perzistenciu cez `down` a `up`.
+
+<p class="practises">Precvičíš: kompozícia troch služieb, `depends_on`, perzistencia.</p>
+
+<Solution>
+Kompozícia z labu vyššie, pri službách `ui` a `wp` pridaj:
+
+```yaml
+    depends_on:
+      - db
+```
+
+```bash
+docker compose up -d
+# inštalácia na http://localhost, napíš článok
+docker compose down
+docker compose up -d
+# článok je tam — dáta sú v zväzkoch wordpress_wp_db a wordpress_wp_wordpress
+```
+</Solution>

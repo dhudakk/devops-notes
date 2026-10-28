@@ -1,0 +1,61 @@
+---
+title: Nástroje
+description: Nástroje, ktoré lektor odporúča alebo používa — aliasy na kontajnery, linter pre každý jazyk, dry, Oh My Zsh, Traefik, Balena a zoznamy awesome.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## Aliasy na kontajnery
+
+> „Videl som to kedysi v jednom videu a hneď mi docvaklo — ty kokso, to je parádny nápad.“
+
+Vlastné nástroje si lektor balí do obrazov a spúšťa ich aliasom namiesto dlhého `docker container run`. Napríklad generátor študijných materiálov (Jekyll) s pripojeným priečinkom zdrojákov — každé uloženie súboru stránku hneď prebuilduje. Nevýhoda pevného `--name` v aliase: nástroj nespustíš dvakrát naraz; výhoda: ľahko ho nájdeš.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Linter pre každý jazyk
+
+> „Ak ste linter doteraz nepoužívali, najvyšší čas.“
+
+Je jedno, či píšeš Bash, Python alebo Javu — nájdi si linter a používaj ho. Vyhneš sa veciam, ktoré možno píšeš roky a netušíš, že vedú ku skrytým chybám. Pre Bash **ShellCheck** (Bash je na chyby „extrémne náchylný, alebo úchylný“), pre Dockerfile **hadolint**.
+
+<p class="wisdom-day">Deň 3</p>
+
+## dry namiesto lazydocker
+
+Z terminálových nástrojov na Docker lektor odporúča **dry** — vyzerá ako `k9s`, ktorý sa naučíte pri Kubernetes, a je živý projekt. lazydocker je pekný, ale vývoj sa spomalil a s novým Dockerom mal problém s verziou API.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Oh My Zsh
+
+Ak ešte nie si v Bashi zabehnutý, prejdi na **Zsh s Oh My Zsh** — stovky pluginov a tém, lepšie dopĺňanie. Lektor sám mu „ešte neprišiel na chuť“, ale odporúča ho.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Traefik doma
+
+Pre home lab (doma server, na ktorom beží všeličo) je Traefik skvelý: namiesto pamätania si portov má každá služba vlastnú cestu alebo doménu a keď sa ťa niekto z rodiny opýta, kde sú fotky, nemusíš hľadať, na ktorom porte bežia. Lektor je „pomerne nadšenec Traefiku“.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Balena na IoT zariadenia
+
+Na univerzite má lektor v každej učebni Raspberry Pi ako IoT bránu — 10–11 zariadení. Kedysi = obehnúť všetky a preflashovať. Dnes ich spravuje vzdialene cez **[Balena](https://www.balena.io/)** (do 10 zariadení zadarmo) a každé zariadenie je nakonfigurované Docker kompozíciou.
+
+Háčik: Balena používa Compose formát verzie 2, kde `depends_on` vie iba poradie, nie čakanie na `healthy`. Provisioning kontajner tak musí na konci zariadenie reštartovať.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Awesome zoznamy
+
+Pre takmer každú technológiu existuje zoznam *awesome-…* (Awesome Docker, Awesome Python…) — udržiavaný prehľad nástrojov a návodov. Dobrý štart, keď hľadáš nástroj na konkrétny problém.
+
+<p class="wisdom-day">Deň 4</p>
+
+## goss na testovanie serverov
+
+Na školení testovania pre DevOps inžinierov lektor najprv používal testy v Bashi (BATS) — `docker container exec`, príkaz, kontrola. Funguje, ale je to pomalé. **dgoss** to zvládne „na otočku“.
+
+<p class="wisdom-day">Deň 4</p>

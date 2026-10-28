@@ -1,0 +1,205 @@
+---
+title: Správa kontajnerov
+description: Výpis kontajnerov a jeho stĺpce, pomenovanie, zastavenie a signály, zastavené kontajnery, logy, attach, mazanie, --rm, beh na pozadí, interaktívny režim a vlastný príkaz.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Správa kontajnerov
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `docker container ls` = bežiace, `ls --all` (`-a`) = aj zastavené (*Exited*). Kontajner identifikuješ **ID** (stačí jednoznačný začiatok) alebo **menom** (`--name`, inak vymyslí Docker, napr. `charming_ganguli`).
+- `stop` pošle **SIGTERM** (slušne), po ~10 s SIGKILL. `kill` pošle predvolene **SIGKILL** (9), iný cez `--signal`. `Ctrl+C` = SIGINT.
+- Zastavený kontajner **ostáva** aj so svojimi súbormi — dá sa znova `start`-nuť. Zmaže ho až `rm` (bežiaci iba s `--force`), všetky zastavené `prune`.
+- `--rm` zmaže kontajner po skončení, `-d` (`--detach`) spustí na pozadí, `-it` interaktívne s terminálom.
+- `logs` (`-f`, `--tail N`) = logy, `attach` = pripojenie na popredie (Ctrl+C potom zastaví kontajner), `exec` = príkaz v bežiacom kontajneri.
+</KeyPoints>
+
+## Výpis kontajnerov
+
+```bash
+docker container ls
+```
+
+| Stĺpec | Význam |
+| --- | --- |
+| `CONTAINER ID` | jedinečný identifikátor — prvých 12 znakov z oveľa dlhšieho hashu |
+| `IMAGE` | **obraz**, z ktorého kontajner vznikol (nie „kontajner, ktorý sme pullli“) |
+| `COMMAND` | príkaz spustený v kontajneri — predvolený je v metadátach obrazu (napr. `python -m weather`) |
+| `CREATED` | kedy kontajner vznikol |
+| `STATUS` | stav a ako dlho beží (`Up 3 seconds`), prípadne `(healthy)` |
+| `PORTS` | porty — iba doplnkový údaj, na funkčnosti nič nemení |
+| `NAMES` | meno kontajnera |
+
+## Pomenovanie
+
+```bash
+docker container run --name weather bletvaska/weather
+```
+
+Bez `--name` Docker vymyslí meno z prídavného mena a mena známej IT osobnosti (`charming_ganguli`, `admiring_chandrasekhar`). Každé spustenie = nový kontajner = nové ID.
+
+Dva kontajnery s rovnakým menom mať nemôžeš (ako dva rovnomenné súbory v jednom priečinku):
+
+```text
+docker: Error response from daemon: Conflict. The container name "/weather" is already in use by container "ee58ed66…".
+```
+
+Pozor — konflikt spôsobí aj **zastavený** kontajner s tým menom.
+
+## Zastavenie a signály
+
+| Akcia | Čo pošle procesu |
+| --- | --- |
+| `Ctrl+C` v termináli s kontajnerom | **SIGINT** (2) — prerušenie |
+| `docker container stop weather` | **SIGTERM** (15) — slušná prosba o ukončenie; ak do ~10 s neskončí, SIGKILL |
+| `docker container kill weather` | **SIGKILL** (9) — okamžité ukončenie bez pýtania |
+| `docker container kill --signal TERM weather` | ľubovoľný signál (`kill -l` vypíše všetky) |
+
+Mená kontajnerov dopĺňa **Tab**.
+
+## Zastavené kontajnery
+
+```bash
+docker container ls --all        # aj Exited kontajnery
+docker container start weather   # znova spustí (na pozadí)
+```
+
+Zastavený kontajner (*Exited*) nezmizol. Proces skončil, ale **priestor kontajnera ostal** — aj s dočasnými súbormi, ktoré v ňom vznikli. Po `start` pokračuje s nimi. Preto sa líšia stĺpce `CREATED` (kedy vznikol priestor) a `STATUS` (ako dlho beží proces): *Created 4 minutes ago*, *Up 3 seconds*.
+
+## Logy a attach
+
+```bash
+docker container logs weather               # všetky logy
+docker container logs --follow weather      # -f: čakaj na nové (ako tail -f)
+docker container logs -f --tail 10 weather  # iba posledných 10 riadkov a potom nové
+docker container attach weather             # pripoj sa na štandardné prúdy (na popredie)
+```
+
+- `Ctrl+C` pri `logs -f` ukončí iba príkaz `logs` — kontajner beží ďalej.
+- `Ctrl+C` po `attach` sa pošle **procesu v kontajneri** → kontajner skončí (*Shutting down*). Podobné ako práca s jobmi v Bashi (`fg`).
+
+## Mazanie
+
+```bash
+docker container rm weather                 # zmaže zastavený kontajner
+docker container rm weather_2 weather_3     # aj viac naraz
+docker container rm 220                     # podľa začiatku ID (musí byť jednoznačný)
+docker container rm --force weather         # aj bežiaci (stop + rm)
+docker container prune                      # všetky zastavené kontajnery
+```
+
+Bežiaci kontajner bez `--force` nezmažeš: *cannot remove container: container is running*. Začiatok ID funguje iba pre ID, nie pre mená.
+
+:::caution[prune]
+`prune` zmaže **všetky** zastavené kontajnery — aj ten, do ktorého si sa chcel ešte pozrieť, prečo spadol.
+:::
+
+### Automatické mazanie: `--rm`
+
+```bash
+docker container run --rm --name weather bletvaska/weather
+```
+
+Po skončení sa kontajner sám zmaže, v `ls --all` nezostane. Super pri skúšaní — ale **pozor v produkcii**: keď kontajner s `--rm` spadne, prídeš o všetko, čo v ňom bolo, a nemáš sa kam pozrieť, čo sa stalo. (A zmaže aj jeho anonymné zväzky — pozri [Zväzky](/devops-notes/docker/zvazky/).)
+
+## Na pozadí a interaktívne
+
+```bash
+docker container run --rm --detach --name weather bletvaska/weather
+# vypíše iba ID kontajnera, terminál je voľný
+docker container logs weather
+```
+
+| Voľba | Význam |
+| --- | --- |
+| `-d`, `--detach` | spusť na pozadí, vypíš ID |
+| `-i`, `--interactive` | preposielaj **štandardný vstup** do kontajnera |
+| `-t`, `--tty` | pridaj terminál (farby, prompt) |
+| `-it` | spolu: ako keby si sa do kontajnera „SSH-ol“ |
+
+## Vlastný príkaz
+
+Čo napíšeš **za meno obrazu**, spustí sa namiesto predvoleného príkazu:
+
+```bash
+docker container run --rm bletvaska/weather date        # čas v kontajneri (UTC)
+docker container run --rm bletvaska/weather hostname    # = ID kontajnera
+docker container run --rm -it bletvaska/weather bash    # shell v novom kontajneri
+```
+
+Bez `-it` by `bash` hneď skončil — štandardný vstup je zatvorený, ako keby si stlačil `Ctrl+D`.
+
+Rozdiel `run` vs. `exec`: `run` vytvorí **nový** kontajner, `exec` spustí príkaz v **už bežiacom**:
+
+```bash
+docker container exec -it weather bash
+```
+
+## Otestuj sa
+
+<Question q="Prečo `docker container run --name weather …` hlási konflikt, hoci `docker container ls` žiadny kontajner `weather` neukazuje?">
+Kontajner s týmto menom je zastavený (*Exited*). `ls` ukazuje iba bežiace — pozri `ls --all` a zmaž ho cez `rm`.
+</Question>
+
+<Question q="Aký je rozdiel medzi `docker container stop` a `docker container kill`?">
+`stop` pošle SIGTERM a dá aplikácii čas korektne skončiť (po ~10 s SIGKILL). `kill` pošle predvolene SIGKILL — okamžité ukončenie.
+</Question>
+
+<Question q="Čo spraví `Ctrl+C` po `docker container logs -f` a čo po `docker container attach`?">
+Pri `logs -f` ukončí iba výpis logov, kontajner beží ďalej. Pri `attach` sa signál pošle procesu v kontajneri a kontajner skončí.
+</Question>
+
+<Question q="Prečo sa líšia stĺpce CREATED a STATUS?">
+CREATED je čas vzniku kontajnera (jeho priestoru), STATUS ako dlho beží aktuálny proces. Po `stop` + `start` alebo po reštarte je STATUS kratší.
+</Question>
+
+<Question q="Načo je `-it` pri `docker container run -it alpine sh`?">
+`-i` preposiela štandardný vstup, `-t` vytvorí terminál. Bez nich by shell hneď skončil, lebo nemá vstup.
+</Question>
+
+<Question q="Prečo s `--rm` opatrne v produkcii?">
+Spadnutý kontajner sa hneď zmaže — aj s dátami a anonymnými zväzkami, a nemáš ako zistiť, čo sa stalo.
+</Question>
+
+## Cvičenia
+
+### 3.1 · Životopis jedného kontajnera
+
+Spusti `bletvaska/weather` na pozadí pod menom `weather`. Pozri logy posledných 5 riadkov, zastav ho, nájdi ho medzi zastavenými, znova ho spusti, pripoj sa naň a ukonči ho cez `Ctrl+C`. Nakoniec ho zmaž.
+
+<p class="practises">Precvičíš: `-d`, `logs --tail`, `stop`, `ls --all`, `start`, `attach`, `rm`.</p>
+
+<Solution>
+```bash
+docker container run --detach --name weather bletvaska/weather
+docker container logs --tail 5 weather
+docker container stop weather
+docker container ls --all            # weather  Exited (0)
+docker container start weather
+docker container attach weather      # Ctrl+C → Shutting down
+docker container rm weather
+```
+</Solution>
+
+### 3.2 · Upratanie
+
+Spusti trikrát `hello-world` bez `--rm` a štvrtýkrát s `--rm`. Koľko kontajnerov je v `ls --all`? Uprac všetky zastavené jedným príkazom.
+
+<p class="practises">Precvičíš: `--rm`, `prune`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do docker container run hello-world; done
+docker container run --rm hello-world
+docker container ls --all        # tri Exited kontajnery, ten s --rm tam nie je
+docker container prune           # y
+```
+
+Slajdy ukazujú aj ručný spôsob cez cyklus: `for id in $(docker container ls --quiet --all); do docker container rm "${id}"; done`.
+</Solution>

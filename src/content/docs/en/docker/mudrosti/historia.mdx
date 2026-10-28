@@ -1,0 +1,53 @@
+---
+title: History and philosophy
+description: Stories around the birth of Docker, how the instructor bet on Docker in 2013 before version 1, and why servers stopped having names.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+The instructor's remarks that are not strictly course material. Each shows the day it came up.
+
+## Servers were Tamagotchis
+
+In the 90s servers were cared for like Tamagotchi electronic pets — feed them, pet them, don't let them die. Admins followed forums, compiled and patched the kernel themselves to stay ahead of the distribution, and bragged about whose server had the longest uptime. Naming a server was harder than naming a variable.
+
+> "Naming a server is a bigger problem than naming a variable in Python."
+
+It survives to this day at least on Linux desktops — with a new laptop, one of the first questions is what to call it.
+
+<p class="wisdom-day">Day 1</p>
+
+## Downtime × the Bulgarian constant
+
+When an expensive server dies (the power supply burns out, the cleaner unplugs it), every hour of downtime times the "Bulgarian constant" equals the loss. Hence mirroring, redundancy — and eventually Google's approach of cheap replaceable machines, where one failing bothers nobody.
+
+Google's first production server was put together loosely without a chassis — disks and boards lying about. Nobody knew exactly how Google did it; the information started to leak only when people began to leave.
+
+<p class="wisdom-day">Day 1</p>
+
+## Betting on Docker in 2013
+
+At the Technical University of Košice, test-driven development starts in the first year: students push assignments to Git and the **Arena** system runs them against prepared tests every three hours. That needs an isolated environment. In 2013 the instructor weighed virtualisation (catastrophically slow), chroot, Linux containers — and bet on Docker, which didn't even have version 1 yet. It still works today, though it "strongly reflects the time it was born".
+
+<p class="wisdom-day">Day 1</p>
+
+## Docker started in Python
+
+The first version of Docker was written in Python. It was slow, so it was rewritten in **Go** — and Go became the number one language for container tooling (Kubernetes too).
+
+Solomon Hykes didn't invent containers — chroot, cgroups, and namespaces were already in Linux. His contribution: he made them **one usable tool**.
+
+<p class="wisdom-day">Day 1</p>
+
+## Moby Dock
+
+Docker's logo isn't a ship but a whale, **Moby Dock** (like Moby Dick, but *Dock* as in Docker), carrying containers.
+
+<p class="wisdom-day">Day 1</p>
+
+## Government websites
+
+The classic "buy a server, install everything by hand, look after it for years" approach is still around — often in state projects. Watching how they're procured, you sometimes smile sadly.
+
+<p class="wisdom-day">Day 1</p>

@@ -1,0 +1,220 @@
+---
+title: Aliases, contexts, and limits
+description: Tools in containers via aliases, controlling a remote Docker with docker context over SSH, limiting a container's memory and CPU, and docker container stats.
+kind: chapter
+day: 4
+sidebar:
+  order: 14
+  label: 14 · Aliases, contexts, and limits
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- An **alias** for `docker container run --rm -it -v .:/work --user $(id -u):$(id -g) image tool` = a tool you don't have on the system (or may not install) that works on your files, and the files are yours.
+- A **context** = which Docker Engine the client connects to. `docker context create name --docker "host=ssh://name"`, `docker context use name` — from then on every command goes to the remote machine.
+- An SSH context needs an **SSH key** (`ssh-keygen`, `ssh-copy-id`) and an entry in `~/.ssh/config` (`HostName`, `User`, `IdentityFile`).
+- With a remote context, bind mounts refer to folders on the **remote** machine, not your local ones.
+- A container without limits eats all memory and CPU. `--memory 100m`, `--cpus 2` (Compose: `deploy.resources.limits`). Current usage: `docker container stats`.
+</KeyPoints>
+
+## The power of aliases
+
+A tool packaged in an image runs like an ordinary command. The instructor runs his course-material generator this way too.
+
+```bash
+alias toolbox='docker container run --rm -it \
+  --volume .:/home/work \
+  --user $(id -u):$(id -g) \
+  bletvaska/toolbox'
+
+alias mvim='docker container run --rm -it \
+  --volume .:/home/work \
+  --user $(id -u):$(id -g) \
+  bletvaska/toolbox vim'
+```
+
+- `--volume .:/home/work` — inside the container you work on the host's current folder,
+- `--user $(id -u):$(id -g)` — files created in the container belong to you, not root ([bind mounts](/devops-notes/en/docker/bind-mounty/)),
+- `mvim file.txt` now opens vim **from the container** on your local file.
+
+This brings tools onto a restricted system (or Windows) that wouldn't otherwise be there — all you need is permission to run containers. Put the alias in `~/.bashrc` to keep it.
+
+:::note[Correction to the material]
+The material has `$(id--user)` — a space is missing; correct is `$(id --user)` (or `$(id -u)`).
+:::
+
+## Docker contexts
+
+The `docker` client talks to Docker Engine through the `/var/run/docker.sock` socket or over the network. A **context** decides which Engine — your local one or a remote one. One client can thus manage several servers.
+
+```bash
+docker context ls
+# NAME       DESCRIPTION                ENDPOINT
+# default *  Current DOCKER_HOST …      unix:///var/run/docker.sock
+docker context inspect default
+```
+
+The asterisk = the active context.
+
+### A remote machine over SSH
+
+On your machine (you create the context locally):
+
+```bash
+ssh-keygen                                   # if you don't have a key yet
+ssh-copy-id -i ~/.ssh/id_ed25519 ubuntu@<IP>   # public key to the remote machine
+```
+
+`ssh-copy-id` copies the **public** key — even if you give it the path to the private one, it derives the public key.
+
+```text title="~/.ssh/config"
+Host colleague
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+```bash
+docker context create colleague \
+  --docker "host=ssh://colleague" \
+  --description "DevOps machine on EC2"
+docker context use colleague
+docker container ls                          # containers on the remote machine
+docker container run --rm alpine date        # runs over there
+docker context use default                   # back
+docker context rm colleague                  # the active context only with --force
+```
+
+:::caution[Why `ssh://ubuntu@IP` didn't work]
+In the course a context with `host=ssh://ubuntu@<IP>` ended with *permission denied*: Docker calls `ssh`, which didn't know which key to use. It works when `~/.ssh/config` has an entry assigning an `IdentityFile` to that host — under an alias (`ssh://colleague`) or with `Host <IP>`. Check `ssh colleague` first, then `docker --context colleague container ls`.
+:::
+
+No need to switch for a single command: `docker --context colleague container ls`.
+
+### Volumes on the remote machine
+
+```bash
+docker context use colleague
+docker container run --rm -it --volume ./mirek:/mnt alpine ls /mnt
+```
+
+The folder `./mirek` is looked up on the **remote** machine (if it doesn't exist, Docker creates it there empty). Your local folder's contents aren't sent over the network — sharing needs e.g. SSHFS or NFS.
+
+## Limiting resources
+
+A container without limits can eat **all** memory and CPU — on the instructor's machine Airflow gradually ate the RAM, then the swap, and the whole computer froze. When several projects run on one machine, you don't want someone's test to hog resources at your app's expense. Limits are enforced by the kernel's **cgroups**.
+
+```bash
+docker container stats
+# NAME     CPU %   MEM USAGE / LIMIT
+# toolbox  0.02%   1.2MiB / 3.74GiB
+```
+
+`stats` shows each container's current usage; a `LIMIT` with no restriction = all of the machine's memory.
+
+### Memory
+
+```bash
+docker container run --rm -it --memory 100m bletvaska/toolbox
+stress-ng --vm 1 --vm-bytes 200M -t 10     # wants 200 MB
+```
+
+`stats` shows `LIMIT 100MiB` and usage stays under it — no more fits in the container (a process exceeding the limit is killed by the kernel).
+
+### CPU
+
+```bash
+docker container run --rm -it --cpus 1 bletvaska/toolbox
+stress-ng --cpu 4 -t 10                    # wants 4 cores
+```
+
+`CPU %` stays around 100 % (= one core). `--cpus` can be fractional (`0.5` = half a core).
+
+### In Compose
+
+```yaml title="compose.yaml"
+services:
+  toolbox:
+    image: bletvaska/toolbox
+    deploy:
+      resources:
+        limits:
+          memory: 100m
+          cpus: "2"
+    command: stress-ng --cpu 4 --vm-bytes 200M --vm 1 -t 20
+```
+
+`deploy` originally belongs to Swarm, but the limits work with `docker compose up` too. `cpus` is a string because it can be fractional. `command` overrides the image's default command.
+
+Docker doesn't limit **disk space** for bind mounts — that's a matter of the filesystem (quotas) where the folder lives.
+
+## Test yourself
+
+<Question q="Why does an alias with a container need `--volume .:/home/work` and `--user`?">
+The volume gives the tool access to the current folder's files, `--user` makes created files belong to you, not root.
+</Question>
+
+<Question q="What is a Docker context?">
+A setting that decides which Docker Engine the `docker` client connects to — the local socket or a remote machine (e.g. over SSH).
+</Question>
+
+<Question q="How do you run one command against a remote context without switching?">
+`docker --context name container ls`.
+</Question>
+
+<Question q="Switched to a remote context, you run a container with `--volume ./data:/data`. Where is `./data`?">
+On the remote machine. Local files aren't transferred.
+</Question>
+
+<Question q="How do you limit a container to 100 MB of memory and one core?">
+`docker container run --memory 100m --cpus 1 …`, in Compose `deploy.resources.limits.memory` and `cpus`.
+</Question>
+
+<Question q="How do you see how much memory a container is using right now?">
+`docker container stats` (the `MEM USAGE / LIMIT` column).
+</Question>
+
+## Exercises
+
+### 14.1 · A context to a colleague's machine
+
+Create an SSH key, copy it to another machine with Docker, add an entry to `~/.ssh/config`, and create a context. Run `alpine date` through it and list the images on the remote machine.
+
+<p class="practises">Practises: `ssh-copy-id`, `~/.ssh/config`, `docker context`.</p>
+
+<Solution>
+```bash
+ssh-keygen
+ssh-copy-id -i ~/.ssh/id_ed25519 ubuntu@<IP>
+cat >> ~/.ssh/config <<'EOF'
+Host colleague
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+EOF
+ssh colleague exit                  # check the connection
+docker context create colleague --docker "host=ssh://colleague"
+docker context use colleague
+docker container run --rm alpine date
+docker image ls
+docker context use default
+```
+</Solution>
+
+### 14.2 · Limits in practice
+
+In two terminals: `docker container stats` in one, and in the other a container with `--memory 100m --cpus 1` running `stress-ng --cpu 4 --vm 1 --vm-bytes 200M -t 20`. What does `stats` show?
+
+<p class="practises">Practises: `--memory`, `--cpus`, `stats`.</p>
+
+<Solution>
+```bash
+docker container run --rm -it --memory 100m --cpus 1 bletvaska/toolbox \
+  stress-ng --cpu 4 --vm 1 --vm-bytes 200M -t 20
+```
+
+`stats`: `LIMIT 100MiB`, memory usage under the limit, `CPU %` around 100 % despite four workers.
+</Solution>

@@ -1,0 +1,183 @@
+---
+title: Connecting containers
+description: MySQL with Adminer, why a container name doesn't resolve on the default network, a container's IP address from inspect, a user-defined network with name resolution, and WordPress from three containers.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Connecting containers
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Every container gets its own **IP address**. By default they all sit on the **default `bridge` network** (172.17.0.0/16) and can see each other only by IP.
+- On the default network **name resolution doesn't work** — `db` doesn't resolve (*Name does not resolve*).
+- Container IP: `docker container inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db`.
+- The fix: **a user-defined network** `docker network create wordpress` and `--network wordpress` on every container — there containers find each other **by name**.
+- Publish only the ports you really need from outside (Adminer, WordPress). The database needs no port on the host.
+</KeyPoints>
+
+## Lab: MySQL with Adminer
+
+Two containers: a MySQL database (`db`) and the **Adminer** web client (`ui`) — a single PHP page for managing databases.
+
+```bash
+docker container run --detach --name db \
+  --env MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  --env MYSQL_DATABASE=batcave \
+  --env MYSQL_USER=batman \
+  --env MYSQL_PASSWORD=catwoman \
+  mysql
+
+docker container run --detach --name ui \
+  --publish 80:8080 \
+  adminer
+```
+
+On first start, the `mysql` image creates the `batcave` database and the `batman` user from the variables (listed in the image's documentation). The root password is generated randomly.
+
+In Adminer (`http://localhost`) you log in as `batman` / `catwoman` to the server… which one?
+
+| Attempt in the *Server* field | Result |
+| --- | --- |
+| `db` | *getaddrinfo for db failed: Name does not resolve* |
+| `localhost` | in the `ui` container, localhost is Adminer itself |
+| host IP | waits and times out — port 3306 is not open on the host (and you don't want to open a database to the world) |
+| **IP of the `db` container** | **works** |
+
+### A container's IP address
+
+```bash
+docker container inspect \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+# 172.17.0.3
+```
+
+Or by hand in `docker container inspect db` under `NetworkSettings` → `Networks` → `bridge` → `IPAddress`.
+
+Both containers are on the default `bridge` network with a `/16` prefix (172.17.x.x), so they see each other:
+
+```bash
+docker container exec -it ui sh
+ping db               # bad address 'db'
+ping 172.17.0.3       # replies
+```
+
+Enter `172.17.0.3` as the server in Adminer and the login works.
+
+:::caution[`--link` is deprecated]
+Adminer's documentation shows an example with `--link db:db`, which makes the name available. It's a **legacy** option Docker plans to remove and already warns about — don't use it.
+:::
+
+## A user-defined network
+
+IP addresses can change with every start, so typing them by hand is no solution. On a **user-defined network** (*user-defined bridge*) Docker provides DNS and containers find each other by name:
+
+```bash
+docker network create wordpress
+docker network ls
+docker container run -d --name db --network wordpress … mysql
+docker container run -d --name ui --network wordpress -p 80:8080 adminer
+```
+
+Now the server `db` works in Adminer.
+
+| Command | What it does |
+| --- | --- |
+| `docker network ls` | list networks (`bridge`, `host`, `none` + yours) |
+| `docker network create name` | create a network |
+| `docker network inspect name` | details and attached containers |
+| `docker network rm name` | remove a network |
+| `--network name` on `run` | attach the container to the network |
+
+## Lab: WordPress from three containers
+
+WordPress (`wp`, port 80), a MySQL database (`db`), Adminer (`ui`, port 8080), all on the `wordpress` network, volumes prefixed `wp_`.
+
+```bash title="mysql.env"
+MYSQL_ROOT_PASSWORD=secret
+MYSQL_DATABASE=wordpress
+MYSQL_USER=wp_user
+MYSQL_PASSWORD=wp_password
+```
+
+```bash title="wp.env"
+WORDPRESS_DB_HOST=db
+WORDPRESS_DB_USER=wp_user
+WORDPRESS_DB_PASSWORD=wp_password
+WORDPRESS_DB_NAME=wordpress
+```
+
+```bash
+docker network create wordpress
+docker volume create wp_db
+docker volume create wp_wordpress
+
+docker container run -d --rm --name db --env-file mysql.env \
+  --volume wp_db:/var/lib/mysql --network wordpress mysql
+
+docker container run -d --rm --name ui --publish 8080:8080 \
+  --network wordpress adminer
+
+docker container run -d --rm --name wp --env-file wp.env \
+  --volume wp_wordpress:/var/www/html --network wordpress \
+  --publish 80:80 wordpress
+```
+
+`WORDPRESS_DB_HOST=db` works thanks to the `wordpress` network. Finish the installation at `http://localhost` (language, site name, first user). Persistence test: stop all three containers and start them again — instead of the installer, the finished site opens.
+
+:::caution[Each container gets only its own variables]
+The variables are deliberately in **two** files. If they were in one, the `wp` container would also see `MYSQL_ROOT_PASSWORD` (and other keys it doesn't care about). If someone gets into the container, `printenv` shows them. Least privilege applies to environment variables too.
+:::
+
+Typing three long commands in the right order is tedious — hence [Docker Compose](/devops-notes/en/docker/docker-compose/).
+
+## Test yourself
+
+<Question q="Why can't Adminer on the default network find the server `db`?">
+The default `bridge` network doesn't resolve container names. Containers see each other there only by IP address.
+</Question>
+
+<Question q="Why doesn't `localhost` work as the database address from the Adminer container?">
+`localhost` inside a container is the container itself (Adminer), not the host or another container.
+</Question>
+
+<Question q="How do you find the IP address of container `db`?">
+`docker container inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db`, or in the `inspect` JSON under `NetworkSettings.Networks`.
+</Question>
+
+<Question q="What does `--network wordpress` change compared with the default network?">
+Containers on a user-defined network find each other by name (Docker DNS), so `WORDPRESS_DB_HOST=db` works.
+</Question>
+
+<Question q="Why not put all WordPress and MySQL variables into one `.env`?">
+Each container would see passwords and keys it doesn't need (e.g. the database root password). It's a security risk.
+</Question>
+
+## Exercises
+
+### 8.1 · Adminer by IP and by name
+
+Run `db` and `ui` from the lab on the default network and log in by IP address. Then remove them, create a network `lab`, run them on it, and log in using the name `db`.
+
+<p class="practises">Practises: `inspect --format`, `docker network create`, `--network`.</p>
+
+<Solution>
+```bash
+docker container run -d --name db -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  -e MYSQL_DATABASE=batcave -e MYSQL_USER=batman -e MYSQL_PASSWORD=catwoman mysql
+docker container run -d --name ui -p 80:8080 adminer
+docker container inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+# Adminer: server 172.17.0.x, batman / catwoman
+
+docker container rm -f db ui
+docker network create lab
+docker container run -d --name db --network lab -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  -e MYSQL_DATABASE=batcave -e MYSQL_USER=batman -e MYSQL_PASSWORD=catwoman mysql
+docker container run -d --name ui --network lab -p 80:8080 adminer
+# Adminer: server db
+```
+</Solution>

@@ -1,0 +1,206 @@
+---
+title: Register, Traefik a Watchtower
+description: Reverzné proxy Traefik, vlastný register obrazov registry:2, automatická aktualizácia kontajnerov cez Watchtower, testovanie obrazov cez goss a kam Docker zapadá v CI/CD.
+kind: chapter
+day: 4
+sidebar:
+  order: 16
+  label: 16 · Register a automatizácia
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Traefik** = reverzné proxy: jeden vstup (porty 80/443) a podľa **pravidiel** (doména, cesta) posiela požiadavky ďalej na správne kontajnery. Rieši aj HTTPS a certifikáty, pravidlá číta z **labelov** kontajnerov.
+- **Vlastný register**: `docker container run -d -p 5000:5000 registry:2`. Obraz pomenuj `localhost:5000/meno:tag` a `docker image push`. Zoznam: `http://localhost:5000/v2/_catalog`.
+- `docker image push --all-tags` pošle všetky tagy obrazu naraz.
+- **Watchtower** sleduje, či v registri nie je nový obraz pre **rovnaký tag**, a kontajner zastaví a spustí s novým. Potrebuje `docker.sock`.
+- **goss/dgoss** testuje obsah a správanie obrazu (súbory, porty, procesy, HTTP). Všetko sú nástroje z príkazového riadku → poskladáš z nich CI/CD pipeline.
+</KeyPoints>
+
+## Traefik
+
+**Proxy** chráni klientov: celá sieť sa schová za jednu IP adresu. **Reverzné proxy** je opačne — stojí pred **servermi**, prijíma požiadavky zvonku a podľa pravidiel ich rozdeľuje:
+
+```text
+api.domena.sk          ──┐                ┌──▶ API v Kubernetes
+domena.sk/web          ──┼──▶ Traefik ────┼──▶ web server
+backoffice.domena.sk   ──┘   (443)        └──▶ kontajner v Dockeri
+```
+
+| Pojem | Význam |
+| --- | --- |
+| **entry point** | port, na ktorom Traefik počúva (80, 443) |
+| **router** | pravidlo — podľa **domény** (*Host*), **cesty** (*PathPrefix*), hlavičiek alebo ich kombinácie |
+| **middleware** | úprava požiadavky po ceste (napr. hlavičky) |
+| **service** | cieľ — kontajner a jeho port |
+
+Prečo ho chcieť:
+
+- bez neho beží každá služba na inom porte (Adminer 8080, WordPress 80, RustFS 9000/9001…) a treba si ich pamätať. S Traefikom je všetko na 80/443 a líši sa doménou alebo cestou (`server/wordpress`, `server/fotky`),
+- zvonku stačí otvoriť **jeden port**,
+- **HTTPS** rieši Traefik (aj automatické certifikáty) — za ním môžu služby bežať cez obyčajné HTTP,
+- pravidlá zapíšeš ako **labely** pri spustení kontajnera (alebo v Compose) a Traefik si nový kontajner zaregistruje sám, bez reštartu,
+- má **dashboard** s prehľadom pravidiel a ich stavu, metriky, logy a tracing.
+
+Niektoré aplikácie nevedia fungovať pod cestou (napr. InfluxDB), tie potrebujú vlastnú doménu alebo port. Alternatívy: reverzné proxy v nginx alebo Apache.
+
+## Vlastný register
+
+Register obrazov si spustíš jedným kontajnerom (alebo cez šablónu *Docker image registry* v Portaineri):
+
+```bash
+docker container run -d --name registry --publish 5000:5000 registry:2
+```
+
+Pomenovanie určuje, kam sa obraz pošle — register je prvá časť mena:
+
+```bash
+docker image build --tag bletvaska/nyancat .
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026.10
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026.10.1
+
+docker image push --all-tags localhost:5000/bletvaska/nyancat
+```
+
+Tagy `2026`, `2026.10`, `2026.10.1` sú **kalendárne verzovanie** (rok, mesiac, poradové číslo vydania). `--all-tags` nejde kombinovať s konkrétnym tagom v mene.
+
+:::note[Port 5000]
+Na kurze push najprv skončil *connection refused* — register (spustený zo šablóny Portaineru) nebol dostupný na porte, kam smeroval tag. Over v `docker container ls`, na ktorom porte hostiteľa register naozaj počúva, a podľa toho pomenuj obraz.
+:::
+
+Kontrola — zmaž lokálne a stiahni z vlastného registra:
+
+```bash
+docker image rm localhost:5000/bletvaska/nyancat …
+docker image pull localhost:5000/bletvaska/nyancat
+docker container run --rm -it localhost:5000/bletvaska/nyancat
+```
+
+### HTTP API
+
+Register nemá webové rozhranie, iba **REST API**:
+
+```bash
+curl http://localhost:5000/v2/                       # 200 OK
+curl http://localhost:5000/v2/_catalog               # {"repositories":["bletvaska/nyancat"]}
+curl http://localhost:5000/v2/bletvaska/nyancat/tags/list
+```
+
+Grafické rozhrania existujú ako samostatné projekty (napr. *Docker Registry UI*), mnohé však už nie sú udržiavané — vyber projekt s nedávnou aktualizáciou. Na kurze sa jedno rozbehlo v sieti `host`, aby videlo register na `localhost:5000`.
+
+Vlastný register sa hodí pre tím alebo firmu, keď obrazy nemajú byť verejné.
+
+## Watchtower
+
+Softvér zastaráva a sledovať ručne, kde beží aká verzia, je otrava. **[Watchtower](https://github.com/containrrr/watchtower)** pravidelne kontroluje, či v registri nie je **nový obraz pre rovnaký tag**, a ak áno, kontajner korektne zastaví (SIGTERM), stiahne nový obraz a spustí ho s rovnakými nastaveniami.
+
+```bash
+docker container run --rm -it \
+  --name watchtower \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --env DOCKER_API_VERSION=1.40 \
+  containrrr/watchtower \
+  --interval 30 \
+  mysql wordpress nyancat
+```
+
+| Časť | Význam |
+| --- | --- |
+| `docker.sock` | Watchtower riadi Docker ako Portainer |
+| `DOCKER_API_VERSION=1.40` | Watchtower posiela starú verziu API, ktorú novší Docker odmietne (*client version … is too old*) |
+| `--interval 30` | kontrola každých 30 s (predvolene raz za 24 h) |
+| `--schedule "0 * * * * *"` | alebo cron — **6 polí, prvé sú sekundy** (toto = každú minútu) |
+| `mysql wordpress nyancat` | sleduj iba tieto kontajnery (bez zoznamu sleduje všetky) |
+
+### Na tagu záleží
+
+Watchtower kontroluje **tag, z ktorého kontajner beží**:
+
+- kontajner z `nyancat:2026.10.1` sa nikdy neaktualizuje — nová verzia dostane nový tag `2026.10.2`, ale `2026.10.1` sa nezmení,
+- kontajner z `nyancat:2026.10` (alebo `latest`) sa aktualizuje: vydanie `2026.10.2` posunie aj tagy `2026.10`, `2026` a `latest` na nový obraz.
+
+Na kurze Watchtower novú verziu našiel (*Found new localhost:5000/…:2026.10 image*), ale kontajner nyancat nevedel zastaviť — animácia ignorovala SIGTERM. Aplikácia musí na SIGTERM korektne skončiť.
+
+:::caution[Projekt nie je udržiavaný]
+Repozitár `containrrr/watchtower` je archivovaný. Princíp platí, ale pre nové nasadenia hľadaj udržiavaný fork alebo alternatívu.
+:::
+
+Šikovné na home lab alebo testovací server s Compose, kde sa má všetko aktualizovať samo.
+
+## Testovanie obrazov: goss a dgoss
+
+**[goss](https://github.com/goss-org/goss)** overí stav servera podľa YAML súboru `goss.yaml`: existuje súbor, má správne práva a obsah, je nainštalovaný balík v danej verzii, beží proces, je otvorený port, HTTP endpoint vracia očakávanú odpoveď, príkaz skončí s exit kódom 0… Je malý (~10 MB) a extrémne rýchly. **dgoss** spustí tie isté testy nad kontajnerom (existujú aj `kgoss` pre Kubernetes a `dcgoss` pre Compose).
+
+Testy nad obrazom chytia veci, ktoré softvérové testy nevidia — chýbajúci priečinok, kontajner štartujúci v nesprávnom priečinku, zlé práva.
+
+## Kam to zapadá v CI/CD
+
+Všetko z kurzu sú nástroje z príkazového riadku, takže z nich poskladáš pipeline (napr. GitLab CI/CD, kde je pipeline rozdelená na **joby** — malé úlohy, niektoré môžu bežať paralelne):
+
+1. vývojári pushnú kód a označia release,
+2. spustia sa **testy** aplikácie,
+3. **hadolint** skontroluje Dockerfile,
+4. **build** obrazu (multi-stage),
+5. **dgoss** otestuje obraz,
+6. **grype** `--fail-on high` — pri závažnej zraniteľnosti stop,
+7. **push** do registra (Docker Hub, firemný register),
+8. na serveri **Watchtower** novú verziu nasadí.
+
+Jednotlivé joby pipeline bežia tiež v kontajneroch — ich obraz si pripravíš so všetkými potrebnými nástrojmi. Ako to robia kolegovia vo firme, sa opýtaj — nemusíš objavovať teplú vodu.
+
+### Awesome Docker
+
+**[Awesome Docker](https://github.com/veggiemonk/awesome-docker)** je udržiavaný zoznam nástrojov, návodov a projektov okolo Dockera, rozdelený do kategórií (registre, lintery, monitoring…). Podobné zoznamy *awesome-…* existujú pre takmer každú technológiu.
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi proxy a reverzným proxy?">
+Proxy stojí pred klientmi a schová ich sieť za jednu IP. Reverzné proxy stojí pred servermi a požiadavky zvonku rozdeľuje podľa pravidiel na správne služby.
+</Question>
+
+<Question q="Podľa čoho môže Traefik posielať požiadavky na rôzne kontajnery?">
+Podľa domény (`api.domena.sk`), cesty (`domena.sk/web`), hlavičiek alebo ich kombinácie. Pravidlá sa zapisujú napr. ako labely kontajnerov.
+</Question>
+
+<Question q="Ako pošleš obraz do vlastného registra na `localhost:5000`?">
+Otaguj ho menom so registrom (`localhost:5000/bletvaska/nyancat:tag`) a `docker image push`.
+</Question>
+
+<Question q="Ako zistíš, aké repozitáre sú vo vlastnom registri?">
+`curl http://localhost:5000/v2/_catalog`.
+</Question>
+
+<Question q="Kontajner beží z `app:2026.10.1`. Aktualizuje ho Watchtower po vydaní `2026.10.2`?">
+Nie — sleduje tag, z ktorého kontajner beží, a `2026.10.1` sa nezmenil. Aktualizoval by kontajner z `app:2026.10`, `app:2026` alebo `app:latest`.
+</Question>
+
+<Question q="Čo testuje dgoss?">
+Obsah a správanie kontajnera — súbory, práva, balíky, procesy, porty, HTTP odpovede, výstupy príkazov.
+</Question>
+
+## Cvičenia
+
+### 16.1 · Vlastný register
+
+Spusti `registry:2`, pošli doň obraz nyancat s tagmi `latest`, `2026`, `2026.10` a `2026.10.1` naraz, vypíš katalóg a tagy cez API, lokálne obrazy zmaž a stiahni ich z registra.
+
+<p class="practises">Precvičíš: `registry:2`, `image tag`, `push --all-tags`, `/v2/_catalog`.</p>
+
+<Solution>
+```bash
+docker container run -d --name registry -p 5000:5000 registry:2
+for t in latest 2026 2026.10 2026.10.1; do
+  docker image tag nyancat localhost:5000/bletvaska/nyancat:$t
+done
+docker image push --all-tags localhost:5000/bletvaska/nyancat
+curl http://localhost:5000/v2/_catalog
+curl http://localhost:5000/v2/bletvaska/nyancat/tags/list
+docker image rm $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep localhost:5000)
+docker image pull localhost:5000/bletvaska/nyancat:2026.10
+```
+</Solution>

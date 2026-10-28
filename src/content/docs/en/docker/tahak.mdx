@@ -1,0 +1,310 @@
+---
+title: Cheat sheet
+description: Every command from the Docker course on one page, plus traps.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Containers
+
+<div class="sheet-grid">
+
+```bash title="Running" wrap
+docker container run image
+docker container run --name weather image
+docker container run --rm image            # remove when it exits
+docker container run -d image              # in the background
+docker container run -it image sh          # interactive, custom command
+docker container run -e KEY=value --env-file a.env image
+docker container run -p 9000:8000 image    # host:container
+docker container run --restart always image
+docker container run --memory 100m --cpus 1 image
+docker container run --user $(id -u):$(id -g) image
+```
+
+```bash title="Managing" wrap
+docker container ls                 # running
+docker container ls --all           # Exited too
+docker container stop weather       # SIGTERM, SIGKILL after 10 s
+docker container kill weather       # SIGKILL
+docker container start weather      # in the background
+docker container restart weather
+docker container pause / unpause weather
+docker container create --name x image
+docker container rm weather
+docker container rm --force weather
+docker container prune              # all stopped ones
+```
+
+```bash title="Inside and logs" wrap
+docker container logs weather
+docker container logs -f --tail 10 weather
+docker container attach weather     # Ctrl+C stops the container
+docker container exec -it weather bash
+docker container exec weather printenv
+docker container cp www/. homepage:/usr/share/nginx/html/
+docker container stats
+```
+
+```bash title="inspect" wrap
+docker container inspect weather
+docker container inspect --format '{{.State.Status}}' weather
+docker container inspect weather | jq -r '.[0].State.Status'
+docker container inspect -f \
+  '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+docker container inspect storage | jq '.[0].Mounts'
+docker image inspect --format '{{.Config.Volumes}}' rustfs/rustfs
+```
+
+</div>
+
+## Volumes and networks
+
+<div class="sheet-grid">
+
+```bash title="Volumes" wrap
+docker volume ls
+docker volume create storage
+docker volume inspect storage       # Mountpoint
+docker volume rm storage
+docker volume prune                 # unused (anonymous)
+-v storage:/data                    # named volume
+-v ./www:/usr/share/nginx/html      # bind mount (a path)
+sudo ls /var/lib/docker/volumes/storage/_data
+```
+
+```bash title="Networks" wrap
+docker network ls
+docker network create wordpress
+docker network inspect wordpress
+docker network rm wordpress
+docker container run --network wordpress …
+# names resolve on a user-defined network (db),
+# on the default bridge only IPs work
+```
+
+</div>
+
+## Docker Compose
+
+<div class="sheet-grid">
+
+```yaml title="compose.yaml" wrap
+services:
+  db:
+    image: mysql:8.4
+    volumes:
+      - wp_db:/var/lib/mysql
+    env_file:
+      - mysql.env
+    networks:
+      - wordpress
+    restart: always
+  wp:
+    image: wordpress:6
+    environment:
+      - WORDPRESS_DB_HOST=db
+    ports:
+      - 80:80
+    networks:
+      - wordpress
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1"
+networks:
+  wordpress: {}
+volumes:
+  wp_db: {}
+```
+
+```bash title="Commands" wrap
+docker compose up
+docker compose up -d
+docker compose down              # containers + networks
+docker compose down --volumes    # volumes too
+docker compose ls                # all projects
+docker compose ps
+docker compose logs -f db
+docker compose exec db sh
+docker compose images
+docker compose volumes
+docker compose -f other.yaml up
+# names: folder-service-1, folder_volume
+```
+
+</div>
+
+## Images
+
+<div class="sheet-grid">
+
+```bash title="Build and manage" wrap
+docker image build --tag name .
+docker image build -f Dockerfile.debian -t name:debian .
+docker image ls
+docker image ls --all              # <none> too
+docker image history name
+docker image rm name
+docker image prune                 # <none> images
+docker system df
+docker system prune --all
+dive name
+```
+
+```bash title="Registry" wrap
+docker image tag nyancat ttl.sh/jano/nyancat:30m
+docker image push ttl.sh/jano/nyancat:30m
+docker image pull ttl.sh/jano/nyancat:30m
+docker login / docker logout
+docker image push --all-tags bletvaska/mini
+docker container run -d -p 5000:5000 registry:2
+docker image tag nyancat localhost:5000/bletvaska/nyancat
+curl http://localhost:5000/v2/_catalog
+docker image save name -o name.tar
+docker image load -i name.tar
+```
+
+</div>
+
+## Dockerfile
+
+<div class="sheet-grid">
+
+```dockerfile title="Multi-stage, secure" wrap
+FROM python:3.13-slim AS builder
+WORKDIR /app
+COPY app.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/app.whl
+
+FROM python:3.13-slim
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid 1000 --no-create-home app
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+    --start-period=30s CMD curl -f http://localhost:8000 || exit 1
+EXPOSE 8000
+USER app
+CMD ["python3", "-m", "app"]
+```
+
+```text title="Instructions" wrap
+FROM image:tag     base (scratch = nothing)
+LABEL k="v"        metadata
+ADD a.tar.gz /     copies + unpacks, URLs
+COPY src dst       only copies
+RUN command        at build time → a layer
+ENV K=v            variable (build and run)
+WORKDIR /app       working folder
+EXPOSE 8000        documents a port
+VOLUME /data       anonymous volume
+USER app           not root from here on
+HEALTHCHECK …      health check
+CMD ["prog","arg"] default command (exec form)
+```
+
+```bash title="Checking an image" wrap
+hadolint Dockerfile
+grype name
+grype name --fail-on high       # exit ≠ 0 for CI/CD
+shellcheck script.sh
+```
+
+</div>
+
+## Contexts, aliases, tools
+
+<div class="sheet-grid">
+
+```bash title="Contexts" wrap
+docker context ls
+docker context create colleague --docker "host=ssh://colleague"
+docker context use colleague
+docker --context colleague container ls
+docker context use default
+docker context rm colleague
+# ~/.ssh/config: Host, HostName, User, IdentityFile
+```
+
+```bash title="Alias and management" wrap
+alias mvim='docker container run --rm -it \
+  -v .:/home/work --user $(id -u):$(id -g) \
+  bletvaska/toolbox vim'
+
+docker container run -d -p 9443:9443 --name portainer \
+  --restart always \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data portainer/portainer-ce
+docker container logs portainer   # setup token
+dry
+```
+
+</div>
+
+## Terms
+
+| Term | Meaning |
+| --- | --- |
+| image | an immutable template — filesystem + application + metadata |
+| container | a running instance of an image — an isolated process on the host |
+| registry | image storage (Docker Hub, `ttl.sh`, `registry:2`) |
+| tag | a version/variant label; default `latest` |
+| layer | the result of `ADD`/`COPY`/`RUN`; shared and cached |
+| anonymous volume | created automatically for `VOLUME`, name = a hash |
+| named volume | `-v name:/path`, survives removing the container |
+| bind mount | `-v ./path:/path` — a host folder |
+| Docker Engine | the daemon that runs containers; the client = the `docker` command |
+| context | which Engine the client connects to |
+| stack | a composition (Compose) in Portainer |
+| cgroups / namespaces / chroot | resource limits / isolation / own root |
+
+## Exam traps
+
+| Trap | Right way |
+| --- | --- |
+| a container = a small virtual machine | a process on the host kernel, no guest OS |
+| `docker ps` doesn't show a stopped container, `--name` reports a conflict | `docker container ls --all`, `rm` |
+| `Ctrl+C` after `attach` only detaches | it stops the process in the container; `logs -f` detaches |
+| `docker container kill` sends SIGTERM | SIGKILL (9) by default; `stop` sends SIGTERM |
+| a change inside a container is permanent | the image is immutable → a new container is clean |
+| `docker container commit` to create images | a Dockerfile in Git (reproducible) |
+| `--env-file` beats `-e` | a manual `-e` always wins |
+| quoted values in `.env` | `docker run --env-file` doesn't strip quotes |
+| `EXPOSE` opens a port | documentation only; `--publish` opens it |
+| `-p 8000:9000` = host 9000 | host on the left, container on the right |
+| `localhost` in a container = the host | localhost is the container itself |
+| container names resolve on the default network | only on a user-defined network (`docker network create`) |
+| `--link` | deprecated; a user-defined network |
+| data survives `rm` | only in a volume or bind mount |
+| `--rm` removes only the container | its anonymous volumes too |
+| `-v storage:/xxx` replaces `VOLUME /data` | `/data` gets an extra anonymous volume |
+| `.ContainerConfig.Volumes` on an image | `.Config.Volumes` |
+| `docker compose down` deletes data | volumes stay (`down --volumes`) |
+| `depends_on` waits until the DB runs | order only; `condition: service_healthy` + healthcheck |
+| Compose reuses the existing `wp_db` volume | it adds the project prefix; `external: true` |
+| `latest` in production | a pinned, tested version |
+| `RUN source venv/bin/activate` | `ENV PATH="/venv/bin:$PATH"` |
+| `ADD` for ordinary files | `COPY` |
+| `CMD python -m app` | `CMD ["python3", "-m", "app"]` |
+| Alpine for Python | `python:<version>-slim` (musl vs. glibc) |
+| cleanup in the next `RUN` | in the same `RUN` (otherwise it stays in the layer) |
+| a change at the top of a Dockerfile | invalidates the cache of every step below |
+| `docker image run` | `docker container run` |
+| grype stops the pipeline by itself | only with `--fail-on high` |
+| `HEALTHCHECK CMD curl …` in a slim image | there's no `curl` there |
+| Docker restarts an `unhealthy` container | no — autoheal / Kubernetes |
+| Watchtower updates `app:1.2.3` | it watches the tag; use a moving tag (`1.2`, `latest`) |
+| `ssh://ubuntu@IP` context without a key | an entry in `~/.ssh/config` with `IdentityFile` |
+| bind mount with a remote context = a local folder | a folder on the remote machine |

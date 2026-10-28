@@ -1,0 +1,62 @@
+---
+title: Sources
+description: The instructor's slides, the labs, and which chapter of the Docker course came from which material.
+kind: sources
+sidebar:
+  order: 99
+---
+
+The **Docker 101 + 202** course (four days) is taught by Mirek. The notes are based on transcripts of all four days, the slides, and the lab material. They are organised by topic, corrected, and extended with questions and exercises. Topics from the slides that weren't covered in class (e.g. Lab Matrix, `:Z` for SELinux, the Podman examples) are left out.
+
+:::note[What is deliberately left out]
+The OpenWeatherMap API key and the lab machines' password and IP addresses are replaced with placeholders (`<API_KEY>`, `<IP>`). Participants' names are omitted (the `riso` context is `colleague` in the notes). The procedure for routing around the company VPN (`route add`) is company-specific and left out. Credentials in the labs (`admin`/`secret123`, `batman`/`catwoman`) are practice values.
+:::
+
+:::caution[The commands were not run]
+Docker wasn't available while these notes were written, so the commands were not run as they were for the Git course. Behaviour was checked against the Docker documentation and the course recording.
+:::
+
+## Slides
+
+| Day | Material |
+| --- | --- |
+| 1 | [Docker 101: Day 1 — The Basics (PDF) ↗](http://mirek.s.cnl.sk/download/docker.101-day.1.pdf) |
+| 2 | [Docker 101: Day 2 — Networks, Volumes and Composition (PDF) ↗](http://mirek.s.cnl.sk/download/docker.101-day.2.pdf) |
+| 3 | [Docker 202: Day 1 — Creating Docker Images (PDF) ↗](http://mirek.s.cnl.sk/download/docker.202-day.1.pdf) |
+| 3 | [weather-2024.4-py3-none-any.whl ↗](http://mirek.s.cnl.sk/download/weather-2024.4-py3-none-any.whl) — the lab package |
+| 4 | no slides — examples in the material (aliases, contexts, limits, Portainer, Watchtower) |
+
+## Which chapter comes from where
+
+| Chapter | Source |
+| --- | --- |
+| [01 · From servers to containers](/devops-notes/en/docker/kontajnery/) | day 1 — slides; transcript (pets vs. cattle, image vs. container, VM vs. container, rootless) |
+| [02 · First containers](/devops-notes/en/docker/prve-kontajnery/) | day 1 — slides; transcript (version, info, long syntax, registry, image types, PID 1) |
+| [03 · Managing containers](/devops-notes/en/docker/sprava-kontajnerov/) | day 1 — slides; transcript (ls, signals, logs, attach, rm, prune, `-d`, `-it`) |
+| [04 · Configuration and ports](/devops-notes/en/docker/konfiguracia-a-porty/) | day 1 — transcript (Twelve-Factor, `--env`, `--env-file`, precedence, inspect, jq, `--publish`); material: Lab Weather; day 2 — transcript (`.env` security) |
+| [05 · Lifecycle](/devops-notes/en/docker/zivotny-cyklus/) | day 1 — transcript (states, clock); day 3 — transcript (restart policies, Rambo) |
+| [06 · Volumes](/devops-notes/en/docker/zvazky/) | day 2 — slides; transcript (anonymous and named volumes, `/var/lib/docker`, sharing); material: Lab RustFS, My Homepage, Persistent Homepage |
+| [07 · Bind mounts](/devops-notes/en/docker/bind-mounty/) | day 2 — slides; transcript (bind mounts, root in a container, Podman, `--user`) |
+| [08 · Connecting containers](/devops-notes/en/docker/siete/) | day 2 — slides; transcript (MySQL + Adminer, IP from inspect); material: Lab MySQL with Adminer, Lab WordPress App |
+| [09 · Docker Compose](/devops-notes/en/docker/docker-compose/) | day 2 — transcript part 3 (YAML, composition, namespace, `depends_on`); material: sample composition, Composed WordPress |
+| [10 · Dockerfile](/devops-notes/en/docker/dockerfile/) | day 3 — slides; transcript (commit, FROM scratch, layers and cache, nyancat) |
+| [11 · Sharing images](/devops-notes/en/docker/zdielanie-obrazov/) | day 3 — slides; transcript (ttl.sh, tags, one `RUN`, dive) |
+| [12 · Packaging an app](/devops-notes/en/docker/balenie-aplikacie/) | day 3 — slides; transcript part 2 (hadolint, ShellCheck, Alpine, base image, distroless); material: Packaging Own App |
+| [13 · Multi-stage and security](/devops-notes/en/docker/multi-stage-a-bezpecnost/) | day 3 — transcript part 2 (multi-stage, grype, `USER`, HEALTHCHECK, autoheal); material |
+| [14 · Aliases, contexts, and limits](/devops-notes/en/docker/kontexty-a-limity/) | day 4 — transcript part 1; material: The power of aliases, The Context, Limiting Resources |
+| [15 · Management tools](/devops-notes/en/docker/nastroje-na-spravu/) | day 4 — transcript part 1 (Oh My Zsh, ctop, lazydocker, dry, Cockpit, Portainer); material: Running Portainer |
+| [16 · Registry and automation](/devops-notes/en/docker/register-a-automatizacia/) | day 4 — transcript part 2 (Traefik, registry:2, Watchtower, Awesome Docker, goss, CI/CD); material: Watchtower demo |
+| [Mirek's wisdoms](/devops-notes/en/docker/mudrosti/historia/) | transcripts of all days |
+
+## Corrections
+
+- **Slides, day 2:** `docker image inspect --format "{{ .ContainerConfig.Volumes }}"` — for an image it's `.Config.Volumes` (in class `ContainerConfig` returned an error).
+- **Slides, day 3:** `docker image run ttl.sh/…` — correct is `docker container run`.
+- **Material, day 3:** in the final Dockerfile the builder creates `/venv` but the main stage copies `/app/venv` — the paths must match.
+- **Material, day 4:** the alias contains `$(id--user)` — correct is `$(id --user)`.
+- **Lecture:** quotes in `.env` — `docker container run --env-file` doesn't strip them; they become part of the value.
+- **Lecture:** `curl -f` exits with code 22 on an HTTP error (not "fifty-something"); a healthcheck understands only 0 and 1, hence `|| exit 1`.
+- **Lecture:** the slim image has no `curl`, so a healthcheck using it is `unhealthy` right away — the notes check with Python.
+- **Lecture:** in newer versions `docker volume prune` removes only anonymous volumes by default (named ones with `--all`).
+- **Lecture:** WordPress `fpm-alpine` didn't load — the `fpm` variants have no web server.
+- **Lecture:** a Docker context via `ssh://ubuntu@IP` failed on the key — it needs an entry in `~/.ssh/config` with `IdentityFile`.

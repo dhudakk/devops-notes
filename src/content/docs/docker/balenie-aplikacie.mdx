@@ -1,0 +1,260 @@
+---
+title: Balenie vlastnej aplikácie
+description: Best practices pri balení aplikácie do obrazu — linter hadolint, najprv niečo funkčné (Python aplikácia na Alpine s kompiláciou), výber správneho základného obrazu, slim vs. alpine vs. distroless, COPY vs. ADD a CMD v exec tvare.
+kind: chapter
+day: 3
+sidebar:
+  order: 12
+  label: 12 · Balenie aplikácie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Postup: **0.** linter, **1.** najprv niečo funkčné, **2.** správny základný obraz, **3.** skenovanie zraniteľností, **4.** nespúšťať ako root, **5.** bezpečnostné aktualizácie.
+- **hadolint** (Dockerfile linter) ešte pred buildom upozorní na `latest`, nepripnuté verzie balíkov, chýbajúce `--no-cache`, `ADD` namiesto `COPY`… Skončí s exit kódom ≠ 0 → hodí sa do CI/CD. Pre Bash skripty je **ShellCheck**.
+- Python aplikácia na `alpine`: treba pip, venv a pre balíky bez predkompilovanej verzie (pendulum) aj **kompilátor a hlavičky** → obraz má **1,9 GB**.
+- Pre Python použi **`python:<verzia>-slim`** (Debian). Alpine používa **musl libc** namiesto glibc — Python aplikácie na ňom môžu byť pomalé alebo zamŕzať. Hľadaj aj špecializované obrazy (FastAPI, Spring Boot) a **distroless**.
+- `COPY` (iba kopíruje) namiesto `ADD` (aj rozbaľuje, sťahuje). `CMD` píš v **exec tvare** `["python3", "-m", "weather"]`.
+</KeyPoints>
+
+## Zadanie
+
+Ako DevOps inžinier dostaneš od vývojárov balík a máš z neho spraviť obraz. Tu je to Python balík (*wheel*) aplikácie weather:
+
+```bash
+mkdir weather && cd weather
+wget http://mirek.s.cnl.sk/download/weather-2024.4-py3-none-any.whl
+```
+
+Best practices z kurzu (postupov na internete je veľa, jadro sa opakuje):
+
+0. **Use linter.**
+1. **Get something working first.**
+2. **Use the correct base image.**
+3. **Scan image for vulnerabilities.**
+4. **Don't run containers as root.**
+5. **Apply security updates.**
+
+Body 3–5 sú v [ďalšej kapitole](/devops-notes/docker/multi-stage-a-bezpecnost/).
+
+## 0. Linter
+
+**Linter** je nástroj **statickej analýzy kódu** — kód nespúšťa ani nekompiluje, iba ho číta a hľadá:
+
+- chyby (bugy),
+- porušenia štýlu (napr. PEP 8 v Pythone),
+- podozrivé konštrukcie — kód funguje, ale je neefektívny alebo raz za čas spôsobí chybu.
+
+(Formátovač kódu, ktorý upravuje odsadenie, je iný nástroj.)
+
+**[hadolint](https://github.com/hadolint/hadolint)** (*Haskell Dockerfile Linter*) kontroluje Dockerfile. Vo VS Code ho pridáš rozšírením *hadolint*, v termináli:
+
+```bash
+hadolint Dockerfile
+```
+
+```text
+Dockerfile:1 DL3007 warning: Using latest is prone to errors if the image will ever update.
+Dockerfile:4 DL3018 warning: Pin versions in apk add. Instead of `apk add <package>` use `apk add <package>=<version>`
+Dockerfile:4 DL3019 info: Use the `--no-cache` switch to avoid the need to use `--update` and remove `/var/cache/apk/*`
+```
+
+Kód pravidla (`DL3007`) je odkaz na dokumentáciu so zlým a správnym príkladom.
+
+| Pravidlo | Prečo |
+| --- | --- |
+| `DL3007` — nepoužívaj `latest` | o mesiac `latest` ukáže na novú verziu (Postgres 16 namiesto 15) a obraz sa zbuilduje inak alebo aplikácia nenabehne (nekompatibilné dáta, odstránená syntax v Pythone 3.15) |
+| `DL3018`, `DL3008` — pripni verzie balíkov | `apk add nyancat` / `apt-get install x` ťahá vždy najnovšiu verziu → build o rok dá iný výsledok |
+| `DL3019` — `apk add --no-cache` | inak v obraze ostane stiahnutý katalóg balíkov |
+| `DL3009` — zmaž `/var/lib/apt/lists/*` | to isté pre `apt-get update` (desiatky MB navyše) |
+| `DL3027` — `apt-get` namiesto `apt` | `apt` je určený pre ľudí, nie skripty |
+| `DL3015` — `--no-install-recommends` | neinštaluj odporúčané balíky navyše |
+| `DL3042` — `pip install --no-cache-dir` | cache pipu v obraze netreba |
+| `DL3020` — `COPY` namiesto `ADD` | pri obyčajných súboroch |
+| `DL3025` — `CMD` v JSON tvare | pozri nižšie |
+
+`latest` a nepripnuté verzie sú v poriadku pri **skúšaní**. Pre produkciu zapíš **otestované verzie** — obrazu aj balíkov.
+
+:::tip[hadolint v CI/CD]
+Keď nájde problém, skončí s **exit kódom ≠ 0**. V pipeline ho spusti pred buildom a dohodnite sa, že hadolint musí byť ticho.
+:::
+
+:::note[Rozšírenie vo VS Code nefungovalo]
+Rozšírenie hlásilo *cannot find hadolint from system path*. Pomôže nastaviť absolútnu cestu (`which hadolint`) v nastavení **hadolint: Hadolint Path**. Z príkazového riadku hadolint fungoval vždy.
+:::
+
+To isté pre Bash skripty robí **[ShellCheck](https://www.shellcheck.net/)** — napr. upozorní na chýbajúci shebang (`#!/usr/bin/env bash`). Galéria zlého kódu v jeho README je dobrá škola. Bash je na podobné chyby extrémne náchylný.
+
+## 1. Najprv niečo funkčné
+
+Postup: spusti kontajner z rozpracovaného obrazu, skúšaj príkazy, a čo funguje, zapíš do Dockerfile. Začneme Alpine, lebo je malý:
+
+```dockerfile
+FROM alpine:3.24
+ADD weather-2024.4-py3-none-any.whl /tmp/
+```
+
+```bash
+docker image build --tag weather .
+docker container run --rm -it weather sh
+pip install /tmp/weather-2024.4-py3-none-any.whl
+```
+
+Cesta k funkčnému obrazu na kurze — každý riadok je jeden problém:
+
+| Chyba | Riešenie |
+| --- | --- |
+| `pip: not found` (ani Python tu nie je) | balík **`py3-pip`** (`apk search`, Python príde ako závislosť) |
+| `externally-managed-environment` | inštaluj do **virtuálneho prostredia**: `python3 -m venv /venv` a aktivovať |
+| `No space left on device` | uprac disk — stiahnuté obrazy (`docker image rm`, `docker system prune`) |
+| `cc: not found` pri `pendulum` | pre Alpine nie je predkompilovaný balík, kompiluje sa zo zdrojákov → **`gcc`** |
+| `Python.h: No such file` | **`python3-dev`**, **`musl-dev`** |
+| chyba pri `psutil` | **`linux-headers`** |
+
+```dockerfile title="Dockerfile (Alpine)"
+FROM alpine:3.24
+
+ADD weather-2024.4-py3-none-any.whl /tmp/
+
+RUN apk add py3-pip gcc python3-dev musl-dev linux-headers \
+    && python3 -m venv /venv \
+    && source /venv/bin/activate \
+    && pip install /tmp/weather-2024.4-py3-none-any.whl
+
+CMD ["/venv/bin/python3", "-m", "weather"]
+```
+
+`source` funguje v Alpine, lebo jeho `sh` (busybox) ho pozná a všetko je v jednom `RUN`.
+
+Výsledok funguje, ale obraz má **1,9 GB** (pôvodný `bletvaska/weather` asi 400 MB). Build trvá ~3 minúty kvôli kompilácii.
+
+### CMD: exec tvar
+
+```dockerfile
+CMD ["/venv/bin/python3", "-m", "weather"]      # exec tvar — odporúčaný
+CMD /venv/bin/python3 -m weather                # shell tvar
+```
+
+V **exec tvare** je prvá položka program a ostatné sú jeho argumenty — nič sa neinterpretuje shellom, takže sa do príkazu nedá podstrčiť `&& rm -rf …` ani `;`, a proces dostáva signály priamo (je PID 1). Shell tvar spustí `/bin/sh -c "…"`. hadolint to hlási ako `DL3025`.
+
+## 2. Správny základný obraz
+
+Pre bežné jazyky existujú **hotové obrazy**, kde je jazyk už nainštalovaný a niekto sa o ne stará. Oficiálny `python` má varianty:
+
+| Variant | Základ | Veľkosť (orientačne) |
+| --- | --- | --- |
+| `python:3.13` | plný Debian | ~1 GB |
+| `python:3.13-slim` | Debian slim | ~120–180 MB |
+| `python:3.13-alpine` | Alpine | ~50–60 MB |
+| `python:3.13-windowsservercore` | Windows | nezaujíma nás |
+
+Alpine je najmenší, ale dokumentácia obrazu varuje: Alpine používa **musl libc** namiesto **glibc**, na ktorej stojí celý Linux. Python softvér na ňom môže narážať na problémy — dopyt, ktorý na Debiane trvá sekundu, môže trvať minútu, alebo aplikácia **zamrzne** (najhoršie, čo sa kontajneru môže stať). **Pre Python Alpine nepoužívaj** — siahni po `-slim`.
+
+Ďalšie tipy:
+
+- **Špecializované obrazy** — jazyk aj s frameworkom (FastAPI od autora frameworku `tiangolo/uvicorn-gunicorn-fastapi`, obrazy pre Javu so Spring Bootom). Hľadaj podľa počtu stiahnutí a aktuálnosti. Ako sa to robí v tvojej firme, sa opýtaj — často má vlastné schválené základné obrazy.
+- **Distroless** (*„jazyk mínus operačný systém“*, začal s nimi Google) — iba runtime jazyka bez shellu, `ls` a ďalších nástrojov. Menší obraz a menšia plocha pre útok.
+
+```bash
+docker image pull gcr.io/distroless/python3-debian12
+docker container run --rm -it gcr.io/distroless/python3-debian12      # Python 3 interpreter
+docker container run --rm -it gcr.io/distroless/python3-debian12 /bin/sh   # no such file
+```
+
+### Debian slim
+
+```dockerfile title="Dockerfile (Debian)"
+FROM python:3.13-slim
+
+COPY weather-2024.4-py3-none-any.whl /tmp/
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev
+
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+EXPOSE 8000
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+- **`COPY`** iba kopíruje. **`ADD`** navyše rozbalí archív a vie sťahovať URL — na obyčajné súbory použi `COPY`.
+- `pip` aj Python sú v obraze, ale `pendulum` sa aj tu kompiluje (`build-essential`, `python3-dev`).
+- `RUN source /venv/bin/activate` tu **skončí chybou** — `RUN` používa `/bin/sh` (dash), ktorý `source` nepozná, a každý `RUN` je nový shell, takže aktivácia by sa aj tak nezachovala. Namiesto toho `ENV PATH="/venv/bin:$PATH"` — platí pre všetky ďalšie kroky aj pre spustený kontajner.
+- `/usr/bin/env python3` nájde Python podľa `PATH` (prenosnejšie).
+
+Výsledok funguje (aj s webom na `--publish 8000:8000`), ale má stále **1,9 GB**. Prečo? V obraze ostal katalóg balíkov z `apt-get update`, kompilátor, hlavičky a medzivýsledky kompilácie — nič z toho na **beh** aplikácie netreba. Riešenie je [multi-stage build](/devops-notes/docker/multi-stage-a-bezpecnost/).
+
+## Otestuj sa
+
+<Question q="Čo je statická analýza kódu?">
+Kontrola kódu iba čítaním — bez spustenia a kompilácie. Linter takto nájde chyby, porušenia štýlu a podozrivé konštrukcie.
+</Question>
+
+<Question q="Prečo hadolint hlási `FROM python:latest`?">
+`latest` sa časom posunie na novú verziu a build dá iný (možno nefunkčný) výsledok. Treba pripnúť otestovanú verziu.
+</Question>
+
+<Question q="Prečo pri `pip install` na Alpine treba gcc a hlavičky?">
+Pre niektoré balíky (pendulum) nie je pre Alpine (musl) predkompilovaná verzia, takže sa kompilujú zo zdrojových kódov.
+</Question>
+
+<Question q="Prečo nepoužiť Alpine pre Python aplikáciu?">
+Alpine používa musl libc namiesto glibc. Python softvér na ňom môže byť pomalý, správať sa nepredvídateľne alebo zamŕzať.
+</Question>
+
+<Question q="Aký je rozdiel medzi `COPY` a `ADD`?">
+`COPY` iba kopíruje súbory. `ADD` navyše rozbalí lokálny archív a vie stiahnuť URL alebo Git repozitár. Na obyčajné súbory `COPY`.
+</Question>
+
+<Question q="Prečo `RUN source venv/bin/activate` v Debian obraze zlyhá a čo použiť?">
+`RUN` spúšťa `/bin/sh`, ktorý `source` nepozná, a každý `RUN` je nový shell. Použi `ENV PATH="/venv/bin:$PATH"`.
+</Question>
+
+<Question q="Prečo písať `CMD` v exec tvare?">
+Príkaz sa nespúšťa cez shell — nič sa neinterpretuje (žiadne podstrčené `&&` či `;`) a aplikácia dostáva signály priamo ako PID 1.
+</Question>
+
+## Cvičenia
+
+### 12.1 · Lint
+
+Spusti hadolint nad Dockerfile pre nyancat (`FROM alpine:latest`, `RUN apk add nyancat`). Oprav všetky upozornenia.
+
+<p class="practises">Precvičíš: hadolint, pripnutie verzií, `--no-cache`.</p>
+
+<Solution>
+```bash
+hadolint Dockerfile
+# DL3007 latest, DL3018 pin versions, DL3019 --no-cache
+apk search nyancat        # v kontajneri alpine:3.24 zistíš verziu
+```
+
+```dockerfile
+FROM alpine:3.24
+RUN apk add --no-cache nyancat=1.5.2-r1
+CMD ["/usr/bin/nyancat"]
+```
+
+Presnú verziu balíka over v kontajneri cez `apk search nyancat` — tu je iba príklad.
+</Solution>
+
+### 12.2 · Weather na Debiane
+
+Z wheelu `weather-2024.4-py3-none-any.whl` zostav obraz `weather:debian` na `python:3.13-slim`. Over, že web beží na porte 8000, a pozri veľkosť obrazu.
+
+<p class="practises">Precvičíš: `COPY`, `apt-get`, venv cez `ENV PATH`, `EXPOSE`, `CMD`.</p>
+
+<Solution>
+Dockerfile z časti *Debian slim* vyššie, potom:
+
+```bash
+docker image build --tag weather:debian .
+docker container run --rm -it --publish 8000:8000 weather:debian
+docker image ls weather       # ~1,9 GB — zmenšíme v ďalšej kapitole
+```
+</Solution>

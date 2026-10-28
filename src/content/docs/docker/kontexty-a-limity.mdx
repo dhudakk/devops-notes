@@ -1,0 +1,220 @@
+---
+title: Aliasy, kontexty a limity
+description: Nástroje v kontajneroch cez aliasy, ovládanie vzdialeného Dockera cez docker context a SSH, obmedzenie pamäte a CPU kontajnera a docker container stats.
+kind: chapter
+day: 4
+sidebar:
+  order: 14
+  label: 14 · Aliasy, kontexty a limity
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Alias** na `docker container run --rm -it -v .:/work --user $(id -u):$(id -g) obraz nástroj` = nástroj, ktorý v systéme nemáš (alebo nesmieš inštalovať), pracuje s tvojimi súbormi a súbory sú tvoje.
+- **Kontext** = ku ktorému Docker Engine sa klient pripája. `docker context create meno --docker "host=ssh://meno"`, `docker context use meno` — odvtedy všetky príkazy idú na vzdialený stroj.
+- Pre SSH kontext treba **SSH kľúč** (`ssh-keygen`, `ssh-copy-id`) a záznam v `~/.ssh/config` (`HostName`, `User`, `IdentityFile`).
+- Bind mounty pri vzdialenom kontexte odkazujú na priečinky **vzdialeného** stroja, nie tvoje lokálne.
+- Kontajner bez limitov zje všetku pamäť a CPU. `--memory 100m`, `--cpus 2` (Compose: `deploy.resources.limits`). Aktuálnu spotrebu ukáže `docker container stats`.
+</KeyPoints>
+
+## Sila aliasov
+
+Nástroj zabalený v obraze spustíš ako obyčajný príkaz. Lektor má takto v aliasoch aj generátor svojich webových materiálov.
+
+```bash
+alias toolbox='docker container run --rm -it \
+  --volume .:/home/work \
+  --user $(id -u):$(id -g) \
+  bletvaska/toolbox'
+
+alias mvim='docker container run --rm -it \
+  --volume .:/home/work \
+  --user $(id -u):$(id -g) \
+  bletvaska/toolbox vim'
+```
+
+- `--volume .:/home/work` — v kontajneri pracuješ s aktuálnym priečinkom hostiteľa,
+- `--user $(id -u):$(id -g)` — súbory vytvorené v kontajneri patria tebe, nie rootovi ([bind mounty](/devops-notes/docker/bind-mounty/)),
+- `mvim subor.txt` teraz otvorí vim **z kontajnera** nad tvojím lokálnym súborom.
+
+Takto dostaneš do systému s obmedzenými právami (alebo do Windowsu) nástroje, ktoré tam inak nie sú — stačí, že smieš spúšťať kontajnery. Alias daj do `~/.bashrc`, aby ostal.
+
+:::note[Oprava materiálu]
+V materiáloch je `$(id--user)` — chýba medzera, správne `$(id --user)` (alebo `$(id -u)`).
+:::
+
+## Docker kontexty
+
+Klient `docker` sa rozpráva s Docker Engine cez socket `/var/run/docker.sock` alebo po sieti. **Kontext** určuje, s ktorým Engine — tvojím lokálnym alebo vzdialeným. Jedným klientom tak spravuješ viac serverov.
+
+```bash
+docker context ls
+# NAME       DESCRIPTION                ENDPOINT
+# default *  Current DOCKER_HOST …      unix:///var/run/docker.sock
+docker context inspect default
+```
+
+Hviezdička = aktívny kontext.
+
+### Vzdialený stroj cez SSH
+
+Na tvojom stroji (kontext vytváraš u seba):
+
+```bash
+ssh-keygen                                   # ak ešte nemáš kľúč
+ssh-copy-id -i ~/.ssh/id_ed25519 ubuntu@<IP>   # verejný kľúč na vzdialený stroj
+```
+
+`ssh-copy-id` skopíruje **verejný** kľúč — aj keď zadáš cestu k súkromnému, odvodí si z neho verejný.
+
+```text title="~/.ssh/config"
+Host kolega
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+```bash
+docker context create kolega \
+  --docker "host=ssh://kolega" \
+  --description "DevOps stroj na EC2"
+docker context use kolega
+docker container ls                          # kontajnery na vzdialenom stroji
+docker container run --rm alpine date        # beží tam
+docker context use default                   # späť
+docker context rm kolega                     # aktívny kontext zmažeš iba s --force
+```
+
+:::caution[Prečo kontext s `ssh://ubuntu@IP` nefungoval]
+Na kurze kontext s `host=ssh://ubuntu@<IP>` končil *permission denied*: Docker volá `ssh`, ktorý nevedel, ktorý kľúč použiť. Funguje to, keď v `~/.ssh/config` existuje záznam, ktorý danému hostiteľovi priradí `IdentityFile` — buď pod aliasom (`ssh://kolega`), alebo s `Host <IP>`. Over najprv `ssh kolega`, potom `docker --context kolega container ls`.
+:::
+
+Pre jeden príkaz netreba prepínať: `docker --context kolega container ls`.
+
+### Zväzky na vzdialenom stroji
+
+```bash
+docker context use kolega
+docker container run --rm -it --volume ./mirek:/mnt alpine ls /mnt
+```
+
+Priečinok `./mirek` sa hľadá na **vzdialenom** stroji (ak neexistuje, Docker ho tam vytvorí prázdny). Obsah tvojho lokálneho priečinka sa po sieti neprenáša — na zdieľanie potrebuješ napr. SSHFS alebo NFS.
+
+## Obmedzenie zdrojov
+
+Kontajner bez limitov môže zjesť **všetku** pamäť a CPU — na lektorovom stroji takto Airflow postupne zjedol RAM, potom swap a celý počítač zamrzol. Keď na jednom stroji beží viac projektov, nechceš, aby sa niečí test rozbehol na úkor tvojej aplikácie. Obmedzenia zabezpečujú **cgroups** jadra.
+
+```bash
+docker container stats
+# NAME     CPU %   MEM USAGE / LIMIT
+# toolbox  0.02%   1.2MiB / 3.74GiB
+```
+
+`stats` ukáže aktuálnu spotrebu každého kontajnera; `LIMIT` bez obmedzenia = všetka pamäť stroja.
+
+### Pamäť
+
+```bash
+docker container run --rm -it --memory 100m bletvaska/toolbox
+stress-ng --vm 1 --vm-bytes 200M -t 10     # chce 200 MB
+```
+
+`stats` ukazuje `LIMIT 100MiB` a spotreba sa drží pod ním — viac sa do kontajnera nevojde (proces, ktorý limit prekročí, jadro zabije).
+
+### CPU
+
+```bash
+docker container run --rm -it --cpus 1 bletvaska/toolbox
+stress-ng --cpu 4 -t 10                    # chce 4 jadrá
+```
+
+`CPU %` sa drží okolo 100 % (= jedno jadro). `--cpus` môže byť aj desatinné číslo (`0.5` = pol jadra).
+
+### V Compose
+
+```yaml title="compose.yaml"
+services:
+  toolbox:
+    image: bletvaska/toolbox
+    deploy:
+      resources:
+        limits:
+          memory: 100m
+          cpus: "2"
+    command: stress-ng --cpu 4 --vm-bytes 200M --vm 1 -t 20
+```
+
+`deploy` pôvodne patrí Swarmu, ale limity fungujú aj v `docker compose up`. `cpus` je reťazec, lebo môže byť desatinný. `command` prepíše predvolený príkaz obrazu.
+
+Limit **miesta na disku** Docker pre bind mounty nerieši — to je vec súborového systému (kvóty), kde priečinok leží.
+
+## Otestuj sa
+
+<Question q="Prečo alias s kontajnerom potrebuje `--volume .:/home/work` a `--user`?">
+Volume sprístupní nástroju súbory z aktuálneho priečinka, `--user` zariadi, že vytvorené súbory budú patriť tebe, nie rootovi.
+</Question>
+
+<Question q="Čo je Docker kontext?">
+Nastavenie, ku ktorému Docker Engine sa klient `docker` pripája — lokálny socket alebo vzdialený stroj (napr. cez SSH).
+</Question>
+
+<Question q="Ako spustíš jeden príkaz na vzdialenom kontexte bez prepnutia?">
+`docker --context meno container ls`.
+</Question>
+
+<Question q="Prepnutý na vzdialený kontext spustíš kontajner s `--volume ./data:/data`. Kde je `./data`?">
+Na vzdialenom stroji. Lokálne súbory sa neprenášajú.
+</Question>
+
+<Question q="Ako obmedzíš kontajner na 100 MB pamäte a jedno jadro?">
+`docker container run --memory 100m --cpus 1 …`, v Compose `deploy.resources.limits.memory` a `cpus`.
+</Question>
+
+<Question q="Ako zistíš, koľko pamäte práve používa kontajner?">
+`docker container stats` (stĺpec `MEM USAGE / LIMIT`).
+</Question>
+
+## Cvičenia
+
+### 14.1 · Kontext na kolegov stroj
+
+Vytvor SSH kľúč, nahraj ho na iný stroj s Dockerom, pridaj záznam do `~/.ssh/config` a vytvor kontext. Spusti cez neho `alpine date` a vypíš obrazy na vzdialenom stroji.
+
+<p class="practises">Precvičíš: `ssh-copy-id`, `~/.ssh/config`, `docker context`.</p>
+
+<Solution>
+```bash
+ssh-keygen
+ssh-copy-id -i ~/.ssh/id_ed25519 ubuntu@<IP>
+cat >> ~/.ssh/config <<'EOF'
+Host kolega
+    HostName <IP>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519
+EOF
+ssh kolega exit                     # over spojenie
+docker context create kolega --docker "host=ssh://kolega"
+docker context use kolega
+docker container run --rm alpine date
+docker image ls
+docker context use default
+```
+</Solution>
+
+### 14.2 · Limit v praxi
+
+V dvoch termináloch: v jednom `docker container stats`, v druhom kontajner s `--memory 100m --cpus 1`, v ktorom spustíš `stress-ng --cpu 4 --vm 1 --vm-bytes 200M -t 20`. Čo ukáže `stats`?
+
+<p class="practises">Precvičíš: `--memory`, `--cpus`, `stats`.</p>
+
+<Solution>
+```bash
+docker container run --rm -it --memory 100m --cpus 1 bletvaska/toolbox \
+  stress-ng --cpu 4 --vm 1 --vm-bytes 200M -t 20
+```
+
+`stats`: `LIMIT 100MiB`, spotreba pamäte pod limitom, `CPU %` okolo 100 % aj napriek štyrom vláknam.
+</Solution>

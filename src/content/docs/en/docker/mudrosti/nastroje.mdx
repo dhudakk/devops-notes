@@ -1,0 +1,61 @@
+---
+title: Tools
+description: Tools the instructor recommends or uses — aliases for containers, a linter for every language, dry, Oh My Zsh, Traefik, Balena, and awesome lists.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## Aliases for containers
+
+> "I saw it once in some video and it clicked right away — wow, what a great idea."
+
+The instructor packages his own tools into images and runs them with an alias instead of a long `docker container run`. For example, the generator of his study materials (Jekyll) with the source folder mounted — every saved file rebuilds the site immediately. The downside of a fixed `--name` in the alias: you can't run the tool twice at once; the upside: you can find it easily.
+
+<p class="wisdom-day">Day 4</p>
+
+## A linter for every language
+
+> "If you haven't used a linter yet, it's high time."
+
+Bash, Python, or Java — find a linter and use it. You'll avoid things you may have been writing for years without knowing they lead to hidden bugs. For Bash **ShellCheck** (Bash is "extremely prone to errors"), for Dockerfiles **hadolint**.
+
+<p class="wisdom-day">Day 3</p>
+
+## dry instead of lazydocker
+
+Of the terminal Docker tools the instructor recommends **dry** — it looks like `k9s`, which you'll learn with Kubernetes, and it's a living project. lazydocker is nice, but development has slowed and it had API version problems with the new Docker.
+
+<p class="wisdom-day">Day 4</p>
+
+## Oh My Zsh
+
+If you're not yet at home in Bash, switch to **Zsh with Oh My Zsh** — hundreds of plugins and themes, better completion. The instructor himself "hasn't acquired the taste yet", but recommends it.
+
+<p class="wisdom-day">Day 4</p>
+
+## Traefik at home
+
+For a home lab (a server at home running all sorts of things) Traefik is great: instead of remembering ports, every service gets its own path or domain, and when someone in the family asks where the photos are, you don't have to look up which port they run on. The instructor is "quite a Traefik enthusiast".
+
+<p class="wisdom-day">Day 4</p>
+
+## Balena for IoT devices
+
+At the university the instructor has a Raspberry Pi in every classroom as an IoT gateway — 10–11 devices. Once that meant walking around and reflashing them all. Today he manages them remotely with **[Balena](https://www.balena.io/)** (free for up to 10 devices), and each device is configured with a Docker composition.
+
+The catch: Balena uses Compose format version 2, where `depends_on` only knows the order, not waiting for `healthy`. A provisioning container therefore has to reboot the device at the end.
+
+<p class="wisdom-day">Day 2</p>
+
+## Awesome lists
+
+Almost every technology has an *awesome-…* list (Awesome Docker, Awesome Python…) — a curated overview of tools and tutorials. A good start when looking for a tool for a specific problem.
+
+<p class="wisdom-day">Day 4</p>
+
+## goss for testing servers
+
+In his training on testing for DevOps engineers, the instructor first used tests in Bash (BATS) — `docker container exec`, a command, a check. It works, but it's slow. **dgoss** does it "in no time".
+
+<p class="wisdom-day">Day 4</p>

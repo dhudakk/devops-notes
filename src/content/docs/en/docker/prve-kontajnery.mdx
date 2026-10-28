@@ -1,0 +1,204 @@
+---
+title: First containers
+description: docker version and info, hello-world, long vs. short command syntax, what happens on docker container run, the Docker Hub registry, image naming and image types, a container as a process.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · First containers
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `docker version` shows the **client** and **server** (Docker Engine) versions and the API version. `docker info` = details (memory, kernel, `Docker Root Dir`…).
+- Long syntax `docker <object> <command>`: `docker container run`, `docker container ls`, `docker image ls`, `docker volume ls`. The short one (`docker run`, `docker ps`) does the same — the long one reads better and its subcommands repeat across objects.
+- `docker container run image`: client → daemon → if the image is not local, **pull it from a registry** → start a container. The second time there is no pull.
+- Image name: `[registry/]namespace/repository[:tag]`. No registry = Docker Hub, no tag = `latest`, official images have no namespace (`nginx`, `python`).
+- A container is a **process on the host** (`ps aux` shows it). Inside, the app has **PID 1** and sees only its own processes.
+</KeyPoints>
+
+## Version and information
+
+```bash
+docker --version          # short: Docker version 29.0.1, build …
+docker version            # client and server
+docker info               # details about the whole installation
+```
+
+`docker version` has two parts — **Client** (the `docker` command) and **Server** (Docker Engine), each with its version, Go version, and **API version**. The API version matters when a tool complains it needs a minimum version (it happened on day 4 with lazydocker and Watchtower).
+
+`docker info` prints a lot — number of containers and images, memory, kernel, architecture, and `Docker Root Dir: /var/lib/docker`, where Docker keeps all its data (more in [Volumes](/devops-notes/en/docker/zvazky/)).
+
+## Hello world
+
+```bash
+docker container run hello-world
+docker container run bletvaska/hello-world     # the instructor's nicer version with the logo
+```
+
+```text
+Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+…: Pull complete
+Hello from Docker!
+```
+
+### Long vs. short syntax
+
+| Long (recommended) | Short |
+| --- | --- |
+| `docker container run` | `docker run` |
+| `docker container ls` | `docker ps` |
+| `docker image ls` | `docker images` |
+| `docker container rm` | `docker rm` |
+
+In 2013 `docker run` was the only way. Docker has grown since, so commands were grouped by **object** (like `ip route`, `ip address` in Linux): `docker container …`, `docker image …`, `docker volume …`, `docker network …`. The same subcommands (`ls`, `rm`, `inspect`, `prune`) repeat for every object, so the long syntax is easy to read and remember.
+
+## What happens on `docker container run`
+
+```bash
+docker container run bletvaska/weather
+```
+
+Three parties are involved:
+
+```text
+ Docker client ──run──▶ Docker host (daemon)  ──pull──▶  Registry (Docker Hub)
+                        │ do I have the image locally?
+                        │  no → pull it
+                        └─ start a container from it
+```
+
+1. The client asks the daemon to run a container from `bletvaska/weather`.
+2. The daemon checks whether it has the image **locally**.
+3. If not, it asks the **registry** (`hub.docker.com` by default), **pulls** the image, and adds it to the local images.
+4. It starts a container from the image — you see the application's **logs**.
+
+Stop the container (`Ctrl+C`) and run it again: no pull this time, the image is local.
+
+`bletvaska/weather` is a simple web application (a microservice) that periodically downloads the weather from OpenWeatherMap. Without an API key it reports `No API key provided` — how to supply it is in [Configuration and ports](/devops-notes/en/docker/konfiguracia-a-porty/).
+
+## Image names
+
+```text
+[registry/]namespace/repository[:tag]
+           bletvaska/weather   :2023.12
+```
+
+| Part | Meaning | Default |
+| --- | --- | --- |
+| registry | where the image is pulled from (`docker.io`, `ttl.sh`, `localhost:5000`, a company one) | `docker.io` (Docker Hub) |
+| namespace | user or organisation (`bletvaska`, `apache`) | `library` (official images) |
+| repository | image name | — |
+| tag | a version or variant (`1.31`, `alpine`, `2023.12`) | `latest` |
+
+**Tags** work much like in Git. One image can carry **several tags** at once — `nginx:latest`, `nginx:1.31`, `nginx:1.31.6`, `nginx:mainline` can be the same image. Variants differ in their base (Debian `trixie`, `alpine`), bundled modules (`perl`), and size.
+
+### Image types on Docker Hub
+
+| Badge | Who maintains it | Example |
+| --- | --- | --- |
+| **Docker Official Image** | the community or project owner; name **without a namespace** | `nginx`, `python`, `mysql` |
+| **Verified Publisher** | a verified company | `bitnami/…` |
+| **Sponsored OSS** | a sponsored open source project | `apache/airflow` |
+| no badge | anyone | `charlesportwood/nginx` |
+
+How to pick an image:
+
+- prefer an **official** image or a verified publisher,
+- check the **pull count** and **last update** — an image from an unknown author, not updated for a year, with a handful of pulls, may contain anything,
+- official images have **good documentation** (how to use it, which variables to set) and a link to the **Dockerfile** they were built from.
+
+:::note[Bitnami]
+Bitnami images are very well made and configurable. The company was bought by VMware (Broadcom) and many images stopped being freely available — check the current terms before relying on them.
+:::
+
+## A container as a process
+
+On the host (in another terminal):
+
+```bash
+ps aux | grep weather
+# ubuntu  12345  … python -m weather
+```
+
+The app from the container is an ordinary process with its own **PID** on the host. Stop the container and the process disappears.
+
+Inside the container:
+
+```bash
+docker container exec -it charming_ganguli /bin/bash     # name from docker container ls
+ls /proc                       # no ps here — processes live in /proc
+cat /proc/1/cmdline            # python -m weather
+```
+
+Inside, the app has **PID 1** and sees **only its own container's processes**. On a normal Linux system PID 1 is `systemd` — the first process started and the last one stopped. In a container PID 1 is the application itself: when it exits, the whole container exits.
+
+:::tip[Images tend to be minimal]
+Many images have no `ps`, `top`, or even `bash` — only `sh`. That is deliberate: a smaller image and a smaller attack surface.
+:::
+
+## Test yourself
+
+<Question q="What is the difference between `docker container ls` and `docker ps`?">
+None in the result — `docker ps` is the old short syntax. The long `docker <object> <command>` reads better and its subcommands (`ls`, `rm`, `inspect`) repeat across objects.
+</Question>
+
+<Question q="Why does the first `docker container run bletvaska/weather` print `Pulling from…` and the second does not?">
+The first time the image was not local, so the daemon pulled it from the registry. The second time it already has it and starts the container directly.
+</Question>
+
+<Question q="What does an image named `nginx` with no slash and no tag mean?">
+An official image (namespace `library`) from Docker Hub tagged `latest` — the full name is `docker.io/library/nginx:latest`.
+</Question>
+
+<Question q="Which two parts does `docker version` print?">
+Client (the `docker` command) and Server (Docker Engine) — each with its version, Go version, and API version.
+</Question>
+
+<Question q="What PID does the app have inside a container, and what happens when it exits?">
+PID 1. When the process with PID 1 exits, the whole container exits.
+</Question>
+
+<Question q="How do you choose an image on Docker Hub?">
+Official image or verified publisher, pull count, date of last update, and quality of the documentation.
+</Question>
+
+## Exercises
+
+### 2.1 · First run
+
+Check the Docker version, run `hello-world` twice, and notice the difference in output. Then list the local images.
+
+<p class="practises">Practises: `docker version`, `docker container run`, `docker image ls`.</p>
+
+<Solution>
+```bash
+docker version
+docker container run hello-world     # Unable to find image … Pulling …
+docker container run hello-world     # straight to Hello from Docker!
+docker image ls                      # hello-world:latest
+```
+</Solution>
+
+### 2.2 · A process on the host
+
+Run `bletvaska/weather` in one terminal. In a second one, find its process on the host, then get inside the container and find the app's PID there.
+
+<p class="practises">Practises: `ps aux`, `docker container exec`, PID 1.</p>
+
+<Solution>
+```bash
+# terminal 1
+docker container run bletvaska/weather
+
+# terminal 2
+ps aux | grep weather                      # a process with a PID on the host
+docker container ls                        # container name, e.g. charming_ganguli
+docker container exec -it charming_ganguli /bin/bash
+cat /proc/1/cmdline                        # python -m weather → PID 1
+```
+</Solution>

@@ -1,0 +1,260 @@
+---
+title: Konfigurácia a porty
+description: Twelve-Factor App a konfigurácia cez premenné prostredia, voľby --env a --env-file a ich priorita, docker container inspect s --format a jq, EXPOSE a publikovanie portov.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Konfigurácia a porty
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Twelve-Factor App**, 3. faktor: čo sa mení **medzi nasadeniami** (adresy, heslá, API kľúče) patrí do **premenných prostredia**, nie do kódu ani do konfiguráku v obraze.
+- `--env KĽÚČ=hodnota` (`-e`) nastaví premennú, `--env-file súbor.env` načíta celý súbor. Ručné `-e` má **vyššiu prioritu** ako súbor — bez ohľadu na poradie.
+- Premenné platia iba pre **ten jeden spustený kontajner**. Aké premenné obraz pozná, je v jeho dokumentácii.
+- `docker container inspect` = všetko o kontajneri ako JSON. Konkrétnu hodnotu vytiahneš cez `--format '{{.State.Status}}'` alebo `| jq '.[0].State.Status'`.
+- Kontajner je izolovaný aj sieťovo. Port sprístupníš cez `--publish hostiteľ:kontajner` (`-p 9000:8000`). `EXPOSE` v Dockerfile je iba dokumentácia.
+</KeyPoints>
+
+## Kam s API kľúčom
+
+Aplikácia `bletvaska/weather` hlási `No API key provided`. Kľúč by sa dal dodať:
+
+- ako parameter príkazového riadku — táto aplikácia to nepodporuje,
+- v konfiguračnom súbore **vo vnútri kontajnera** — kontajner nemá trvalé úložisko, pri ďalšom spustení je preč,
+- **premennou prostredia** — správne riešenie.
+
+### Twelve-Factor App
+
+[12factor.net](https://12factor.net/) je metodika s 12 odporúčaniami pre aplikácie, ktoré bežia v kontajneroch (typicky webové). **Faktor 3 — Config**: konfigurácia sa ukladá do premenných prostredia.
+
+Rozlišuj dva druhy nastavení:
+
+| Druh | Príklad | Kam patrí |
+| --- | --- | --- |
+| mení sa **medzi nasadeniami** (lokálny vývoj, test, staging, produkcia) | adresa backendu a databázy, login, heslo, API kľúč | **premenné prostredia** |
+| bežná konfigurácia aplikácie | farba a veľkosť písma, časová zóna, metrické jednotky | konfiguračný súbor |
+
+Pri vývoji je databáza na `localhost`, v teste na inej IP, v produkcii na ďalšej — rovnaký obraz, iné premenné.
+
+## `--env`
+
+```bash
+docker container run --rm -it \
+  --name weather \
+  --env WEATHER_QUERY=Bratislava \
+  --env WEATHER_UPDATE_INTERVAL=30 \
+  --env WEATHER_TOKEN=<API_KEY> \
+  bletvaska/weather
+```
+
+Aké premenné obraz pozná, zistíš z jeho **dokumentácie** na Docker Hube. Kontrola vo vnútri:
+
+```bash
+docker container exec weather printenv
+```
+
+`printenv` vypíše premenné prostredia. (`env` bez argumentov tiež, ale jeho účel je spustiť príkaz v zmenenom prostredí.)
+
+:::note[Premenné patria jednému behu]
+Premenné nastavené pri `run` platia iba pre ten kontajner. Nový `docker container run` toho istého obrazu ich nemá — každé spustenie môže mať inú konfiguráciu (jeden kontajner pre Bratislavu, druhý pre Košice).
+:::
+
+## `--env-file`
+
+Pri desiatkach premenných (host, port, login, heslo, meno databázy…) je vypisovanie `--env` nepraktické. Daj ich do súboru:
+
+```bash title="local.env"
+WEATHER_QUERY=Bratislava
+WEATHER_UPDATE_INTERVAL=30
+WEATHER_TOKEN=<API_KEY>
+```
+
+```bash
+docker container run --rm -it --env-file local.env bletvaska/weather
+```
+
+Formát: `KĽÚČ=hodnota`, jeden na riadok, **bez medzier** okolo `=`. Relatívna cesta sa berie od priečinka, kde spúšťaš príkaz. Súborov môže byť viac (`--env-file a.env --env-file b.env`).
+
+:::caution[Úvodzovky v `.env`]
+Na kurze nebolo jasné, či môžu byť hodnoty v úvodzovkách. `docker container run --env-file` úvodzovky **neodstraňuje** — stanú sa súčasťou hodnoty (`MSG="ahoj"` → `"ahoj"` aj s úvodzovkami). Píš hodnoty bez nich. Docker Compose ich pri `env_file` spracuje.
+:::
+
+### Priorita
+
+```bash
+docker container run --rm -it \
+  --env-file local.env \
+  --env WEATHER_QUERY=Ružomberok \
+  bletvaska/weather
+```
+
+| Zdroj | Hodnota | Priorita |
+| --- | --- | --- |
+| predvolená v aplikácii | Košice | najnižšia |
+| `--env-file local.env` | Bratislava | stredná |
+| `--env WEATHER_QUERY=…` | **Ružomberok** | **najvyššia** |
+
+Ručne zadaná premenná vyhrá vždy, bez ohľadu na poradie volieb. Hodí sa to pri testovaní: celé nastavenie máš v súbore a zmeníš iba jednu hodnotu.
+
+:::caution[Jeden `.env` pre všetko je bezpečnostné riziko]
+Na 2. deň lektor ukázal, čo sa stane, keď do jedného `.env` súboru dáš premenné pre WordPress, root heslo MySQL aj kľúč do inej služby: WordPress zrazu vidí aj heslá, ktoré nepotrebuje. Každý kontajner nech dostane **iba svoje** premenné.
+:::
+
+## inspect
+
+```bash
+docker container inspect weather
+```
+
+Výsledok je **JSON** so všetkým o kontajneri: príkaz a argumenty, stav, obraz, meno, premenné prostredia (`Config.Env`), pripojené zväzky (`Mounts`), sieť a IP adresa (`NetworkSettings`).
+
+`inspect` existuje pre všetky objekty — `docker image inspect`, `docker volume inspect`, `docker network inspect`.
+
+### `--format` a jq
+
+```bash
+docker container inspect --format '{{.State.Status}}' weather
+# running
+
+docker container inspect weather | jq -r '.[0].State.Status'
+# running
+```
+
+- `--format` používa **šablóny Go** (podobné Jinja): `{{.State.Status}}` je cesta v JSON-e.
+- `jq` (*JSON query*) pracuje s JSON-om ako s databázou. `inspect` vracia **pole** (môžeš zadať viac kontajnerov naraz), preto `.[0]` = prvý prvok. `-r` vypíše hodnotu bez úvodzoviek.
+
+```bash
+docker container inspect weather-ke weather-ba | jq '.[1].State.Status'   # druhý kontajner
+docker container inspect weather-ke weather-ba | jq 'length'              # 2
+```
+
+## Porty
+
+Webové rozhranie aplikácie `weather` beží v kontajneri na porte **8000**. Vo vnútri funguje:
+
+```bash
+docker container exec -it weather bash
+curl http://localhost:8000
+```
+
+Z hostiteľa však `http://localhost:8000` nefunguje — kontajner je **izolovaný** aj sieťovo.
+
+### Ako zistíš port aplikácie
+
+1. **Dokumentácia** obrazu.
+2. Aplikácie v kontajneri bežia väčšinou na svojom **predvolenom porte** (webový server 80).
+3. Inštrukcia **`EXPOSE`** v Dockerfile (odkaz na Dockerfile býva pri tagoch oficiálnych obrazov) alebo `ExposedPorts` v `docker image inspect`.
+
+`EXPOSE 8000` je iba **dokumentácia** — nič neotvára a na funkčnosti nič nemení. Preto stĺpec `PORTS` v `docker container ls` ukazuje `8000/tcp`, hoci z hostiteľa sa tam nedostaneš.
+
+### `--publish`
+
+```bash
+docker container run --rm -it \
+  --name weather-ba \
+  --env-file local.env \
+  --publish 9000:8000 \
+  bletvaska/weather:2023.12
+```
+
+```text
+--publish 9000:8000
+          │    └── port v kontajneri (bližšie ku obrazu)
+          └─────── port na hostiteľovi (bližšie ku localhostu)
+```
+
+Teraz `http://localhost:9000` na hostiteľovi ukáže aplikáciu.
+
+Dva kontajnery môžu mať v kontajneri **rovnaký** port — každý kontajner má vlastnú IP adresu, je to ako samostatný server. Na hostiteľovi však každý potrebuje **iný** port:
+
+```bash
+docker container run -d --name weather-ba --env-file local.env -p 9000:8000 bletvaska/weather:2023.12
+docker container run -d --name weather-ke --env WEATHER_QUERY=Košice --env WEATHER_TOKEN=<API_KEY> \
+  -p 8000:8000 bletvaska/weather:2023.12
+```
+
+Dva kontajnery na rovnakom porte hostiteľa skončia chybou *port is already allocated*.
+
+:::note[Prečo `:2023.12`]
+Na kurze vracal `latest` obraz `Internal Server Error`, staršia verzia `2023.12` fungovala. Aplikácia občas spadne aj na tom, že OpenWeatherMap nepošle `sunrise`/`sunset` — stačí počkať na ďalšiu aktualizáciu.
+:::
+
+## Otestuj sa
+
+<Question q="Čo hovorí 3. faktor Twelve-Factor App?">
+Konfigurácia, ktorá sa mení medzi nasadeniami (adresy, prihlasovacie údaje, kľúče), sa ukladá do premenných prostredia — nie do kódu ani konfiguračných súborov v obraze.
+</Question>
+
+<Question q="V `local.env` je `WEATHER_QUERY=Bratislava` a v príkaze `--env WEATHER_QUERY=Ružomberok`. Ktoré mesto sa použije?">
+Ružomberok. Ručne zadaná premenná má najvyššiu prioritu, poradie volieb nezáleží.
+</Question>
+
+<Question q="Ako zistíš stav kontajnera `weather` jedným slovom?">
+`docker container inspect --format '{{.State.Status}}' weather` alebo `docker container inspect weather | jq -r '.[0].State.Status'`.
+</Question>
+
+<Question q="Prečo v `jq` píšeš `.[0]`?">
+`inspect` vždy vracia pole (dá sa mu zadať viac objektov). `.[0]` je prvý prvok poľa.
+</Question>
+
+<Question q="Čo znamená `--publish 9000:8000`?">
+Port 9000 na hostiteľovi sa presmeruje na port 8000 v kontajneri. Vľavo hostiteľ, vpravo kontajner.
+</Question>
+
+<Question q="Otvorí `EXPOSE 8000` v Dockerfile port na hostiteľovi?">
+Nie. Je to iba dokumentácia, na ktorom porte aplikácia počúva. Port sa otvorí až `--publish`.
+</Question>
+
+<Question q="Môžu dva kontajnery počúvať v kontajneri na rovnakom porte 8000?">
+Áno — každý kontajner má vlastnú IP adresu. Iba na hostiteľovi musia byť publikované na rôznych portoch.
+</Question>
+
+## Cvičenia
+
+### 4.1 · Počasie v Bratislave
+
+Spusti kontajner z obrazu `bletvaska/weather` s menom `weather`, ktorý bude každých 30 sekúnd sťahovať počasie pre Bratislavu. Potrebný API kľúč dodaj cez premennú prostredia. Over premenné vo vnútri kontajnera.
+
+<p class="practises">Precvičíš: `--env`, `printenv`, dokumentácia obrazu.</p>
+
+<Solution>
+```bash
+docker container run --rm -it \
+  --name weather \
+  --env WEATHER_QUERY=Bratislava \
+  --env WEATHER_UPDATE_INTERVAL=30 \
+  --env WEATHER_TOKEN=<API_KEY> \
+  bletvaska/weather
+
+# v druhom termináli
+docker container exec weather printenv | grep WEATHER
+```
+
+Mená premenných sú v dokumentácii obrazu na Docker Hube. Kľúč si vytvoríš na openweathermap.org.
+</Solution>
+
+### 4.2 · Dve mestá, dva porty
+
+Premenné pre Bratislavu presuň do `local.env`. Spusti dva kontajnery: Bratislavu na porte 9000 a Košice na porte 8000 (Košice cez `--env`, kľúč zo súboru). Over v prehliadači a zisti obom stav cez `inspect`.
+
+<p class="practises">Precvičíš: `--env-file`, priorita premenných, `--publish`, `inspect --format`.</p>
+
+<Solution>
+```bash
+docker container run -d --rm --name weather-ba \
+  --env-file local.env --publish 9000:8000 bletvaska/weather:2023.12
+
+docker container run -d --rm --name weather-ke \
+  --env-file local.env --env WEATHER_QUERY=Košice \
+  --publish 8000:8000 bletvaska/weather:2023.12
+
+docker container inspect --format '{{.Name}} {{.State.Status}}' weather-ba weather-ke
+```
+
+`http://localhost:9000` ukáže Bratislavu, `http://localhost:8000` Košice. `--env` prepíše hodnotu zo súboru.
+</Solution>

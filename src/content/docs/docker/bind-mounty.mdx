@@ -1,0 +1,186 @@
+---
+title: Bind mounty a používatelia
+description: Pripojenie priečinka hostiteľa do kontajnera, kedy použiť bind mount a kedy zväzok, problém s vlastníkom súborov, bezpečnostné riziko root v kontajneri, rootless a voľba --user.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Bind mounty
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Bind mount** pripojí **ľubovoľný priečinok hostiteľa** do kontajnera: `--volume ./www:/usr/share/nginx/html` (relatívna cesta s `./`, alebo `$(pwd)/www`).
+- Zmena súboru na hostiteľovi je v kontajneri **hneď** — ideálne na **vývoj** (skripty, web) a **konfiguračné súbory**. Na binárne dáta databáz a úložísk používaj pomenované zväzky.
+- Proces v kontajneri beží väčšinou ako **root** → súbory, ktoré vytvorí v bind mounte, patria rootovi.
+- Kto smie spúšťať kontajnery, má **root na hostiteľovi**: `--volume /:/mnt alpine` a môže meniť celý systém. Rootless (Podman) to nepustí.
+- `--user $(id -u):$(id -g)` spustí proces pod tvojím UID/GID — súbory budú tvoje.
+</KeyPoints>
+
+## Bind mount
+
+Pri pomenovanom zväzku Docker spravuje priečinok vo svojej „Docker area“ (`/var/lib/docker/volumes`). Bind mount je opačná situácia: do kontajnera pripojíš **ľubovoľný existujúci priečinok** zo súborového systému hostiteľa.
+
+```bash
+docker container run --rm --detach --name homepage \
+  --publish 80:80 \
+  --volume ./www:/usr/share/nginx/html \
+  nginx
+```
+
+Docker rozozná bind mount podľa ľavej strany: **cesta** (`./www`, `/home/…`) = bind mount, **meno** (`www`) = pomenovaný zväzok.
+
+| Zápis cesty | Poznámka |
+| --- | --- |
+| `./www` | relatívna cesta — funguje v novších verziách Dockera |
+| `$(pwd)/www` alebo `$PWD/www` | absolútna cesta, starší spôsob, funguje všade |
+
+Bind mounty sa v Dockerfile nedefinujú — pripojiť môžeš čokoľvek kamkoľvek.
+
+:::caution[Celý cieľový priečinok sa prekryje]
+Na kurze bol najprv bind mount pripojený o úroveň vedľa a nginx hlásil *404 Not Found*. Obsah priečinka hostiteľa **nahradí** obsah cieľového priečinka v kontajneri — over, že `index.html` je priamo v priečinku, ktorý pripájaš na `/usr/share/nginx/html`.
+:::
+
+Teraz uprav `www/index.html` na hostiteľovi, ulož a obnov stránku — zmena je tam **hneď**, bez `docker container cp`.
+
+### Kedy bind mount, kedy zväzok
+
+| Použitie | Čo zvoliť |
+| --- | --- |
+| databázy, S3 úložiská, binárne dáta | **pomenovaný zväzok** |
+| lokálny vývoj — PHP, Python, Perl skripty, statický web | **bind mount** |
+| konfiguračné súbory (aplikácia ich iba číta) | **bind mount** — upravíš lokálne, reštartuješ kontajner |
+
+Príklady z praxe:
+
+- Java vývojár potrebuje aplikačný server (Tomcat) a databázu → `docker compose up` a priečinok s buildom pripojí ako bind mount.
+- Apache Airflow nebeží natívne na Windowse (jeden balík potrebuje POSIX systém) → spustíš ho v kontajneri a priečinok s DAG-mi necháš u seba ako bind mount.
+- Lektor generuje web cez Jekyll v kontajneri s pripojeným priečinkom zdrojákov: každé uloženie súboru stránku hneď prebuilduje.
+
+### Problém s právami
+
+```bash
+docker container run --rm \
+  --env-file rustfs.env -p 9000:9000 -p 9001:9001 \
+  --volume ./data:/data \
+  rustfs/rustfs
+```
+
+RustFS s bind mountom na kurze padol na **prístupových právach** — aplikácia v kontajneri potrebuje čítať aj zapisovať a vlastník priečinka na hostiteľovi nesedí s používateľom, pod ktorým beží v kontajneri. Pri binárnych dátach preto zostaň pri pomenovaných zväzkoch.
+
+## Kto vytvára súbory
+
+```bash
+docker container run --rm -it --volume .:/mnt alpine
+whoami                          # root
+touch /mnt/mirek_was_here
+exit
+ls -l mirek_was_here            # -rw-r--r-- 1 root root …
+```
+
+Proces v kontajneri beží ako **root**, takže súbor na hostiteľovi patrí rootovi a ako bežný používateľ ho nebudeš vedieť upraviť (a v priečinku, kam nemáš právo zápisu, ani zmazať).
+
+### Bezpečnostné riziko
+
+```bash
+# na hostiteľovi som bežný používateľ, do / nemôžem zapisovať
+touch /mirek_was_here           # Permission denied
+
+docker container run --rm -it --volume /:/mnt alpine
+touch /mnt/mirek_was_here       # prejde!
+```
+
+Bežný používateľ bez `sudo`, ktorý **smie spúšťať kontajnery**, pripojí celý koreň hostiteľa do kontajnera, kde je root — a so súbormi hostiteľa robí čokoľvek (`/etc`, pridanie sa medzi administrátorov…). Členstvo v skupine `docker` = de facto root. S Dockerom opatrne.
+
+Ochrana: **rootless** kontajnery. **Podman** ich má predvolene; Docker sa do rootless režimu dá prepnúť (bez rootovského Docker Engine):
+
+```bash
+podman container run --rm -it --volume /:/mnt alpine
+touch /mnt/mirek_was_here       # Permission denied
+ls -l /mnt/home                 # vlastník nobody nobody
+```
+
+V rootless režime je proces síce v kontajneri „root“, ale voči hostiteľovi má iba práva používateľa, ktorý ho spustil.
+
+## `--user`
+
+```bash
+id -u      # 1000 — tvoje UID
+id -g      # 1000 — tvoje GID
+
+docker container run --rm -it \
+  --volume .:/mnt \
+  --user $(id -u):$(id -g) \
+  alpine
+id                              # uid=1000 gid=1000
+touch /mnt/yuhu
+exit
+ls -l yuhu                      # -rw-r--r-- 1 mirek mirek …
+```
+
+`--user UID:GID` spustí proces s daným ID používateľa a skupiny. Používateľ s takým číslom v kontajneri nemusí existovať — dôležité je číslo. Pri lokálnom vývoji s bind mountom tak vznikajú súbory s tvojím vlastníkom.
+
+Bezpečnejšie je, keď už **obraz** beží pod iným používateľom ako root — to je téma [3. dňa](/devops-notes/docker/multi-stage-a-bezpecnost/).
+
+## Otestuj sa
+
+<Question q="Podľa čoho Docker vo `--volume X:/cesta` rozozná bind mount od pomenovaného zväzku?">
+Ak je X cesta (`./www`, `/home/…`), je to bind mount. Ak je to meno (`www`), je to pomenovaný zväzok.
+</Question>
+
+<Question q="Kedy použiješ bind mount a kedy pomenovaný zväzok?">
+Bind mount pri lokálnom vývoji (skripty, web) a na konfiguračné súbory — zmeny sú hneď v kontajneri. Pomenovaný zväzok na dáta databáz, úložísk a iné binárne dáta.
+</Question>
+
+<Question q="Prečo súbor vytvorený v kontajneri v bind mounte patrí rootovi?">
+Proces v kontajneri štandardne beží ako root (UID 0) a súbor dostane jeho UID.
+</Question>
+
+<Question q="Prečo je právo spúšťať Docker kontajnery prakticky rovnaké ako root?">
+Používateľ pripojí `/` hostiteľa do kontajnera (`--volume /:/mnt`), kde je root, a môže meniť ľubovoľné súbory hostiteľa.
+</Question>
+
+<Question q="Ako spustíš kontajner pod svojím používateľom?">
+`--user $(id -u):$(id -g)`.
+</Question>
+
+## Cvičenia
+
+### 7.1 · Živá domovská stránka
+
+Spusti `nginx` s menom `homepage` na porte 80 a s bind mountom priečinka `www` (šablóna freelancer) na `/usr/share/nginx/html`. Zmeň nadpis v `index.html` a over, že zmena je hneď viditeľná.
+
+<p class="practises">Precvičíš: bind mount, relatívna cesta.</p>
+
+<Solution>
+```bash
+docker container run --rm --detach --name homepage \
+  --publish 80:80 \
+  --volume ./www:/usr/share/nginx/html \
+  nginx:alpine
+sed -i 's/Start Bootstrap/Mirekova homepage/' www/index.html
+curl -s http://localhost | grep Mirekova
+```
+</Solution>
+
+### 7.2 · Súbory s mojím vlastníkom
+
+V aktuálnom priečinku vytvor súbor z kontajnera `alpine` raz bez `--user` a raz s `--user`. Porovnaj vlastníkov cez `ls -l`.
+
+<p class="practises">Precvičíš: `--user`, `id`.</p>
+
+<Solution>
+```bash
+docker container run --rm --volume .:/mnt alpine touch /mnt/as_root
+docker container run --rm --volume .:/mnt --user $(id -u):$(id -g) alpine touch /mnt/as_me
+ls -l as_root as_me
+# as_root  root  root
+# as_me    mirek mirek
+echo x >> as_root    # Permission denied — upraviť ho nevieš
+```
+
+Zmazať `as_root` vo vlastnom priečinku vieš (o mazaní rozhodujú práva priečinka), ale do súboru nezapíšeš.
+</Solution>

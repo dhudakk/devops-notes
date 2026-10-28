@@ -1,0 +1,151 @@
+---
+title: Nástroje na správu
+description: Automatické dopĺňanie a Oh My Zsh, terminálové nástroje ctop, lazydocker a dry, webové rozhranie Cockpit a Portainer — inštalácia cez docker.sock, šablóny a stacky, lab WordPress cez klikanie.
+kind: chapter
+day: 4
+sidebar:
+  order: 15
+  label: 15 · Nástroje na správu
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Terminál: **dry** (ako k9s pre Kubernetes — odporúčaný), **lazydocker**, **ctop**. Bash dopĺňa mená kontajnerov Tabom, Zsh s **Oh My Zsh** ešte viac.
+- **Portainer** — webové rozhranie pre Docker (aj Kubernetes). Beží ako kontajner a cez pripojený **`/var/run/docker.sock`** riadi Docker, ktorý ho spustil.
+- Prvé prihlásenie: `https://…:9443` (HTTPS, self-signed certifikát), **setup token** z `docker container logs portainer`, admin heslo aspoň 12 znakov — a stihni to, inak sa Portainer vypne (potom `restart`).
+- **Templates** = hotové šablóny (WordPress, register) → nasadia **stack**. Stack je Docker Compose kompozícia, ktorú vieš upraviť aj vo webovom editore.
+- **Cockpit** je webová správa celého linuxového servera, kontajnery zvláda cez Podman.
+</KeyPoints>
+
+## V termináli
+
+### Dopĺňanie
+
+Bash v novších inštaláciách Dockera dopĺňa Tabom podpríkazy aj mená kontajnerov podľa kontextu (`docker container inspect <Tab>` ponúkne kontajnery).
+
+**Zsh** s projektom **[Oh My Zsh](https://ohmyz.sh/)** je ešte silnejší — stovky pluginov (aj pre Docker) a tém. Lektor ho odporúča tým, čo v Bashi ešte nie sú zabehnutí. Pre Bash existuje **Oh My Bash**, s menším výberom.
+
+### ctop, lazydocker, dry
+
+| Nástroj | Čo to je |
+| --- | --- |
+| [ctop](https://github.com/bcicen/ctop) | *top* pre kontajnery — zoznam a spotreba, nič viac |
+| [lazydocker](https://github.com/jesseduffield/lazydocker) | pekné terminálové rozhranie s myšou, logy, štatistiky |
+| [dry](https://github.com/moncho/dry) | **najlepší** z nich — ovládanie ako `k9s` pre Kubernetes; kontajnery, obrazy, siete, zväzky, Compose projekty, `exec` príkazu v kontajneri, logy |
+
+```bash
+dry
+lazydocker
+```
+
+:::note[lazydocker a staré API]
+Na kurze lazydocker skončil *client version 1.25 is too old. Minimum supported API version is 1.40* — novší Docker už nepodporuje starú verziu API, ktorú nástroj posiela. Pomôže premenná `DOCKER_API_VERSION=1.40` (rovnaký problém mal Watchtower).
+:::
+
+## Na webe
+
+### Cockpit
+
+[Cockpit](https://cockpit-project.org/) je webové rozhranie na správu celého linuxového servera (používatelia, služby, úložisko, sieť…). Kontajnery zvláda pluginom — **Podman** kontajnery, nie Docker.
+
+### Portainer
+
+[Portainer](https://www.portainer.io/) je v každom rebríčku nástrojov na správu Dockera na prvom mieste — bol medzi prvými webovými rozhraniami, stále sa vyvíja a vie pracovať aj s Kubernetes klastrom.
+
+```bash
+docker container run \
+  --detach \
+  --publish 9443:9443 \
+  --name portainer \
+  --restart always \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --volume portainer_data:/data \
+  portainer/portainer-ce
+```
+
+Kľúčový riadok je `--volume /var/run/docker.sock:/var/run/docker.sock`: cez tento socket sa klient rozpráva s Docker Engine. Portainer v kontajneri tak riadi **Docker, ktorý ho spustil** — vidí a ovláda všetky kontajnery vrátane seba. Nič netreba inštalovať na hostiteľa.
+
+:::caution[Socket = root]
+Kto má prístup k `docker.sock`, ovláda celý Docker, teda aj hostiteľa (pozri [bind mounty](/devops-notes/docker/bind-mounty/)). Pripájaj ho iba dôveryhodným obrazom.
+:::
+
+#### Prvé prihlásenie
+
+1. Otvor **`https://localhost:9443`** — HTTPS, nie HTTP. Certifikát je self-signed, prehliadač ho treba potvrdiť (*Rozšírené → Pokračovať*).
+2. Zadaj **setup token** z logov (bezpečnostná novinka — overí, že si to ty):
+
+   ```bash
+   docker container logs portainer      # riadok so setup tokenom
+   ```
+
+3. Vytvor admin používateľa s heslom aspoň **12 znakov**.
+
+Ak to nestihneš do pár minút, Portainer sa z bezpečnosti vypne (*timed out*). `docker container restart portainer`, nový token z logov a znova.
+
+Pri pripájaní cez VS Code na vzdialený stroj pridaj presmerovanie portu 9443 v záložke *Ports*.
+
+#### Čo v ňom nájdeš
+
+- **Environments → local** — tvoj Docker: kontajnery, obrazy, zväzky, siete, stacky. Pri environmente nastav **Public IP** (IP hostiteľa), aby odkazy na publikované porty v zozname kontajnerov fungovali.
+- **Containers** — spustenie, zastavenie, logy, konzola. Zmena bežiaceho kontajnera cez **Duplicate/Edit** (kontajner sa vytvorí znova s novými nastaveniami).
+- **App Templates** — hotové šablóny: vyberieš WordPress, zadáš root heslo databázy a Portainer nasadí **stack**.
+- **Stacks** — Docker Compose kompozície. Pridáš ich cez webový editor, upload súboru alebo z Git repozitára; šablónu si vieš urobiť aj z vlastnej kompozície.
+
+## Lab: WordPress cez Portainer
+
+Naklikaj WordPress s MySQL a Adminerom ako **tri samostatné kontajnery** (nie stack): spoločná sieť, zväzok pre databázu, premenné prostredia a publikované porty ako v [labe z 2. dňa](/devops-notes/docker/siete/).
+
+Obraz `wordpress:latest` má okolo 1 GB. Ak dochádza miesto, pomôže:
+
+```bash
+rm -rf ~/.cache/grype                  # databáza grype — aj 3 GB
+docker system prune --all              # nepoužívané obrazy, cache, aj build cache containerd
+```
+
+:::note[Varianty obrazu WordPress]
+Na kurze sa skúšal menší tag `fpm-alpine`, ale stránka sa nenačítala: varianty `fpm` obsahujú iba PHP-FPM bez webového servera a potrebujú pred sebou napr. nginx. Samostatne funguje variant s Apache (`latest`, `…-apache`).
+:::
+
+## Otestuj sa
+
+<Question q="Prečo Portainer potrebuje `--volume /var/run/docker.sock:/var/run/docker.sock`?">
+Cez tento socket komunikuje s Docker Engine hostiteľa — tak z kontajnera riadi všetky kontajnery na stroji.
+</Question>
+
+<Question q="Prečo je pripojenie `docker.sock` do kontajnera bezpečnostne citlivé?">
+Kto ovláda socket, ovláda Docker a cez neho aj hostiteľa (môže spustiť kontajner s pripojeným `/`).
+</Question>
+
+<Question q="Kde nájdeš setup token Portaineru?">
+V logoch kontajnera: `docker container logs portainer`.
+</Question>
+
+<Question q="Čo je v Portaineri stack?">
+Docker Compose kompozícia — z šablóny, webového editora, nahratého súboru alebo Git repozitára.
+</Question>
+
+<Question q="Ktorý terminálový nástroj lektor odporúča a prečo?">
+dry — vyzerá a ovláda sa ako k9s pre Kubernetes a zvláda kontajnery, obrazy, siete, zväzky aj Compose projekty.
+</Question>
+
+## Cvičenia
+
+### 15.1 · Portainer a šablóna
+
+Spusti Portainer, dokonči registráciu a nasaď WordPress z App Templates. Zisti, ktoré kontajnery a aký Compose súbor vznikli.
+
+<p class="practises">Precvičíš: `docker.sock`, setup token, templates, stacks.</p>
+
+<Solution>
+```bash
+docker container run -d -p 9443:9443 --name portainer --restart always \
+  -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data \
+  portainer/portainer-ce
+docker container logs portainer        # setup token
+```
+
+`https://localhost:9443` → token, admin heslo (12+ znakov) → *Get Started* → *local* → *App Templates* → WordPress → root heslo → *Deploy the stack*. V *Stacks* → wordpress je editor s Compose súborom (`wordpress` + `mysql`), v *Containers* dva nové kontajnery.
+</Solution>

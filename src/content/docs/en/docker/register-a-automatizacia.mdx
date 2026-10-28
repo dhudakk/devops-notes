@@ -1,0 +1,206 @@
+---
+title: Registry, Traefik, and Watchtower
+description: The Traefik reverse proxy, a private image registry with registry:2, automatic container updates with Watchtower, testing images with goss, and where Docker fits into CI/CD.
+kind: chapter
+day: 4
+sidebar:
+  order: 16
+  label: 16 · Registry and automation
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Traefik** = a reverse proxy: one entry point (ports 80/443) that forwards requests to the right containers by **rules** (domain, path). It also handles HTTPS and certificates and reads rules from container **labels**.
+- **A private registry**: `docker container run -d -p 5000:5000 registry:2`. Name the image `localhost:5000/name:tag` and `docker image push`. Listing: `http://localhost:5000/v2/_catalog`.
+- `docker image push --all-tags` pushes all of an image's tags at once.
+- **Watchtower** checks whether the registry has a new image for **the same tag**, then stops the container and starts it with the new one. It needs `docker.sock`.
+- **goss/dgoss** tests an image's contents and behaviour (files, ports, processes, HTTP). Everything is a command-line tool → you assemble them into a CI/CD pipeline.
+</KeyPoints>
+
+## Traefik
+
+A **proxy** protects clients: a whole network hides behind one IP address. A **reverse proxy** is the opposite — it stands in front of **servers**, receives requests from outside, and distributes them by rules:
+
+```text
+api.domain.com         ──┐                ┌──▶ API in Kubernetes
+domain.com/web         ──┼──▶ Traefik ────┼──▶ web server
+backoffice.domain.com  ──┘   (443)        └──▶ a container in Docker
+```
+
+| Term | Meaning |
+| --- | --- |
+| **entry point** | a port Traefik listens on (80, 443) |
+| **router** | a rule — by **domain** (*Host*), **path** (*PathPrefix*), headers, or a combination |
+| **middleware** | modifies the request on the way (e.g. headers) |
+| **service** | the target — a container and its port |
+
+Why you'd want it:
+
+- without it, every service runs on a different port (Adminer 8080, WordPress 80, RustFS 9000/9001…) and you must remember them. With Traefik everything is on 80/443 and differs by domain or path (`server/wordpress`, `server/photos`),
+- only **one port** has to be open to the outside,
+- Traefik handles **HTTPS** (including automatic certificates) — services behind it can speak plain HTTP,
+- rules are written as **labels** when starting a container (or in Compose), and Traefik registers the new container on its own, with no restart,
+- it has a **dashboard** with an overview of rules and their state, plus metrics, logs, and tracing.
+
+Some applications can't run under a path (e.g. InfluxDB) and need their own domain or port. Alternatives: the reverse proxy in nginx or Apache.
+
+## A private registry
+
+Run an image registry with one container (or via the *Docker image registry* template in Portainer):
+
+```bash
+docker container run -d --name registry --publish 5000:5000 registry:2
+```
+
+The name decides where the image goes — the registry is the first part of the name:
+
+```bash
+docker image build --tag bletvaska/nyancat .
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026.10
+docker image tag bletvaska/nyancat localhost:5000/bletvaska/nyancat:2026.10.1
+
+docker image push --all-tags localhost:5000/bletvaska/nyancat
+```
+
+The tags `2026`, `2026.10`, `2026.10.1` are **calendar versioning** (year, month, release number). `--all-tags` can't be combined with a specific tag in the name.
+
+:::note[Port 5000]
+In the course the push first ended with *connection refused* — the registry (started from a Portainer template) wasn't reachable on the port the tag pointed to. Check in `docker container ls` which host port the registry actually listens on, and name the image accordingly.
+:::
+
+Check — remove locally and pull from your registry:
+
+```bash
+docker image rm localhost:5000/bletvaska/nyancat …
+docker image pull localhost:5000/bletvaska/nyancat
+docker container run --rm -it localhost:5000/bletvaska/nyancat
+```
+
+### The HTTP API
+
+The registry has no web interface, only a **REST API**:
+
+```bash
+curl http://localhost:5000/v2/                       # 200 OK
+curl http://localhost:5000/v2/_catalog               # {"repositories":["bletvaska/nyancat"]}
+curl http://localhost:5000/v2/bletvaska/nyancat/tags/list
+```
+
+Graphical interfaces exist as separate projects (e.g. *Docker Registry UI*), but many are no longer maintained — pick one with recent activity. In the course one was started on the `host` network so it could see the registry at `localhost:5000`.
+
+A private registry is useful for a team or company when images shouldn't be public.
+
+## Watchtower
+
+Software ages, and tracking by hand which version runs where is a chore. **[Watchtower](https://github.com/containrrr/watchtower)** regularly checks whether the registry has a **new image for the same tag**, and if so, gracefully stops the container (SIGTERM), pulls the new image, and starts it with the same settings.
+
+```bash
+docker container run --rm -it \
+  --name watchtower \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --env DOCKER_API_VERSION=1.40 \
+  containrrr/watchtower \
+  --interval 30 \
+  mysql wordpress nyancat
+```
+
+| Part | Meaning |
+| --- | --- |
+| `docker.sock` | Watchtower controls Docker, like Portainer |
+| `DOCKER_API_VERSION=1.40` | Watchtower sends an old API version that newer Docker rejects (*client version … is too old*) |
+| `--interval 30` | check every 30 s (once every 24 h by default) |
+| `--schedule "0 * * * * *"` | or cron — **6 fields, the first is seconds** (this = every minute) |
+| `mysql wordpress nyancat` | watch only these containers (without a list it watches all) |
+
+### The tag matters
+
+Watchtower checks **the tag the container runs from**:
+
+- a container from `nyancat:2026.10.1` never updates — the new version gets a new tag `2026.10.2`, but `2026.10.1` doesn't change,
+- a container from `nyancat:2026.10` (or `latest`) does update: releasing `2026.10.2` moves `2026.10`, `2026`, and `latest` to the new image as well.
+
+In the course Watchtower found the new version (*Found new localhost:5000/…:2026.10 image*) but couldn't stop the nyancat container — the animation ignored SIGTERM. The application must exit cleanly on SIGTERM.
+
+:::caution[The project isn't maintained]
+The `containrrr/watchtower` repository is archived. The principle holds, but for new deployments look for a maintained fork or alternative.
+:::
+
+Handy for a home lab or a test server with Compose where everything should update itself.
+
+## Testing images: goss and dgoss
+
+**[goss](https://github.com/goss-org/goss)** verifies a server's state against a YAML file `goss.yaml`: a file exists with the right permissions and content, a package is installed in a given version, a process runs, a port is open, an HTTP endpoint returns the expected response, a command exits with 0… It's small (~10 MB) and extremely fast. **dgoss** runs the same tests against a container (there are also `kgoss` for Kubernetes and `dcgoss` for Compose).
+
+Tests on the image catch things software tests don't see — a missing folder, a container starting in the wrong directory, wrong permissions.
+
+## Where it fits in CI/CD
+
+Everything in the course is a command-line tool, so you can assemble a pipeline (e.g. GitLab CI/CD, where a pipeline is split into **jobs** — small tasks, some of which can run in parallel):
+
+1. developers push code and tag a release,
+2. the application **tests** run,
+3. **hadolint** checks the Dockerfile,
+4. the image is **built** (multi-stage),
+5. **dgoss** tests the image,
+6. **grype** `--fail-on high` — stop on a serious vulnerability,
+7. **push** to a registry (Docker Hub, the company registry),
+8. on the server, **Watchtower** deploys the new version.
+
+The pipeline's jobs also run in containers — prepare their image with every tool you need. Ask your colleagues how they do it — no need to reinvent the wheel.
+
+### Awesome Docker
+
+**[Awesome Docker](https://github.com/veggiemonk/awesome-docker)** is a curated list of tools, tutorials, and projects around Docker, split into categories (registries, linters, monitoring…). Similar *awesome-…* lists exist for almost every technology.
+
+## Test yourself
+
+<Question q="What is the difference between a proxy and a reverse proxy?">
+A proxy stands in front of clients and hides their network behind one IP. A reverse proxy stands in front of servers and distributes requests from outside to the right services by rules.
+</Question>
+
+<Question q="By what can Traefik route requests to different containers?">
+By domain (`api.domain.com`), path (`domain.com/web`), headers, or a combination. Rules are written e.g. as container labels.
+</Question>
+
+<Question q="How do you push an image to a private registry at `localhost:5000`?">
+Tag it with a name that includes the registry (`localhost:5000/bletvaska/nyancat:tag`) and `docker image push`.
+</Question>
+
+<Question q="How do you find out which repositories are in your registry?">
+`curl http://localhost:5000/v2/_catalog`.
+</Question>
+
+<Question q="A container runs from `app:2026.10.1`. Will Watchtower update it after `2026.10.2` is released?">
+No — it watches the tag the container runs from, and `2026.10.1` didn't change. It would update a container from `app:2026.10`, `app:2026`, or `app:latest`.
+</Question>
+
+<Question q="What does dgoss test?">
+A container's contents and behaviour — files, permissions, packages, processes, ports, HTTP responses, command output.
+</Question>
+
+## Exercises
+
+### 16.1 · A private registry
+
+Run `registry:2`, push the nyancat image with the tags `latest`, `2026`, `2026.10`, and `2026.10.1` in one go, list the catalogue and tags through the API, remove the local images, and pull them from the registry.
+
+<p class="practises">Practises: `registry:2`, `image tag`, `push --all-tags`, `/v2/_catalog`.</p>
+
+<Solution>
+```bash
+docker container run -d --name registry -p 5000:5000 registry:2
+for t in latest 2026 2026.10 2026.10.1; do
+  docker image tag nyancat localhost:5000/bletvaska/nyancat:$t
+done
+docker image push --all-tags localhost:5000/bletvaska/nyancat
+curl http://localhost:5000/v2/_catalog
+curl http://localhost:5000/v2/bletvaska/nyancat/tags/list
+docker image rm $(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep localhost:5000)
+docker image pull localhost:5000/bletvaska/nyancat:2026.10
+```
+</Solution>

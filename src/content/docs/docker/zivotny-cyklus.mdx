@@ -1,0 +1,157 @@
+---
+title: Životný cyklus kontajnera
+description: Kontajner ako stavový stroj (created, running, paused, exited, deleted), príkazy create, start, run, pause, unpause, stop, restart, kill a rm a reštartovacie politiky.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Životný cyklus
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Kontajner je **stavový stroj**: `created` → `running` ⇄ `paused`, `running` → `exited` → `running` …, nakoniec zmazaný.
+- `run` = `create` + `start`. `create` iba vytvorí kontajner (stav *created*), proces nespustí.
+- `pause`/`unpause` zmrazí a rozmrazí proces. `restart` = `stop` + `start`. `rm --force` preskočí stop.
+- Kontajner spustený cez `start` beží **na pozadí** — na popredie ho vrátiš cez `attach`.
+- **Reštartovacia politika** `--restart`: `no` (predvolená), `on-failure` (exit ≠ 0), `always` (aj po reštarte Dockera / počítača), `unless-stopped`.
+</KeyPoints>
+
+## Stavy kontajnera
+
+```text
+            create                start
+   (nič) ──────────▶ created ──────────▶ running ◀──────┐
+                                          │  ▲  │        │ start / restart
+                                    pause │  │  │ stop / kill / koniec procesu
+                                          ▼  │  ▼        │
+                                       paused  exited ───┘
+                                     unpause      │
+                                                  │ rm
+                         running ── rm --force ──▶ (zmazaný)
+```
+
+Stav sledovaný každú sekundu:
+
+```bash
+watch --differences --interval 1 \
+  "docker container inspect --format '{{.State.Status}}' clock"
+```
+
+## Krok za krokom
+
+Obraz `bletvaska/clock` vypisuje každú sekundu aktuálny čas.
+
+| Príkaz | Výsledný stav | Poznámka |
+| --- | --- | --- |
+| `docker container run -it --name clock bletvaska/clock` | `running` | hodiny bežia v termináli |
+| `docker container pause clock` | `paused` | proces je zmrazený |
+| `docker container unpause clock` | `running` | pokračuje — čas skočí, lebo vždy volá `date` |
+| `docker container stop clock` | `exited` | SIGTERM, po ~10 s SIGKILL |
+| `docker container start clock` | `running` | **na pozadí** — v termináli nič nevidíš |
+| `docker container attach clock` | `running` | späť na popredí |
+| `docker container restart clock` | `running` | `stop` + `start`; stav *restarting* trvá zlomok sekundy |
+| `docker container kill clock` | `exited` | SIGKILL (9) |
+| `docker container rm clock` | zmazaný | bežiaci kontajner iba s `--force` |
+
+### create
+
+```bash
+docker container create --name clock bletvaska/clock
+docker container ls --all          # STATUS: Created
+docker container start clock       # až teraz beží proces
+```
+
+`create` pripraví kontajner, ale proces nespustí — v `docker container ls` (bez `--all`) ho nevidíš. **`run` je skratka za `create` + `start`** (a pripojenie na výstup).
+
+## Reštartovacie politiky
+
+*Doplnené z 3. dňa.* Aplikácia v kontajneri môže spadnúť (Murphyho zákon). **Najlepšie**, čo sa môže stať, je, že proces skončí — dá sa reštartovať. **Najhoršie** je, keď beží, ale **neodpovedá** (zasekol sa v nekonečnej slučke, deadlocku) — k tomu [healthcheck](/devops-notes/docker/multi-stage-a-bezpecnost/).
+
+```bash
+docker container run --detach --restart always --name rambo \
+  --publish 8000:80 bletvaska/rambo:1
+```
+
+| Politika | Kedy kontajner reštartuje |
+| --- | --- |
+| `no` (predvolená) | nikdy — spadnutý ostane `exited` |
+| `on-failure[:N]` | keď skončí s **exit kódom ≠ 0** (voliteľne najviac N-krát) |
+| `always` | vždy; ak ho zastavíš ručne, naštartuje až po reštarte Docker démona alebo počítača |
+| `unless-stopped` | ako `always`, ale ručne zastavený kontajner ostane zastavený aj po reštarte |
+
+Exit kód 0 = v poriadku, 1–255 = chyba.
+
+Ukážka z kurzu: Rambo 1 s `--restart always`, Rambo 2 bez politiky, potom `sudo reboot`. Po nabehnutí počítača Docker Engine sám spustil Rambo 1 (`Up`), Rambo 2 ostal `Exited`.
+
+:::caution[`--rm` a `--restart always` nejdú dokopy]
+`--rm` hovorí „po skončení zmaž“, `--restart always` „po skončení spusti znova“. Kombinácia nedáva zmysel a Docker na ňu upozorní (*Conflicting options*) — pri lektorovi to tak bolo.
+:::
+
+V Docker Compose: `restart: always` pri službe (predvolene `no`).
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi `docker container create` a `docker container run`?">
+`create` iba vytvorí kontajner (stav *created*), proces nespustí. `run` = `create` + `start` — kontajner hneď beží.
+</Question>
+
+<Question q="Spustil si zastavený kontajner cez `start`, ale v termináli nič nevidíš. Prečo a čo s tým?">
+`start` spúšťa kontajner na pozadí. Na popredie ho vrátiš cez `docker container attach`.
+</Question>
+
+<Question q="Čo spraví `restart` a prečo nevidíš stav *restarting*?">
+Je to `stop` + `start`. Kontajner je zastavený iba zlomok sekundy, preto stav takmer nezachytíš.
+</Question>
+
+<Question q="Aký je rozdiel medzi `--restart always` a `--restart on-failure`?">
+`on-failure` reštartuje iba pri skončení s chybou (exit kód ≠ 0). `always` reštartuje vždy, aj po reštarte Dockera alebo počítača.
+</Question>
+
+<Question q="Čo je horšie: kontajner spadne, alebo beží a neodpovedá?">
+Beží a neodpovedá. Spadnutý kontajner sa dá automaticky reštartovať; zaseknutý sa tvári, že je v poriadku — na to treba healthcheck.
+</Question>
+
+## Cvičenia
+
+### 5.1 · Prejdi všetkými stavmi
+
+V jednom termináli sleduj stav kontajnera `clock` cez `watch`. V druhom ho postupne prever stavmi *created*, *running*, *paused*, *running*, *exited*, *running* a nakoniec ho zmaž jedným príkazom bez zastavenia.
+
+<p class="practises">Precvičíš: `create`, `start`, `pause`, `unpause`, `stop`, `rm --force`.</p>
+
+<Solution>
+```bash
+# terminál 1
+watch -d -n 1 "docker container inspect --format '{{.State.Status}}' clock"
+
+# terminál 2
+docker container create --name clock bletvaska/clock    # created
+docker container start clock                            # running
+docker container pause clock                            # paused
+docker container unpause clock                          # running
+docker container stop clock                             # exited
+docker container start clock                            # running
+docker container rm --force clock                       # zmazaný
+```
+</Solution>
+
+### 5.2 · Prežije reštart?
+
+Spusti dva kontajnery `nginx` na portoch 8080 a 8081, jeden s `--restart always`, druhý bez politiky. Reštartuj Docker (`sudo systemctl restart docker`) a porovnaj ich stav.
+
+<p class="practises">Precvičíš: `--restart`, správanie po reštarte démona.</p>
+
+<Solution>
+```bash
+docker container run -d --name web-always --restart always -p 8080:80 nginx
+docker container run -d --name web-none -p 8081:80 nginx
+sudo systemctl restart docker
+docker container ls --all
+# web-always  Up …
+# web-none    Exited …
+```
+</Solution>

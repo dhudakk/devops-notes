@@ -1,0 +1,186 @@
+---
+title: Bind mounts and users
+description: Mounting a host folder into a container, when to use a bind mount vs. a volume, file ownership problems, the security risk of root in a container, rootless mode, and the --user option.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Bind mounts
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **bind mount** attaches **any host folder** to a container: `--volume ./www:/usr/share/nginx/html` (relative path with `./`, or `$(pwd)/www`).
+- A change to a file on the host is visible in the container **immediately** — ideal for **development** (scripts, web) and **configuration files**. For binary data of databases and storage use named volumes.
+- The process in a container usually runs as **root** → files it creates in a bind mount belong to root.
+- Whoever may run containers has **root on the host**: `--volume /:/mnt alpine` lets them change the whole system. Rootless (Podman) prevents it.
+- `--user $(id -u):$(id -g)` runs the process with your UID/GID — files will be yours.
+</KeyPoints>
+
+## Bind mounts
+
+With a named volume, Docker manages a folder in its "Docker area" (`/var/lib/docker/volumes`). A bind mount is the opposite: you mount **any existing folder** from the host's filesystem into the container.
+
+```bash
+docker container run --rm --detach --name homepage \
+  --publish 80:80 \
+  --volume ./www:/usr/share/nginx/html \
+  nginx
+```
+
+Docker tells a bind mount from a named volume by the left-hand side: a **path** (`./www`, `/home/…`) = bind mount, a **name** (`www`) = named volume.
+
+| Path form | Note |
+| --- | --- |
+| `./www` | relative path — works in newer Docker versions |
+| `$(pwd)/www` or `$PWD/www` | absolute path, the older way, works everywhere |
+
+Bind mounts are not declared in a Dockerfile — you can mount anything anywhere.
+
+:::caution[The whole target folder is replaced]
+In the course the bind mount was first one folder level off and nginx returned *404 Not Found*. The host folder's contents **replace** the target folder in the container — make sure `index.html` sits directly in the folder you mount on `/usr/share/nginx/html`.
+:::
+
+Now edit `www/index.html` on the host, save, and reload the page — the change is there **immediately**, without `docker container cp`.
+
+### Bind mount or volume
+
+| Use | Choose |
+| --- | --- |
+| databases, S3 storage, binary data | **named volume** |
+| local development — PHP, Python, Perl scripts, static sites | **bind mount** |
+| configuration files (the app only reads them) | **bind mount** — edit locally, restart the container |
+
+Real-world examples:
+
+- A Java developer needs an application server (Tomcat) and a database → `docker compose up` with the build folder as a bind mount.
+- Apache Airflow doesn't run natively on Windows (one package needs a POSIX system) → run it in a container and keep the DAG folder locally as a bind mount.
+- The instructor builds his website with Jekyll in a container with the source folder mounted: every file save rebuilds the site immediately.
+
+### Permission problems
+
+```bash
+docker container run --rm \
+  --env-file rustfs.env -p 9000:9000 -p 9001:9001 \
+  --volume ./data:/data \
+  rustfs/rustfs
+```
+
+RustFS with a bind mount failed on **permissions** in the course — the app in the container needs to read and write, and the folder's owner on the host doesn't match the user it runs as inside. For binary data, stick with named volumes.
+
+## Who creates the files
+
+```bash
+docker container run --rm -it --volume .:/mnt alpine
+whoami                          # root
+touch /mnt/mirek_was_here
+exit
+ls -l mirek_was_here            # -rw-r--r-- 1 root root …
+```
+
+The process in the container runs as **root**, so the file on the host belongs to root and as a regular user you can't edit it (and in a folder you can't write to, not even delete it).
+
+### The security risk
+
+```bash
+# on the host I'm a regular user and can't write to /
+touch /mirek_was_here           # Permission denied
+
+docker container run --rm -it --volume /:/mnt alpine
+touch /mnt/mirek_was_here       # works!
+```
+
+A regular user without `sudo` who **may run containers** mounts the host's whole root into a container where they are root — and can do anything to the host's files (`/etc`, adding themselves as an administrator…). Membership in the `docker` group = effectively root. Be careful with Docker.
+
+The protection: **rootless** containers. **Podman** has them by default; Docker can be switched to rootless mode (without a root Docker Engine):
+
+```bash
+podman container run --rm -it --volume /:/mnt alpine
+touch /mnt/mirek_was_here       # Permission denied
+ls -l /mnt/home                 # owner nobody nobody
+```
+
+In rootless mode the process is "root" inside the container, but towards the host it has only the rights of the user who started it.
+
+## `--user`
+
+```bash
+id -u      # 1000 — your UID
+id -g      # 1000 — your GID
+
+docker container run --rm -it \
+  --volume .:/mnt \
+  --user $(id -u):$(id -g) \
+  alpine
+id                              # uid=1000 gid=1000
+touch /mnt/yuhu
+exit
+ls -l yuhu                      # -rw-r--r-- 1 mirek mirek …
+```
+
+`--user UID:GID` runs the process with the given user and group IDs. A user with that number doesn't have to exist in the container — the number is what matters. With bind mounts in local development, files then get your ownership.
+
+It's safer when the **image** itself already runs as a non-root user — a topic of [day 3](/devops-notes/en/docker/multi-stage-a-bezpecnost/).
+
+## Test yourself
+
+<Question q="How does Docker tell a bind mount from a named volume in `--volume X:/path`?">
+If X is a path (`./www`, `/home/…`) it's a bind mount. If it's a name (`www`), it's a named volume.
+</Question>
+
+<Question q="When do you use a bind mount and when a named volume?">
+Bind mounts for local development (scripts, web) and configuration files — changes show up in the container immediately. Named volumes for database data, storage, and other binary data.
+</Question>
+
+<Question q="Why does a file created in a bind mount from a container belong to root?">
+The process in the container runs as root (UID 0) by default and the file gets its UID.
+</Question>
+
+<Question q="Why is the right to run Docker containers practically the same as root?">
+The user can mount the host's `/` into a container (`--volume /:/mnt`) where they are root, and change any file on the host.
+</Question>
+
+<Question q="How do you run a container as yourself?">
+`--user $(id -u):$(id -g)`.
+</Question>
+
+## Exercises
+
+### 7.1 · A live homepage
+
+Run `nginx` named `homepage` on port 80 with a bind mount of the `www` folder (the freelancer template) on `/usr/share/nginx/html`. Change the heading in `index.html` and check the change shows up immediately.
+
+<p class="practises">Practises: bind mount, relative path.</p>
+
+<Solution>
+```bash
+docker container run --rm --detach --name homepage \
+  --publish 80:80 \
+  --volume ./www:/usr/share/nginx/html \
+  nginx:alpine
+sed -i 's/Start Bootstrap/Mirek homepage/' www/index.html
+curl -s http://localhost | grep Mirek
+```
+</Solution>
+
+### 7.2 · Files I own
+
+In the current folder, create a file from an `alpine` container once without `--user` and once with it. Compare the owners with `ls -l`.
+
+<p class="practises">Practises: `--user`, `id`.</p>
+
+<Solution>
+```bash
+docker container run --rm --volume .:/mnt alpine touch /mnt/as_root
+docker container run --rm --volume .:/mnt --user $(id -u):$(id -g) alpine touch /mnt/as_me
+ls -l as_root as_me
+# as_root  root  root
+# as_me    mirek mirek
+echo x >> as_root    # Permission denied — you can't edit it
+```
+
+You can delete `as_root` in your own folder (deletion depends on the folder's permissions), but you can't write to the file.
+</Solution>

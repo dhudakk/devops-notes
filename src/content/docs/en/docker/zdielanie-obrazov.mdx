@@ -1,0 +1,159 @@
+---
+title: Sharing images
+description: Tagging images, push and pull via the anonymous ttl.sh registry and Docker Hub, several tags for one image, removing and pruning, layers and one RUN with &&, the dive tool.
+kind: chapter
+day: 3
+sidebar:
+  order: 11
+  label: 11 · Sharing images
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Where an image goes is decided by its **name**: `docker image tag nyancat ttl.sh/mirek/nyancat:30m`, then `docker image push ttl.sh/mirek/nyancat:30m`.
+- One image can have **several tags** — they share the same `IMAGE ID` (like hard links to one file). `push --all-tags` pushes them all.
+- **ttl.sh** is an anonymous registry with no account: the tag is how long the image stays there (`30m`, `1h`, up to 24 h).
+- `docker image rm` removes an image (tag), `docker image prune` removes `<none>` images. `docker image ls --all` shows untagged ones too.
+- Official Dockerfiles combine commands into **one `RUN` with `&&`** — fewer layers, and the chain stops at the first error. Inspect layers with `docker image history` or **dive**.
+</KeyPoints>
+
+## Tagging
+
+```bash
+docker image tag nyancat ttl.sh/mirek/nyancat:30m
+docker image ls
+# nyancat:latest              ID e15e…
+# ttl.sh/mirek/nyancat:30m    ID e15e…
+```
+
+`docker image tag SOURCE TARGET` gives an image another name. There's **one** image in Docker and two names refer to it — the same `IMAGE ID`. Like two references to one object in memory or hard links to one file.
+
+Official images are tagged the same way — `nginx:latest`, `nginx:1.31`, `nginx:1.31.6` can be the same image.
+
+## ttl.sh — an anonymous registry
+
+[ttl.sh](https://ttl.sh/) is a registry you can push to **with no account or login**. The tag says how long the image lives there (`5m`, `30m`, `1h`, `24h`; 1 hour by default, 24 hours at most). Handy for quick sharing and for trying push/pull.
+
+```bash
+docker image push ttl.sh/mirek/nyancat:30m
+```
+
+Check — remove the image locally and pull it back:
+
+```bash
+docker image rm ttl.sh/mirek/nyancat:30m nyancat
+docker image pull ttl.sh/mirek/nyancat:30m
+docker container run --rm -it ttl.sh/mirek/nyancat:30m
+```
+
+During the pull you may see *Already exists* for some layer — you have that layer locally (e.g. from the `alpine` image).
+
+:::note[Correction to the slides]
+The slides use `docker image run ttl.sh/bletvaska/matrix`. No such command exists — containers are started with `docker container run`.
+:::
+
+## Docker Hub
+
+Docker Hub needs an account and a login:
+
+```bash
+docker login                     # log in (the session is stored)
+docker image tag mini bletvaska/mini
+docker image push bletvaska/mini
+docker image tag mini bletvaska/mini:2020.01
+docker image push --all-tags bletvaska/mini
+docker logout                    # log out when done
+```
+
+The namespace (`bletvaska`) is your account name. `--all-tags` pushes all of the image's tags at once.
+
+## Removing and cleaning up
+
+```bash
+docker image rm nyancat              # removes the tag (the image, if it was the last tag)
+docker image ls --all                # including <none> images
+docker image prune                   # removes <none> (untagged) images
+```
+
+`<none>` images appear when you build without `--tag` or when a new build "takes" a tag away from the old image. `prune` doesn't remove images used by a container (`EXTRA: U`).
+
+### save and load
+
+```bash
+docker image save nyancat -o nyancat.tar
+docker image load -i nyancat.tar
+```
+
+An image saved to an archive can be moved to a machine with no access to a registry or the internet.
+
+## One RUN with `&&`
+
+Official Dockerfiles (`nginx`, `mysql`) tend to have one huge `RUN` instead of dozens of short ones:
+
+```dockerfile
+RUN set -x \
+    && groupadd --system nginx \
+    && useradd --system --gid nginx nginx \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes nginx \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+- Each `RUN` is a **layer** and each layer has overhead (metadata, processing during build and pull). Fewer layers = faster.
+- `&&` runs the next command only if the previous one exited with **code 0**. A `RUN` that fails stops the whole build — the chain is never half-done.
+- The cleanup (`rm -rf /var/lib/apt/lists/*`) must be in the **same** `RUN` — in a later one, the data would remain in the earlier layer.
+
+## Inspecting layers
+
+```bash
+docker image history nyancat
+dive ttl.sh/mirek/nyancat:30m
+```
+
+[dive](https://github.com/wagoodman/dive) is an interactive tool: layers on the left, the filesystem on the right, colour-coded to show **what each layer changed** (for nyancat, the `/usr/bin/nyancat` binary was added and the package database in `/lib/apk` updated). `Ctrl+Space` switches views. Useful for checking that the build did what it should and what's bloating the image.
+
+## Test yourself
+
+<Question q="How do you send the `nyancat` image to `ttl.sh` for 30 minutes?">
+`docker image tag nyancat ttl.sh/mirek/nyancat:30m` and `docker image push ttl.sh/mirek/nyancat:30m`.
+</Question>
+
+<Question q="Why do `nyancat:latest` and `ttl.sh/mirek/nyancat:30m` have the same IMAGE ID?">
+It's the same image with two names (tags). A tag is just a reference to an image.
+</Question>
+
+<Question q="What does `docker image prune` remove?">
+Untagged (`<none>`) images not used by any container.
+</Question>
+
+<Question q="Why combine commands into one `RUN` with `&&`?">
+Each `RUN` is a layer with overhead. `&&` also stops the chain at the first error, and cleaning up in the same `RUN` really shrinks the layer.
+</Question>
+
+<Question q="What is the dive tool for?">
+Interactively inspecting an image's layers — what each layer changed in the filesystem and what takes up space.
+</Question>
+
+## Exercises
+
+### 11.1 · Push and pull via ttl.sh
+
+Tag the `nyancat` image with two ttl.sh tags (`30m` and `1h`) in your namespace and push both. Remove it locally, pull it, and run it.
+
+<p class="practises">Practises: `image tag`, `image push`, `image rm`, `image pull`.</p>
+
+<Solution>
+```bash
+docker image tag nyancat ttl.sh/jano/nyancat:30m
+docker image tag nyancat ttl.sh/jano/nyancat:1h
+docker image ls | grep nyancat           # same IMAGE ID
+docker image push ttl.sh/jano/nyancat:30m
+docker image push ttl.sh/jano/nyancat:1h
+docker image rm nyancat ttl.sh/jano/nyancat:30m ttl.sh/jano/nyancat:1h
+docker image pull ttl.sh/jano/nyancat:30m
+docker container run --rm -it ttl.sh/jano/nyancat:30m
+```
+</Solution>

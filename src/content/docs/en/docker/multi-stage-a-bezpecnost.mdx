@@ -1,0 +1,292 @@
+---
+title: Multi-stage builds, security, and healthchecks
+description: A multi-stage build shrinks the image from 1.9 GB to 280 MB, WORKDIR, vulnerability scanning with grype, a non-root user, security updates, HEALTHCHECK, and autoheal.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Multi-stage and security
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Multi-stage build**: several `FROM`s in one Dockerfile. Compile in the `builder` stage, copy only the result into the final image (`COPY --from=builder /app/venv /app/venv`). Weather: from **1.9 GB to 278 MB**.
+- `WORKDIR /app` — the application's working folder (tidy, instead of everything in `/`).
+- **grype** (or Trivy) scans an image for known vulnerabilities — system packages and Python libraries alike. `--fail-on high` → non-zero exit code and the CI/CD pipeline stops.
+- **Don't run as root**: `groupadd` + `useradd` in the image and `USER pythonista`. Folders the app writes to must belong to that user.
+- `HEALTHCHECK --interval --timeout --retries --start-period CMD …` → state `starting` / `healthy` / `unhealthy`. Docker only marks it; a restart needs e.g. **autoheal**.
+</KeyPoints>
+
+## Multi-stage build
+
+A Dockerfile can have several `FROM`s — each starts a new **stage**. Only the last one goes into the final image; from the earlier ones you copy what you need.
+
+```dockerfile title="Dockerfile"
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+COPY weather-2024.4-py3-none-any.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+
+FROM python:3.13-slim AS main
+
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+EXPOSE 8000
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+- **builder** installs the compiler, creates the virtual environment, and installs the app with all dependencies into it (pendulum gets compiled).
+- **main** starts again from a clean `python:3.13-slim` and takes over only the `/app/venv` folder. The compiler, headers, package index, and build artefacts don't make it in.
+
+```bash
+docker image build --tag weather:debian .
+docker image ls weather       # 278 MB instead of 1.9 GB
+```
+
+The other option: in the builder, prepare only the **wheels** of all dependencies (`pip download --dest /tmp/wheels …` / `pip wheel`) and install them in the main stage. Copying a finished virtual environment is simpler.
+
+The same approach applies wherever there's compilation: a Java app needs a full **JDK** to build, but only a runtime and one `.war`/`.jar` to run.
+
+:::note[Correction to the material]
+In the course example the builder created `/venv`, but the final stage copied `/app/venv`. The paths must match — the Dockerfile above uses `/app/venv` everywhere.
+:::
+
+### WORKDIR
+
+`WORKDIR /app` is like `cd /app` for all following instructions, and the last `WORKDIR` is also the folder the container starts in (the app saves its SQLite database there, for example). Convention: everything of yours in one folder (`/app`), not scattered across the root among system folders.
+
+### Cleaning up after builds
+
+Intermediate layers and the build cache take up space:
+
+```bash
+docker system df              # space used by images, containers, volumes, cache
+docker system prune           # stopped containers, unused networks, <none> images, build cache
+docker system prune --all     # also all unused images and the whole cache
+```
+
+## 3. Vulnerability scanning
+
+Even official images contain packages with known vulnerabilities (CVEs). A scanner downloads a **vulnerability database** and compares it with everything in the image — system packages (deb, apk) and language packages (Python):
+
+```bash
+grype weather:debian
+```
+
+```text
+NAME       INSTALLED  FIXED-IN  TYPE    VULNERABILITY   SEVERITY  EPSS  RISK
+starlette  0.37.2     0.47.2    python  GHSA-…          Medium    …     …
+perl-base  5.36.0-7   (won't fix) deb   CVE-…           High      …     …
+```
+
+- **FIXED-IN** — the version that fixes it (`won't fix` = no fix coming),
+- **SEVERITY** — Negligible, Low, Medium, High, Critical.
+
+Often it's a package your app doesn't even use (e.g. Perl in the base system) — one more reason for smaller images and distroless.
+
+```bash
+grype weather:debian --fail-on high
+echo $?                       # ≠ 0 if it found High or Critical
+```
+
+Without `--fail-on`, grype always exits with 0, even when it finds a hundred critical issues. With it, you put grype into the **CI/CD pipeline** before pushing the image — a serious vulnerability stops the pipeline and the new version doesn't go out.
+
+An alternative to [grype](https://github.com/anchore/grype) is [Trivy](https://github.com/aquasecurity/trivy).
+
+:::caution[Disk space]
+grype's database is hundreds of MB, around 3 GB unpacked in `~/.cache/grype`. When space runs out, delete it: `rm -rf ~/.cache/grype`.
+:::
+
+## 4. Don't run as root
+
+```bash
+docker container run --rm -it weather:debian whoami     # root
+docker container run -d alpine sleep 20
+ps -eo user,pid,cmd | grep sleep                        # root … sleep 20 — on the host too!
+```
+
+The process in the container runs as root and on the host you see it as root too. If an attacker breaks out of the container, they have root rights. So create **your own user** in the image:
+
+```dockerfile
+RUN groupadd --gid 1000 pythonista \
+    && useradd --uid 1000 --gid 1000 --no-create-home pythonista
+
+# … installation as root …
+
+USER pythonista
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+From `USER` on, everything (including the running container) runs as `pythonista` (UID 1000).
+
+:::caution[Write permissions]
+In the course the app then crashed with *unable to open database file*: root had created `/app` and `pythonista` couldn't write there (SQLite database). Give folders the app writes to to that user — e.g. `RUN mkdir -p /app && chown pythonista:pythonista /app` or `COPY --chown=pythonista:pythonista …`.
+:::
+
+## 5. Security updates
+
+Software ages. Regularly **rebuild** the image on a current base image with updated packages (`apt-get upgrade` in the build, a new base tag), check it with grype, and release a new version. Automatically deploying the new version is handled by e.g. [Watchtower](/devops-notes/en/docker/register-a-automatizacia/).
+
+## Healthcheck
+
+A running process doesn't mean a working application (it hung, it can't reach the database). A **healthcheck** regularly verifies that it's healthy:
+
+```dockerfile
+HEALTHCHECK \
+    --interval=10s \
+    --timeout=3s \
+    --retries=3 \
+    --start-period=30s \
+    CMD curl -f http://localhost:8000 || exit 1
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--interval=10s` | check every 10 seconds |
+| `--timeout=3s` | wait at most 3 s for an answer, then the check fails |
+| `--retries=3` | **3 failures in a row** = `unhealthy` (one success sets it back to `healthy`) |
+| `--start-period=30s` | failures during startup don't count — the app can start at its own pace |
+
+Without `--start-period`, a slowly starting app (Java can take a minute) would be `unhealthy` before it was up — and if something restarted it on `unhealthy`, it would never start. Set it to roughly **twice** the usual startup time.
+
+```bash
+docker container ls
+# STATUS: Up 5 seconds (health: starting)
+# STATUS: Up 1 minute (healthy)
+```
+
+### The check command
+
+A healthcheck understands only exit codes **0** (healthy) and **1** (unhealthy); **2** is reserved. Hence `|| exit 1`:
+
+- `curl -f` (`--fail`) exits non-zero (22) on an HTTP error (4xx, 5xx) — without `-f` it would exit 0 even if the server returned 500,
+- `|| exit 1` turns any failure into 1.
+
+How to check depends on the application:
+
+- an HTTP **health endpoint** (e.g. `/health`, in Java Spring Boot Actuator) — returns 200 when the app is healthy, and the app decides what "healthy" means (HTTP is up, the database connection works…),
+- opening a TCP connection (e.g. an FTP server),
+- a bundled program that checks the state and returns an exit code.
+
+:::caution[curl in the image]
+In the course the container was `unhealthy` right away — **there's no `curl`** in `python:3.13-slim`. Either install it or check with a tool the image has, e.g. Python: `CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000')" || exit 1`.
+:::
+
+### Who restarts an unhealthy container
+
+**Not Docker** — it only marks it. The restart policy reacts to the process exiting, not to `unhealthy`. The answer is the [autoheal](https://github.com/willfarrell/docker-autoheal) container (it watches containers through `docker.sock` and restarts `unhealthy` ones), or Kubernetes with probes.
+
+## The final Dockerfile
+
+```dockerfile title="Dockerfile"
+FROM python:3.13-slim AS builder
+
+WORKDIR /app
+COPY weather-2024.4-py3-none-any.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+
+FROM python:3.13-slim AS main
+
+RUN groupadd --gid 1000 pythonista \
+    && useradd --uid 1000 --gid 1000 --no-create-home pythonista
+
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+RUN chown pythonista:pythonista /app
+ENV PATH="/app/venv/bin:$PATH"
+
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=30s \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000')" || exit 1
+
+EXPOSE 8000
+USER pythonista
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+hadolint now reports only the unpinned system package versions (`DL3008`).
+
+## Test yourself
+
+<Question q="How does a multi-stage build shrink the image?">
+Compilation and installation happen in the `builder` stage. The final stage starts from a clean base and copies only the result (`COPY --from=builder`), without compilers and intermediate artefacts.
+</Question>
+
+<Question q="What is `WORKDIR` for?">
+It sets the working folder for later instructions and for the running container. The app keeps everything in one folder (e.g. `/app`).
+</Question>
+
+<Question q="How do you stop a CI/CD pipeline when the image contains a High vulnerability?">
+`grype image --fail-on high` — it exits with a non-zero code when it finds one.
+</Question>
+
+<Question q="Why not run an app in a container as root?">
+Root in the container is root on the host too — an attacker escaping the container has full rights. An own user (`USER`) limits that.
+</Question>
+
+<Question q="What do `--retries=3` and `--start-period=30s` mean in HEALTHCHECK?">
+`unhealthy` only after 3 failures in a row; failures in the first 30 s after start don't count.
+</Question>
+
+<Question q="Why `curl -f … || exit 1`?">
+`-f` turns an HTTP error into a non-zero exit code; `|| exit 1` maps it to 1, because a healthcheck understands only 0 and 1.
+</Question>
+
+<Question q="Does Docker restart an `unhealthy` container?">
+No, it only marks it. A restart is handled by e.g. autoheal or Kubernetes.
+</Question>
+
+## Exercises
+
+### 13.1 · From 1.9 GB to 280 MB
+
+Rewrite the weather Dockerfile from the previous chapter as a multi-stage build and compare the image sizes.
+
+<p class="practises">Practises: `AS builder`, `COPY --from`, `WORKDIR`.</p>
+
+<Solution>
+The Dockerfile from *Multi-stage build*, then:
+
+```bash
+docker image build --tag weather:multistage .
+docker image ls weather
+# weather:debian      1.9GB
+# weather:multistage  278MB
+docker container run --rm -it -p 8000:8000 weather:multistage
+```
+</Solution>
+
+### 13.2 · Secure and healthy
+
+Add the `pythonista` user and a healthcheck to the image and check: `whoami` in the container, the state in `docker container ls` after a minute, and the result of `grype --fail-on critical`.
+
+<p class="practises">Practises: `USER`, `HEALTHCHECK`, grype.</p>
+
+<Solution>
+The final Dockerfile above, then:
+
+```bash
+docker image build --tag weather:secure .
+docker container run -d --name weather -p 8000:8000 weather:secure
+docker container exec weather whoami          # pythonista
+docker container ls                           # (health: starting) → (healthy)
+grype weather:secure --fail-on critical; echo $?
+```
+</Solution>

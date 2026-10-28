@@ -1,0 +1,260 @@
+---
+title: Configuration and ports
+description: The Twelve-Factor App and configuration through environment variables, --env and --env-file and their precedence, docker container inspect with --format and jq, EXPOSE, and publishing ports.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Configuration and ports
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Twelve-Factor App**, factor 3: whatever changes **between deployments** (addresses, passwords, API keys) belongs in **environment variables**, not in the code or a config file inside the image.
+- `--env KEY=value` (`-e`) sets a variable, `--env-file file.env` loads a whole file. A manual `-e` **wins** over the file — regardless of order.
+- Variables apply only to **that one running container**. Which variables an image understands is in its documentation.
+- `docker container inspect` = everything about a container as JSON. Pull out one value with `--format '{{.State.Status}}'` or `| jq '.[0].State.Status'`.
+- A container is isolated from the network too. Expose a port with `--publish host:container` (`-p 9000:8000`). `EXPOSE` in a Dockerfile is only documentation.
+</KeyPoints>
+
+## Where to put the API key
+
+`bletvaska/weather` reports `No API key provided`. The key could be supplied:
+
+- as a command-line argument — this app doesn't support it,
+- in a configuration file **inside the container** — a container has no persistent storage, so it's gone next run,
+- through an **environment variable** — the right answer.
+
+### Twelve-Factor App
+
+[12factor.net](https://12factor.net/) is a methodology of 12 recommendations for applications running in containers (typically web apps). **Factor 3 — Config**: store configuration in environment variables.
+
+Distinguish two kinds of settings:
+
+| Kind | Example | Where it belongs |
+| --- | --- | --- |
+| changes **between deployments** (local dev, test, staging, production) | backend and database addresses, login, password, API key | **environment variables** |
+| ordinary application configuration | font colour and size, time zone, metric units | a configuration file |
+
+In development the database is on `localhost`, in test on another IP, in production on yet another — same image, different variables.
+
+## `--env`
+
+```bash
+docker container run --rm -it \
+  --name weather \
+  --env WEATHER_QUERY=Bratislava \
+  --env WEATHER_UPDATE_INTERVAL=30 \
+  --env WEATHER_TOKEN=<API_KEY> \
+  bletvaska/weather
+```
+
+Which variables an image understands is in its **documentation** on Docker Hub. Checking inside:
+
+```bash
+docker container exec weather printenv
+```
+
+`printenv` prints the environment. (`env` without arguments does too, but its purpose is to run a command in a modified environment.)
+
+:::note[Variables belong to one run]
+Variables set at `run` apply only to that container. A new `docker container run` of the same image doesn't have them — each run can have a different configuration (one container for Bratislava, another for Košice).
+:::
+
+## `--env-file`
+
+With dozens of variables (host, port, login, password, database name…) listing `--env` is impractical. Put them in a file:
+
+```bash title="local.env"
+WEATHER_QUERY=Bratislava
+WEATHER_UPDATE_INTERVAL=30
+WEATHER_TOKEN=<API_KEY>
+```
+
+```bash
+docker container run --rm -it --env-file local.env bletvaska/weather
+```
+
+Format: `KEY=value`, one per line, **no spaces** around `=`. A relative path is resolved from the folder where you run the command. You can pass several files (`--env-file a.env --env-file b.env`).
+
+:::caution[Quotes in `.env`]
+The lecture wasn't sure whether values can be quoted. `docker container run --env-file` does **not** strip quotes — they become part of the value (`MSG="hello"` → `"hello"` including the quotes). Write values without them. Docker Compose does process quotes in `env_file`.
+:::
+
+### Precedence
+
+```bash
+docker container run --rm -it \
+  --env-file local.env \
+  --env WEATHER_QUERY=Ružomberok \
+  bletvaska/weather
+```
+
+| Source | Value | Precedence |
+| --- | --- | --- |
+| application default | Košice | lowest |
+| `--env-file local.env` | Bratislava | middle |
+| `--env WEATHER_QUERY=…` | **Ružomberok** | **highest** |
+
+A manually set variable always wins, regardless of option order. Handy for testing: keep the whole setup in a file and override just one value.
+
+:::caution[One `.env` for everything is a security risk]
+On day 2 the instructor showed what happens when one `.env` file holds the WordPress variables, the MySQL root password, and a key for another service: WordPress suddenly sees passwords it doesn't need. Give each container **only its own** variables.
+:::
+
+## inspect
+
+```bash
+docker container inspect weather
+```
+
+The result is **JSON** with everything about the container: command and arguments, state, image, name, environment variables (`Config.Env`), mounted volumes (`Mounts`), network and IP address (`NetworkSettings`).
+
+`inspect` exists for every object — `docker image inspect`, `docker volume inspect`, `docker network inspect`.
+
+### `--format` and jq
+
+```bash
+docker container inspect --format '{{.State.Status}}' weather
+# running
+
+docker container inspect weather | jq -r '.[0].State.Status'
+# running
+```
+
+- `--format` uses **Go templates** (similar to Jinja): `{{.State.Status}}` is a path in the JSON.
+- `jq` (*JSON query*) treats JSON like a database. `inspect` returns an **array** (you can pass several containers), so `.[0]` = the first element. `-r` prints the value without quotes.
+
+```bash
+docker container inspect weather-ke weather-ba | jq '.[1].State.Status'   # the second container
+docker container inspect weather-ke weather-ba | jq 'length'              # 2
+```
+
+## Ports
+
+The `weather` web interface runs inside the container on port **8000**. Inside, this works:
+
+```bash
+docker container exec -it weather bash
+curl http://localhost:8000
+```
+
+From the host, `http://localhost:8000` doesn't — the container is **isolated** from the network too.
+
+### Finding an app's port
+
+1. The image's **documentation**.
+2. Apps in containers mostly run on their **default port** (a web server on 80).
+3. The **`EXPOSE`** instruction in the Dockerfile (official images link the Dockerfile from their tags) or `ExposedPorts` in `docker image inspect`.
+
+`EXPOSE 8000` is only **documentation** — it opens nothing and changes nothing. That's why the `PORTS` column of `docker container ls` shows `8000/tcp` even though you can't reach it from the host.
+
+### `--publish`
+
+```bash
+docker container run --rm -it \
+  --name weather-ba \
+  --env-file local.env \
+  --publish 9000:8000 \
+  bletvaska/weather:2023.12
+```
+
+```text
+--publish 9000:8000
+          │    └── port in the container (closer to the image)
+          └─────── port on the host (closer to localhost)
+```
+
+Now `http://localhost:9000` on the host shows the app.
+
+Two containers can use the **same** port inside — each container has its own IP address, like a separate server. On the host, though, each needs a **different** port:
+
+```bash
+docker container run -d --name weather-ba --env-file local.env -p 9000:8000 bletvaska/weather:2023.12
+docker container run -d --name weather-ke --env WEATHER_QUERY=Košice --env WEATHER_TOKEN=<API_KEY> \
+  -p 8000:8000 bletvaska/weather:2023.12
+```
+
+Two containers on the same host port end with *port is already allocated*.
+
+:::note[Why `:2023.12`]
+In the course the `latest` image returned `Internal Server Error`; the older `2023.12` worked. The app also occasionally crashes when OpenWeatherMap doesn't send `sunrise`/`sunset` — just wait for the next update.
+:::
+
+## Test yourself
+
+<Question q="What does factor 3 of the Twelve-Factor App say?">
+Configuration that changes between deployments (addresses, credentials, keys) is stored in environment variables — not in the code or in configuration files inside the image.
+</Question>
+
+<Question q="`local.env` has `WEATHER_QUERY=Bratislava` and the command has `--env WEATHER_QUERY=Ružomberok`. Which city is used?">
+Ružomberok. A manually set variable has the highest precedence; option order doesn't matter.
+</Question>
+
+<Question q="How do you get the state of container `weather` as one word?">
+`docker container inspect --format '{{.State.Status}}' weather` or `docker container inspect weather | jq -r '.[0].State.Status'`.
+</Question>
+
+<Question q="Why `.[0]` in `jq`?">
+`inspect` always returns an array (it accepts several objects). `.[0]` is the first element.
+</Question>
+
+<Question q="What does `--publish 9000:8000` mean?">
+Port 9000 on the host is forwarded to port 8000 in the container. Host on the left, container on the right.
+</Question>
+
+<Question q="Does `EXPOSE 8000` in a Dockerfile open a port on the host?">
+No. It only documents which port the app listens on. The port is opened by `--publish`.
+</Question>
+
+<Question q="Can two containers listen on the same port 8000 inside?">
+Yes — each container has its own IP address. Only on the host must they be published on different ports.
+</Question>
+
+## Exercises
+
+### 4.1 · Weather in Bratislava
+
+Run a container from `bletvaska/weather` named `weather` that fetches the Bratislava weather every 30 seconds. Supply the API key through an environment variable. Check the variables inside the container.
+
+<p class="practises">Practises: `--env`, `printenv`, image documentation.</p>
+
+<Solution>
+```bash
+docker container run --rm -it \
+  --name weather \
+  --env WEATHER_QUERY=Bratislava \
+  --env WEATHER_UPDATE_INTERVAL=30 \
+  --env WEATHER_TOKEN=<API_KEY> \
+  bletvaska/weather
+
+# in another terminal
+docker container exec weather printenv | grep WEATHER
+```
+
+Variable names are in the image's documentation on Docker Hub. Create a key at openweathermap.org.
+</Solution>
+
+### 4.2 · Two cities, two ports
+
+Move the Bratislava variables into `local.env`. Run two containers: Bratislava on port 9000 and Košice on port 8000 (Košice via `--env`, key from the file). Check in the browser and get both states with `inspect`.
+
+<p class="practises">Practises: `--env-file`, variable precedence, `--publish`, `inspect --format`.</p>
+
+<Solution>
+```bash
+docker container run -d --rm --name weather-ba \
+  --env-file local.env --publish 9000:8000 bletvaska/weather:2023.12
+
+docker container run -d --rm --name weather-ke \
+  --env-file local.env --env WEATHER_QUERY=Košice \
+  --publish 8000:8000 bletvaska/weather:2023.12
+
+docker container inspect --format '{{.Name}} {{.State.Status}}' weather-ba weather-ke
+```
+
+`http://localhost:9000` shows Bratislava, `http://localhost:8000` Košice. `--env` overrides the file value.
+</Solution>

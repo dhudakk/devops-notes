@@ -1,0 +1,151 @@
+---
+title: Management tools
+description: Tab completion and Oh My Zsh, the terminal tools ctop, lazydocker, and dry, the Cockpit and Portainer web interfaces — installing via docker.sock, templates and stacks, and a click-through WordPress lab.
+kind: chapter
+day: 4
+sidebar:
+  order: 15
+  label: 15 · Management tools
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Terminal: **dry** (like k9s for Kubernetes — recommended), **lazydocker**, **ctop**. Bash completes container names with Tab, Zsh with **Oh My Zsh** even more.
+- **Portainer** — a web interface for Docker (and Kubernetes). It runs as a container and, through the mounted **`/var/run/docker.sock`**, controls the Docker that started it.
+- First login: `https://…:9443` (HTTPS, self-signed certificate), **setup token** from `docker container logs portainer`, an admin password of at least 12 characters — and be quick, or Portainer shuts down (then `restart`).
+- **Templates** = ready-made recipes (WordPress, registry) → they deploy a **stack**. A stack is a Docker Compose composition you can also edit in the web editor.
+- **Cockpit** is web administration for a whole Linux server; it handles containers via Podman.
+</KeyPoints>
+
+## In the terminal
+
+### Completion
+
+In newer Docker installations Bash completes subcommands and container names with Tab, depending on context (`docker container inspect <Tab>` offers containers).
+
+**Zsh** with **[Oh My Zsh](https://ohmyz.sh/)** is stronger still — hundreds of plugins (Docker included) and themes. The instructor recommends it to those not yet at home in Bash. For Bash there's **Oh My Bash**, with a smaller selection.
+
+### ctop, lazydocker, dry
+
+| Tool | What it is |
+| --- | --- |
+| [ctop](https://github.com/bcicen/ctop) | *top* for containers — list and usage, nothing more |
+| [lazydocker](https://github.com/jesseduffield/lazydocker) | a nice terminal UI with mouse support, logs, stats |
+| [dry](https://github.com/moncho/dry) | **the best** of them — controls like `k9s` for Kubernetes; containers, images, networks, volumes, Compose projects, `exec` a command in a container, logs |
+
+```bash
+dry
+lazydocker
+```
+
+:::note[lazydocker and the old API]
+In the course lazydocker ended with *client version 1.25 is too old. Minimum supported API version is 1.40* — newer Docker no longer supports the old API version the tool sends. The `DOCKER_API_VERSION=1.40` variable helps (Watchtower had the same problem).
+:::
+
+## On the web
+
+### Cockpit
+
+[Cockpit](https://cockpit-project.org/) is a web interface for administering a whole Linux server (users, services, storage, network…). It handles containers with a plugin — **Podman** containers, not Docker.
+
+### Portainer
+
+[Portainer](https://www.portainer.io/) tops every ranking of Docker management tools — it was among the first web interfaces, is still developed, and can work with a Kubernetes cluster too.
+
+```bash
+docker container run \
+  --detach \
+  --publish 9443:9443 \
+  --name portainer \
+  --restart always \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --volume portainer_data:/data \
+  portainer/portainer-ce
+```
+
+The key line is `--volume /var/run/docker.sock:/var/run/docker.sock`: through this socket the client talks to Docker Engine. Portainer in a container thus controls **the Docker that started it** — it sees and manages every container, itself included. Nothing has to be installed on the host.
+
+:::caution[Socket = root]
+Whoever has access to `docker.sock` controls all of Docker, and therefore the host (see [bind mounts](/devops-notes/en/docker/bind-mounty/)). Mount it only into trusted images.
+:::
+
+#### First login
+
+1. Open **`https://localhost:9443`** — HTTPS, not HTTP. The certificate is self-signed; confirm it in the browser (*Advanced → Proceed*).
+2. Enter the **setup token** from the logs (a new security feature — it proves it's you):
+
+   ```bash
+   docker container logs portainer      # the line with the setup token
+   ```
+
+3. Create an admin user with a password of at least **12 characters**.
+
+If you don't make it within a few minutes, Portainer shuts down for security (*timed out*). `docker container restart portainer`, a new token from the logs, and again.
+
+When connected to a remote machine via VS Code, add port forwarding for 9443 in the *Ports* tab.
+
+#### What you'll find
+
+- **Environments → local** — your Docker: containers, images, volumes, networks, stacks. Set the environment's **Public IP** (the host's IP) so links to published ports in the container list work.
+- **Containers** — start, stop, logs, console. Change a running container with **Duplicate/Edit** (it is recreated with the new settings).
+- **App Templates** — ready-made templates: choose WordPress, enter the database root password, and Portainer deploys a **stack**.
+- **Stacks** — Docker Compose compositions. Add them via the web editor, a file upload, or a Git repository; you can also make a template from your own composition.
+
+## Lab: WordPress via Portainer
+
+Click together WordPress with MySQL and Adminer as **three separate containers** (not a stack): a shared network, a volume for the database, environment variables, and published ports as in the [day 2 lab](/devops-notes/en/docker/siete/).
+
+The `wordpress:latest` image is about 1 GB. If disk space runs low:
+
+```bash
+rm -rf ~/.cache/grype                  # grype's database — up to 3 GB
+docker system prune --all              # unused images, cache, including containerd's build cache
+```
+
+:::note[WordPress image variants]
+In the course people tried the smaller `fpm-alpine` tag, but the page didn't load: the `fpm` variants contain only PHP-FPM without a web server and need e.g. nginx in front. The Apache variant (`latest`, `…-apache`) works on its own.
+:::
+
+## Test yourself
+
+<Question q="Why does Portainer need `--volume /var/run/docker.sock:/var/run/docker.sock`?">
+Through this socket it talks to the host's Docker Engine — that's how it controls every container on the machine from inside a container.
+</Question>
+
+<Question q="Why is mounting `docker.sock` into a container security-sensitive?">
+Whoever controls the socket controls Docker and through it the host (they can start a container with `/` mounted).
+</Question>
+
+<Question q="Where do you find Portainer's setup token?">
+In the container's logs: `docker container logs portainer`.
+</Question>
+
+<Question q="What is a stack in Portainer?">
+A Docker Compose composition — from a template, the web editor, an uploaded file, or a Git repository.
+</Question>
+
+<Question q="Which terminal tool does the instructor recommend, and why?">
+dry — it looks and works like k9s for Kubernetes and handles containers, images, networks, volumes, and Compose projects.
+</Question>
+
+## Exercises
+
+### 15.1 · Portainer and a template
+
+Run Portainer, complete the registration, and deploy WordPress from App Templates. Find out which containers and what Compose file were created.
+
+<p class="practises">Practises: `docker.sock`, setup token, templates, stacks.</p>
+
+<Solution>
+```bash
+docker container run -d -p 9443:9443 --name portainer --restart always \
+  -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data \
+  portainer/portainer-ce
+docker container logs portainer        # setup token
+```
+
+`https://localhost:9443` → token, admin password (12+ characters) → *Get Started* → *local* → *App Templates* → WordPress → root password → *Deploy the stack*. Under *Stacks* → wordpress there's an editor with the Compose file (`wordpress` + `mysql`), and *Containers* shows two new containers.
+</Solution>

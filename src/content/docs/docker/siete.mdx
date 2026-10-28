@@ -1,0 +1,183 @@
+---
+title: Prepojenie kontajnerov
+description: MySQL s Adminerom, prečo nefunguje meno kontajnera v predvolenej sieti, IP adresa kontajnera z inspect, vlastná sieť s prekladom mien a WordPress z troch kontajnerov.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Prepojenie kontajnerov
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Každý kontajner dostane vlastnú **IP adresu**. Bez ďalšieho nastavenia sú všetky v **predvolenej sieti `bridge`** (172.17.0.0/16) a vidia sa iba cez IP.
+- V predvolenej sieti **nefunguje preklad mien** — `db` sa nepreloží (*Name does not resolve*).
+- IP kontajnera: `docker container inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db`.
+- Riešenie: **vlastná sieť** `docker network create wordpress` a `--network wordpress` pri každom kontajneri — v nej sa kontajnery nájdu **podľa mena**.
+- Publikuj iba porty, ktoré naozaj potrebuješ zvonku (Adminer, WordPress). Databáza port na hostiteľovi nepotrebuje.
+</KeyPoints>
+
+## Lab: MySQL s Adminerom
+
+Dva kontajnery: databáza MySQL (`db`) a webový klient **Adminer** (`ui`) — jedna PHP stránka na správu databáz.
+
+```bash
+docker container run --detach --name db \
+  --env MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  --env MYSQL_DATABASE=batcave \
+  --env MYSQL_USER=batman \
+  --env MYSQL_PASSWORD=catwoman \
+  mysql
+
+docker container run --detach --name ui \
+  --publish 80:8080 \
+  adminer
+```
+
+Pri prvom spustení obraz `mysql` vytvorí databázu `batcave` a používateľa `batman` podľa premenných (zoznam je v dokumentácii obrazu). Root heslo sa vygeneruje náhodne.
+
+V Adminere (`http://localhost`) sa prihlásiš ako `batman` / `catwoman` na server… ktorý?
+
+| Pokus do poľa *Server* | Výsledok |
+| --- | --- |
+| `db` | *getaddrinfo for db failed: Name does not resolve* |
+| `localhost` | v kontajneri `ui` je localhost samotný Adminer |
+| IP hostiteľa | čaká a vyprší — port 3306 na hostiteľovi nie je otvorený (a otvárať databázu do sveta nechceš) |
+| **IP kontajnera `db`** | **funguje** |
+
+### IP adresa kontajnera
+
+```bash
+docker container inspect \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+# 172.17.0.3
+```
+
+Alebo ručne v `docker container inspect db` v časti `NetworkSettings` → `Networks` → `bridge` → `IPAddress`.
+
+Oba kontajnery sú v predvolenej sieti `bridge` s prefixom `/16` (172.17.x.x), takže sa navzájom vidia:
+
+```bash
+docker container exec -it ui sh
+ping db               # bad address 'db'
+ping 172.17.0.3       # odpovedá
+```
+
+V Adminere zadaj ako server `172.17.0.3` a prihlásenie prejde.
+
+:::caution[`--link` je zastarané]
+V dokumentácii Admineru je príklad s `--link db:db`, ktorý meno sprístupní. Je to **legacy** voľba, ktorú Docker plánuje odstrániť a už pri nej vypisuje varovanie — nepoužívaj ju.
+:::
+
+## Vlastná sieť
+
+IP adresy sa pri každom spustení môžu zmeniť, takže ich zadávať ručne nie je riešenie. Vo **vlastnej sieti** (*user-defined bridge*) Docker poskytuje DNS a kontajnery sa nájdu podľa mena:
+
+```bash
+docker network create wordpress
+docker network ls
+docker container run -d --name db --network wordpress … mysql
+docker container run -d --name ui --network wordpress -p 80:8080 adminer
+```
+
+V Adminere teraz funguje server `db`.
+
+| Príkaz | Čo robí |
+| --- | --- |
+| `docker network ls` | zoznam sietí (`bridge`, `host`, `none` + tvoje) |
+| `docker network create meno` | vytvorí sieť |
+| `docker network inspect meno` | podrobnosti a pripojené kontajnery |
+| `docker network rm meno` | zmaže sieť |
+| `--network meno` pri `run` | pripojí kontajner do siete |
+
+## Lab: WordPress z troch kontajnerov
+
+WordPress (`wp`, port 80), databáza MySQL (`db`), Adminer (`ui`, port 8080), všetko v sieti `wordpress`, zväzky s prefixom `wp_`.
+
+```bash title="mysql.env"
+MYSQL_ROOT_PASSWORD=secret
+MYSQL_DATABASE=wordpress
+MYSQL_USER=wp_user
+MYSQL_PASSWORD=wp_password
+```
+
+```bash title="wp.env"
+WORDPRESS_DB_HOST=db
+WORDPRESS_DB_USER=wp_user
+WORDPRESS_DB_PASSWORD=wp_password
+WORDPRESS_DB_NAME=wordpress
+```
+
+```bash
+docker network create wordpress
+docker volume create wp_db
+docker volume create wp_wordpress
+
+docker container run -d --rm --name db --env-file mysql.env \
+  --volume wp_db:/var/lib/mysql --network wordpress mysql
+
+docker container run -d --rm --name ui --publish 8080:8080 \
+  --network wordpress adminer
+
+docker container run -d --rm --name wp --env-file wp.env \
+  --volume wp_wordpress:/var/www/html --network wordpress \
+  --publish 80:80 wordpress
+```
+
+`WORDPRESS_DB_HOST=db` funguje vďaka sieti `wordpress`. Na `http://localhost` dokončíš inštaláciu (jazyk, názov stránky, prvý používateľ). Test perzistencie: zastav všetky tri kontajnery a spusti znova — namiesto inštalácie sa otvorí hotový web.
+
+:::caution[Každému kontajneru iba jeho premenné]
+Premenné sú zámerne v **dvoch** súboroch. Keby boli v jednom, kontajner `wp` by videl aj `MYSQL_ROOT_PASSWORD` (a ďalšie kľúče, ktoré ho nezaujímajú). Ak sa niekto do kontajnera dostane, `printenv` mu ich ukáže. Princíp najnižších práv platí aj pre premenné prostredia.
+:::
+
+Vypisovať tri dlhé príkazy v správnom poradí je nepohodlné — preto [Docker Compose](/devops-notes/docker/docker-compose/).
+
+## Otestuj sa
+
+<Question q="Prečo Adminer v predvolenej sieti nenájde server `db`?">
+Predvolená sieť `bridge` neprekladá mená kontajnerov. Kontajnery sa v nej vidia iba cez IP adresy.
+</Question>
+
+<Question q="Prečo nefunguje `localhost` ako adresa databázy z kontajnera Adminer?">
+`localhost` v kontajneri je kontajner samotný (Adminer), nie hostiteľ ani iný kontajner.
+</Question>
+
+<Question q="Ako zistíš IP adresu kontajnera `db`?">
+`docker container inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db` alebo v JSON-e `inspect` v `NetworkSettings.Networks`.
+</Question>
+
+<Question q="Čo zmení `--network wordpress` oproti predvolenej sieti?">
+Kontajnery vo vlastnej sieti sa navzájom nájdu podľa mena (Docker DNS), takže `WORDPRESS_DB_HOST=db` funguje.
+</Question>
+
+<Question q="Prečo nedať všetky premenné WordPressu aj MySQL do jedného `.env`?">
+Každý kontajner by videl aj heslá a kľúče, ktoré nepotrebuje (napr. root heslo databázy). Je to bezpečnostné riziko.
+</Question>
+
+## Cvičenia
+
+### 8.1 · Adminer cez IP aj cez meno
+
+Spusti `db` a `ui` z labu v predvolenej sieti a prihlás sa cez IP adresu. Potom ich zmaž, vytvor sieť `lab` a spusti ich v nej — prihlás sa cez meno `db`.
+
+<p class="practises">Precvičíš: `inspect --format`, `docker network create`, `--network`.</p>
+
+<Solution>
+```bash
+docker container run -d --name db -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  -e MYSQL_DATABASE=batcave -e MYSQL_USER=batman -e MYSQL_PASSWORD=catwoman mysql
+docker container run -d --name ui -p 80:8080 adminer
+docker container inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+# Adminer: server 172.17.0.x, batman / catwoman
+
+docker container rm -f db ui
+docker network create lab
+docker container run -d --name db --network lab -e MYSQL_RANDOM_ROOT_PASSWORD=yes \
+  -e MYSQL_DATABASE=batcave -e MYSQL_USER=batman -e MYSQL_PASSWORD=catwoman mysql
+docker container run -d --name ui --network lab -p 80:8080 adminer
+# Adminer: server db
+```
+</Solution>

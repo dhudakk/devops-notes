@@ -1,0 +1,157 @@
+---
+title: Container lifecycle
+description: A container as a state machine (created, running, paused, exited, removed), the create, start, run, pause, unpause, stop, restart, kill, and rm commands, and restart policies.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Lifecycle
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A container is a **state machine**: `created` → `running` ⇄ `paused`, `running` → `exited` → `running` …, and finally removed.
+- `run` = `create` + `start`. `create` only creates the container (state *created*) without starting the process.
+- `pause`/`unpause` freeze and thaw the process. `restart` = `stop` + `start`. `rm --force` skips the stop.
+- A container started with `start` runs **in the background** — bring it back to the foreground with `attach`.
+- **Restart policy** `--restart`: `no` (default), `on-failure` (exit ≠ 0), `always` (also after a Docker/host restart), `unless-stopped`.
+</KeyPoints>
+
+## Container states
+
+```text
+            create                start
+  (nothing) ───────▶ created ──────────▶ running ◀──────┐
+                                          │  ▲  │        │ start / restart
+                                    pause │  │  │ stop / kill / process exits
+                                          ▼  │  ▼        │
+                                       paused  exited ───┘
+                                     unpause      │
+                                                  │ rm
+                         running ── rm --force ──▶ (removed)
+```
+
+Watching the state every second:
+
+```bash
+watch --differences --interval 1 \
+  "docker container inspect --format '{{.State.Status}}' clock"
+```
+
+## Step by step
+
+The `bletvaska/clock` image prints the current time every second.
+
+| Command | Resulting state | Note |
+| --- | --- | --- |
+| `docker container run -it --name clock bletvaska/clock` | `running` | the clock ticks in the terminal |
+| `docker container pause clock` | `paused` | the process is frozen |
+| `docker container unpause clock` | `running` | continues — the time jumps because it always calls `date` |
+| `docker container stop clock` | `exited` | SIGTERM, SIGKILL after ~10 s |
+| `docker container start clock` | `running` | **in the background** — nothing in the terminal |
+| `docker container attach clock` | `running` | back in the foreground |
+| `docker container restart clock` | `running` | `stop` + `start`; *restarting* lasts a fraction of a second |
+| `docker container kill clock` | `exited` | SIGKILL (9) |
+| `docker container rm clock` | removed | a running container only with `--force` |
+
+### create
+
+```bash
+docker container create --name clock bletvaska/clock
+docker container ls --all          # STATUS: Created
+docker container start clock       # only now does the process run
+```
+
+`create` prepares the container but doesn't start the process — `docker container ls` (without `--all`) doesn't show it. **`run` is shorthand for `create` + `start`** (plus attaching to the output).
+
+## Restart policies
+
+*Added from day 3.* An application in a container can crash (Murphy's law). The **best** thing that can happen is that the process exits — it can be restarted. The **worst** is that it keeps running but **doesn't respond** (stuck in an endless loop or a deadlock) — that's what a [healthcheck](/devops-notes/en/docker/multi-stage-a-bezpecnost/) is for.
+
+```bash
+docker container run --detach --restart always --name rambo \
+  --publish 8000:80 bletvaska/rambo:1
+```
+
+| Policy | When the container is restarted |
+| --- | --- |
+| `no` (default) | never — a crashed container stays `exited` |
+| `on-failure[:N]` | when it exits with an **exit code ≠ 0** (optionally at most N times) |
+| `always` | always; if you stop it manually, it starts again only after the Docker daemon or the host restarts |
+| `unless-stopped` | like `always`, but a manually stopped container stays stopped even after a restart |
+
+Exit code 0 = fine, 1–255 = error.
+
+The demo from the course: Rambo 1 with `--restart always`, Rambo 2 without a policy, then `sudo reboot`. After the machine came back, Docker Engine started Rambo 1 by itself (`Up`), Rambo 2 stayed `Exited`.
+
+:::caution[`--rm` and `--restart always` don't mix]
+`--rm` says "delete after exit", `--restart always` says "start again after exit". The combination makes no sense and Docker warns about it (*Conflicting options*) — as it did for the instructor.
+:::
+
+In Docker Compose: `restart: always` on the service (default `no`).
+
+## Test yourself
+
+<Question q="What is the difference between `docker container create` and `docker container run`?">
+`create` only creates the container (state *created*) without starting the process. `run` = `create` + `start` — the container runs immediately.
+</Question>
+
+<Question q="You started a stopped container with `start` but see nothing in the terminal. Why, and what do you do?">
+`start` runs the container in the background. Bring it to the foreground with `docker container attach`.
+</Question>
+
+<Question q="What does `restart` do, and why don't you see the *restarting* state?">
+It is `stop` + `start`. The container is stopped for only a fraction of a second, so you barely catch the state.
+</Question>
+
+<Question q="What is the difference between `--restart always` and `--restart on-failure`?">
+`on-failure` restarts only when it exits with an error (exit code ≠ 0). `always` restarts every time, also after Docker or the host restarts.
+</Question>
+
+<Question q="Which is worse: a container crashes, or it runs and doesn't respond?">
+Running and not responding. A crashed container can be restarted automatically; a stuck one pretends to be fine — that's what a healthcheck is for.
+</Question>
+
+## Exercises
+
+### 5.1 · Walk through all states
+
+In one terminal, watch the state of container `clock` with `watch`. In another, take it through *created*, *running*, *paused*, *running*, *exited*, *running*, and finally remove it with a single command without stopping it.
+
+<p class="practises">Practises: `create`, `start`, `pause`, `unpause`, `stop`, `rm --force`.</p>
+
+<Solution>
+```bash
+# terminal 1
+watch -d -n 1 "docker container inspect --format '{{.State.Status}}' clock"
+
+# terminal 2
+docker container create --name clock bletvaska/clock    # created
+docker container start clock                            # running
+docker container pause clock                            # paused
+docker container unpause clock                          # running
+docker container stop clock                             # exited
+docker container start clock                            # running
+docker container rm --force clock                       # removed
+```
+</Solution>
+
+### 5.2 · Does it survive a restart?
+
+Run two `nginx` containers on ports 8080 and 8081, one with `--restart always`, the other with no policy. Restart Docker (`sudo systemctl restart docker`) and compare their states.
+
+<p class="practises">Practises: `--restart`, behaviour after a daemon restart.</p>
+
+<Solution>
+```bash
+docker container run -d --name web-always --restart always -p 8080:80 nginx
+docker container run -d --name web-none -p 8081:80 nginx
+sudo systemctl restart docker
+docker container ls --all
+# web-always  Up …
+# web-none    Exited …
+```
+</Solution>

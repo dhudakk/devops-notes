@@ -1,0 +1,205 @@
+---
+title: Managing containers
+description: Listing containers and its columns, naming, stopping and signals, stopped containers, logs, attach, removing, --rm, running in the background, interactive mode, and a custom command.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Managing containers
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `docker container ls` = running, `ls --all` (`-a`) = stopped too (*Exited*). Identify a container by **ID** (a unique prefix is enough) or **name** (`--name`, otherwise Docker invents one like `charming_ganguli`).
+- `stop` sends **SIGTERM** (politely), then SIGKILL after ~10 s. `kill` sends **SIGKILL** (9) by default, any other via `--signal`. `Ctrl+C` = SIGINT.
+- A stopped container **remains**, files included — `start` it again. `rm` deletes it (a running one only with `--force`), `prune` deletes all stopped ones.
+- `--rm` deletes the container when it exits, `-d` (`--detach`) runs it in the background, `-it` interactive with a terminal.
+- `logs` (`-f`, `--tail N`) = logs, `attach` = bring it to the foreground (Ctrl+C then stops the container), `exec` = run a command in a running container.
+</KeyPoints>
+
+## Listing containers
+
+```bash
+docker container ls
+```
+
+| Column | Meaning |
+| --- | --- |
+| `CONTAINER ID` | unique identifier — the first 12 characters of a much longer hash |
+| `IMAGE` | the **image** the container was created from (not "the container we pulled") |
+| `COMMAND` | the command run in the container — the default comes from the image metadata (e.g. `python -m weather`) |
+| `CREATED` | when the container was created |
+| `STATUS` | state and how long it has run (`Up 3 seconds`), possibly `(healthy)` |
+| `PORTS` | ports — informational only, does not change how anything works |
+| `NAMES` | the container's name |
+
+## Naming
+
+```bash
+docker container run --name weather bletvaska/weather
+```
+
+Without `--name`, Docker combines an adjective with the name of a famous IT person (`charming_ganguli`, `admiring_chandrasekhar`). Every run = a new container = a new ID.
+
+You cannot have two containers with the same name (like two files with the same name in one folder):
+
+```text
+docker: Error response from daemon: Conflict. The container name "/weather" is already in use by container "ee58ed66…".
+```
+
+Careful — a **stopped** container with that name causes the conflict too.
+
+## Stopping and signals
+
+| Action | What the process receives |
+| --- | --- |
+| `Ctrl+C` in the container's terminal | **SIGINT** (2) — interrupt |
+| `docker container stop weather` | **SIGTERM** (15) — a polite request to exit; SIGKILL if it hasn't exited after ~10 s |
+| `docker container kill weather` | **SIGKILL** (9) — immediate termination, no questions |
+| `docker container kill --signal TERM weather` | any signal (`kill -l` lists them) |
+
+**Tab** completes container names.
+
+## Stopped containers
+
+```bash
+docker container ls --all        # Exited containers too
+docker container start weather   # starts it again (in the background)
+```
+
+A stopped (*Exited*) container has not disappeared. The process ended, but **the container's space remains** — including temporary files created in it. After `start` it continues with them. That is why `CREATED` (when the space was created) and `STATUS` (how long the process has run) differ: *Created 4 minutes ago*, *Up 3 seconds*.
+
+## Logs and attach
+
+```bash
+docker container logs weather               # all logs
+docker container logs --follow weather      # -f: wait for new ones (like tail -f)
+docker container logs -f --tail 10 weather  # only the last 10 lines, then new ones
+docker container attach weather             # attach to the standard streams (foreground)
+```
+
+- `Ctrl+C` during `logs -f` ends only the `logs` command — the container keeps running.
+- `Ctrl+C` after `attach` goes to **the process in the container** → the container stops (*Shutting down*). Similar to job control in Bash (`fg`).
+
+## Removing
+
+```bash
+docker container rm weather                 # removes a stopped container
+docker container rm weather_2 weather_3     # several at once
+docker container rm 220                     # by ID prefix (must be unique)
+docker container rm --force weather         # even a running one (stop + rm)
+docker container prune                      # all stopped containers
+```
+
+A running container cannot be removed without `--force`: *cannot remove container: container is running*. ID prefixes work only for IDs, not names.
+
+:::caution[prune]
+`prune` deletes **all** stopped containers — including the one you still wanted to inspect to see why it crashed.
+:::
+
+### Automatic removal: `--rm`
+
+```bash
+docker container run --rm --name weather bletvaska/weather
+```
+
+When it exits, the container removes itself; it is not left in `ls --all`. Great for experimenting — but **careful in production**: when a container with `--rm` crashes, you lose everything in it and have nothing left to inspect. (It also removes its anonymous volumes — see [Volumes](/devops-notes/en/docker/zvazky/).)
+
+## Background and interactive
+
+```bash
+docker container run --rm --detach --name weather bletvaska/weather
+# prints only the container ID, the terminal is free
+docker container logs weather
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-d`, `--detach` | run in the background, print the ID |
+| `-i`, `--interactive` | forward **standard input** to the container |
+| `-t`, `--tty` | allocate a terminal (colours, prompt) |
+| `-it` | together: as if you had "SSH-ed" into the container |
+
+## A custom command
+
+Whatever you write **after the image name** runs instead of the default command:
+
+```bash
+docker container run --rm bletvaska/weather date        # time in the container (UTC)
+docker container run --rm bletvaska/weather hostname    # = the container ID
+docker container run --rm -it bletvaska/weather bash    # a shell in a new container
+```
+
+Without `-it`, `bash` would exit immediately — standard input is closed, as if you had pressed `Ctrl+D`.
+
+`run` vs. `exec`: `run` creates a **new** container, `exec` runs a command in an **already running** one:
+
+```bash
+docker container exec -it weather bash
+```
+
+## Test yourself
+
+<Question q="Why does `docker container run --name weather …` report a conflict when `docker container ls` shows no container `weather`?">
+A container with that name is stopped (*Exited*). `ls` only shows running ones — check `ls --all` and remove it with `rm`.
+</Question>
+
+<Question q="What is the difference between `docker container stop` and `docker container kill`?">
+`stop` sends SIGTERM and gives the app time to exit cleanly (SIGKILL after ~10 s). `kill` sends SIGKILL by default — immediate termination.
+</Question>
+
+<Question q="What does `Ctrl+C` do after `docker container logs -f`, and after `docker container attach`?">
+With `logs -f` it only ends the log output; the container keeps running. With `attach` the signal goes to the process in the container and the container stops.
+</Question>
+
+<Question q="Why do the CREATED and STATUS columns differ?">
+CREATED is when the container (its space) was created, STATUS how long the current process has been running. After `stop` + `start` or a restart, STATUS is shorter.
+</Question>
+
+<Question q="What is `-it` for in `docker container run -it alpine sh`?">
+`-i` forwards standard input, `-t` allocates a terminal. Without them the shell would exit immediately because it has no input.
+</Question>
+
+<Question q="Why be careful with `--rm` in production?">
+A crashed container is deleted immediately — with its data and anonymous volumes — and you have no way to find out what happened.
+</Question>
+
+## Exercises
+
+### 3.1 · The life of one container
+
+Run `bletvaska/weather` in the background as `weather`. View the last 5 log lines, stop it, find it among stopped containers, start it again, attach to it, and end it with `Ctrl+C`. Finally remove it.
+
+<p class="practises">Practises: `-d`, `logs --tail`, `stop`, `ls --all`, `start`, `attach`, `rm`.</p>
+
+<Solution>
+```bash
+docker container run --detach --name weather bletvaska/weather
+docker container logs --tail 5 weather
+docker container stop weather
+docker container ls --all            # weather  Exited (0)
+docker container start weather
+docker container attach weather      # Ctrl+C → Shutting down
+docker container rm weather
+```
+</Solution>
+
+### 3.2 · Cleaning up
+
+Run `hello-world` three times without `--rm` and a fourth time with `--rm`. How many containers are in `ls --all`? Remove all stopped ones with one command.
+
+<p class="practises">Practises: `--rm`, `prune`.</p>
+
+<Solution>
+```bash
+for i in 1 2 3; do docker container run hello-world; done
+docker container run --rm hello-world
+docker container ls --all        # three Exited containers, the --rm one is not there
+docker container prune           # y
+```
+
+The slides also show the manual way with a loop: `for id in $(docker container ls --quiet --all); do docker container rm "${id}"; done`.
+</Solution>

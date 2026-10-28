@@ -1,0 +1,204 @@
+---
+title: Prvé kontajnery
+description: docker version a info, hello-world, dlhá vs. krátka syntax príkazov, čo sa deje pri docker container run, register Docker Hub, pomenovanie obrazov a typy obrazov, kontajner ako proces.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Prvé kontajnery
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `docker version` ukáže verziu **klienta** aj **servera** (Docker Engine) a verziu API. `docker info` = podrobnosti (pamäť, jadro, `Docker Root Dir`…).
+- Dlhá syntax `docker <objekt> <príkaz>`: `docker container run`, `docker container ls`, `docker image ls`, `docker volume ls`. Krátka (`docker run`, `docker ps`) robí to isté — dlhá je čitateľnejšia a príkazy sa opakujú pre všetky objekty.
+- `docker container run obraz`: klient → démon → ak obraz nie je lokálne, **stiahne ho (pull) z registra** → spustí kontajner. Druhýkrát už pull nie je.
+- Meno obrazu: `[register/]menný_priestor/repozitár[:tag]`. Bez registra = Docker Hub, bez tagu = `latest`, oficiálne obrazy nemajú menný priestor (`nginx`, `python`).
+- Kontajner je **proces na hostiteľovi** (`ps aux` ho ukáže). Vo vnútri má aplikácia **PID 1** a vidí iba svoje procesy.
+</KeyPoints>
+
+## Verzia a informácie
+
+```bash
+docker --version          # krátko: Docker version 29.0.1, build …
+docker version            # klient aj server
+docker info               # podrobnosti o celej inštalácii
+```
+
+`docker version` má dve časti — **Client** (príkaz `docker`) a **Server** (Docker Engine), pre každú verziu, verziu Go a **verziu API**. Verzia API sa hodí, keď nejaký nástroj hlási, že potrebuje minimálnu verziu (stalo sa to na 4. deň s lazydocker a Watchtower).
+
+`docker info` vypíše veľa údajov — počet kontajnerov a obrazov, pamäť, jadro, architektúru aj `Docker Root Dir: /var/lib/docker`, kde Docker drží všetky dáta (k tomu sa vrátime pri [zväzkoch](/devops-notes/docker/zvazky/)).
+
+## Hello world
+
+```bash
+docker container run hello-world
+docker container run bletvaska/hello-world     # lektorova krajšia verzia s logom
+```
+
+```text
+Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+…: Pull complete
+Hello from Docker!
+```
+
+### Dlhá vs. krátka syntax
+
+| Dlhá (odporúčaná) | Krátka |
+| --- | --- |
+| `docker container run` | `docker run` |
+| `docker container ls` | `docker ps` |
+| `docker image ls` | `docker images` |
+| `docker container rm` | `docker rm` |
+
+V roku 2013 bol `docker run` jediný spôsob. Docker odvtedy narástol, tak príkazy zoskupili podľa **objektu** (podobne ako `ip route`, `ip address` v Linuxe): `docker container …`, `docker image …`, `docker volume …`, `docker network …`. Rovnaké podpríkazy (`ls`, `rm`, `inspect`, `prune`) sa opakujú pri všetkých objektoch, takže dlhá syntax sa ľahko číta aj pamätá.
+
+## Čo sa deje pri `docker container run`
+
+```bash
+docker container run bletvaska/weather
+```
+
+Zúčastnené sú tri strany:
+
+```text
+ Docker klient ──run──▶ Docker host (démon)  ──pull──▶  Register (Docker Hub)
+                        │ mám obraz lokálne?
+                        │  nie → stiahni ho
+                        └─ spusti z neho kontajner
+```
+
+1. Klient pošle démonovi požiadavku: spusti kontajner z obrazu `bletvaska/weather`.
+2. Démon pozrie, či obraz má **lokálne**.
+3. Ak nie, opýta sa **registra** (predvolene `hub.docker.com`), stiahne ho (*pull*) a pridá do zoznamu lokálnych obrazov.
+4. Z obrazu spustí kontajner — vidíš **logy** aplikácie.
+
+Keď kontajner zastavíš (`Ctrl+C`) a spustíš znova, žiadny pull už nebude — obraz je lokálne.
+
+`bletvaska/weather` je jednoduchá webová aplikácia (mikroslužba), ktorá každú chvíľu sťahuje počasie z OpenWeatherMap. Bez API kľúča hlási `No API key provided` — ako ho dodať, je v [ďalšej kapitole o konfigurácii](/devops-notes/docker/konfiguracia-a-porty/).
+
+## Pomenovanie obrazov
+
+```text
+[register/]menný_priestor/repozitár[:tag]
+           bletvaska     /weather   :2023.12
+```
+
+| Časť | Význam | Predvolená hodnota |
+| --- | --- | --- |
+| register | odkiaľ sa obraz stiahne (`docker.io`, `ttl.sh`, `localhost:5000`, firemný) | `docker.io` (Docker Hub) |
+| menný priestor | používateľ alebo organizácia (`bletvaska`, `apache`) | `library` (oficiálne obrazy) |
+| repozitár | názov obrazu | — |
+| tag | značka — verzia alebo variant (`1.31`, `alpine`, `2023.12`) | `latest` |
+
+**Tagy** fungujú podobne ako v Gite. Jeden obraz môže mať **viac tagov** naraz — napr. `nginx:latest`, `nginx:1.31`, `nginx:1.31.6`, `nginx:mainline` môžu byť ten istý obraz. Varianty sa líšia základom (Debian `trixie`, `alpine`), pribalenými modulmi (`perl`) a veľkosťou.
+
+### Typy obrazov na Docker Hube
+
+| Odznak | Kto ho spravuje | Príklad |
+| --- | --- | --- |
+| **Docker Official Image** | komunita alebo vlastník projektu; meno **bez menného priestoru** | `nginx`, `python`, `mysql` |
+| **Verified Publisher** | overená firma | `bitnami/…` |
+| **Sponsored OSS** | sponzorovaný open source projekt | `apache/airflow` |
+| bez odznaku | ktokoľvek | `charlesportwood/nginx` |
+
+Ako vybrať obraz:
+
+- uprednostni **oficiálny** obraz alebo overeného vydavateľa,
+- pozri **počet stiahnutí** a **dátum poslednej aktualizácie** — obraz od neznámeho autora, rok neaktualizovaný, s pár stiahnutiami môže obsahovať čokoľvek,
+- oficiálne obrazy majú **dobrú dokumentáciu** (ako ho používať, aké premenné nastaviť) a odkaz na **Dockerfile**, z ktorého vznikli.
+
+:::note[Bitnami]
+Obrazy Bitnami sú veľmi dobre spravené a nastaviteľné. Firmu kúpil VMware (Broadcom) a mnohé obrazy prestali byť voľne dostupné — pred použitím si over aktuálne podmienky.
+:::
+
+## Kontajner ako proces
+
+Na hostiteľovi (v inom termináli):
+
+```bash
+ps aux | grep weather
+# ubuntu  12345  … python -m weather
+```
+
+Aplikácia z kontajnera je obyčajný proces s vlastným **PID** na hostiteľovi. Keď kontajner zastavíš, proces zmizne.
+
+Vo vnútri kontajnera:
+
+```bash
+docker container exec -it charming_ganguli /bin/bash     # meno kontajnera z docker container ls
+ls /proc                       # ps tu nie je — procesy sú v /proc
+cat /proc/1/cmdline            # python -m weather
+```
+
+Vo vnútri má aplikácia **PID 1** a vidí **iba procesy vlastného kontajnera**. Na bežnom Linuxe má PID 1 `systemd` — prvý spustený a posledný vypnutý proces. V kontajneri je PID 1 samotná aplikácia: keď skončí, skončí celý kontajner.
+
+:::tip[Obrazy bývajú minimalistické]
+V mnohých obrazoch nie je `ps`, `top`, ba ani `bash` — iba `sh`. Je to zámer: menší obraz a menšia plocha pre útok.
+:::
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi `docker container ls` a `docker ps`?">
+Žiadny vo výsledku — `docker ps` je stará krátka syntax. Dlhá syntax `docker <objekt> <príkaz>` je čitateľnejšia a podpríkazy (`ls`, `rm`, `inspect`) sa opakujú pri všetkých objektoch.
+</Question>
+
+<Question q="Prečo sa pri prvom `docker container run bletvaska/weather` vypisuje `Pulling from…` a pri druhom nie?">
+Prvýkrát obraz lokálne nebol, tak ho démon stiahol z registra. Druhýkrát ho už má a rovno z neho spustí kontajner.
+</Question>
+
+<Question q="Čo znamená obraz s menom `nginx` bez lomítka a bez tagu?">
+Oficiálny obraz (menný priestor `library`) z Docker Hubu so značkou `latest` — celé meno je `docker.io/library/nginx:latest`.
+</Question>
+
+<Question q="Ktoré dve časti vypíše `docker version`?">
+Client (príkaz `docker`) a Server (Docker Engine) — každá s verziou, verziou Go a verziou API.
+</Question>
+
+<Question q="Aký PID má aplikácia vo vnútri kontajnera a čo sa stane, keď skončí?">
+PID 1. Keď proces s PID 1 skončí, skončí celý kontajner.
+</Question>
+
+<Question q="Podľa čoho vyberieš obraz na Docker Hube?">
+Oficiálny obraz alebo overený vydavateľ, počet stiahnutí, dátum poslednej aktualizácie a kvalita dokumentácie.
+</Question>
+
+## Cvičenia
+
+### 2.1 · Prvé spustenie
+
+Over verziu Dockera, spusti `hello-world` dvakrát a všimni si rozdiel vo výpise. Potom vypíš lokálne obrazy.
+
+<p class="practises">Precvičíš: `docker version`, `docker container run`, `docker image ls`.</p>
+
+<Solution>
+```bash
+docker version
+docker container run hello-world     # Unable to find image … Pulling …
+docker container run hello-world     # rovno Hello from Docker!
+docker image ls                      # hello-world:latest
+```
+</Solution>
+
+### 2.2 · Proces na hostiteľovi
+
+Spusti `bletvaska/weather` v jednom termináli. V druhom nájdi jeho proces na hostiteľovi, potom sa dostaň do kontajnera a zisti, aký PID tam má aplikácia.
+
+<p class="practises">Precvičíš: `ps aux`, `docker container exec`, PID 1.</p>
+
+<Solution>
+```bash
+# terminál 1
+docker container run bletvaska/weather
+
+# terminál 2
+ps aux | grep weather                      # proces s PID na hostiteľovi
+docker container ls                        # meno kontajnera, napr. charming_ganguli
+docker container exec -it charming_ganguli /bin/bash
+cat /proc/1/cmdline                        # python -m weather → PID 1
+```
+</Solution>

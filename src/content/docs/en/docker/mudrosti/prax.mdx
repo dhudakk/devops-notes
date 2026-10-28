@@ -1,0 +1,69 @@
+---
+title: Advice from practice
+description: Lessons from deployments — --rm in production, latest, Postgres on Windows, digging through other people's Dockerfiles, Docker security, and the long command syntax.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## `--rm` is great, but not in production
+
+> "Once we had something running, a colleague came along and shut it down wrong. It was a test deployment, so we only lost a bit of data. Not catastrophic, but it hurt. Shit happens."
+
+`--rm` removes the container and its anonymous volumes. Great while debugging; with an important container, a crash loses everything in it.
+
+<p class="wisdom-day">Day 2</p>
+
+## Don't install Postgres on Windows
+
+At a student hackathon, former students (now employees) gave this advice: "Don't install Postgres on Windows." The instructor smiled — some things you'll "die" installing on Windows. With Docker it's one `docker compose up` and the whole environment (database, application server…) runs; `docker compose down` and it's gone.
+
+Same with Apache Airflow: the Python package installs on Windows but won't run (one package needs POSIX). In a container it runs, with the DAGs kept locally as a bind mount.
+
+<p class="wisdom-day">Day 2</p>
+
+## Look at how others do it
+
+> "Don't try to reinvent the wheel."
+
+The best school for writing Dockerfiles is the official images on Docker Hub (a tag links to its Dockerfile). Languages and frameworks have maintained base images — someone looks after them better than you would. At work, ask how your colleagues do it (e.g. which base images the company registry approves).
+
+<p class="wisdom-day">Day 3</p>
+
+## latest only for experiments
+
+`latest` in Compose or a Dockerfile is a time bomb: at the next image update a new major version arrives (Postgres 16 instead of 15) and the database won't start because the data is for the old version. Fine for experimenting; for deployment, a tested version.
+
+<p class="wisdom-day">Day 3</p>
+
+## Who may run Docker is root
+
+A regular user without `sudo` who may run containers mounts the host's `/` and can do anything. Be careful with Docker — and if you can, go rootless (Podman).
+
+<p class="wisdom-day">Day 2</p>
+
+## Never run an app as root
+
+Even an image with your own app should run as its own user (`USER`). Fewer things in the image = a smaller attack surface — hence minimal images without `ps` or `bash`, and distroless.
+
+<p class="wisdom-day">Day 3</p>
+
+## The long syntax is for people
+
+> "As a teacher I'll show you the explicit form. You, as people from practice, are free to make your lives harder with the short one."
+
+`docker container ls` reads better than `docker ps`, and the subcommands repeat across all objects.
+
+<p class="wisdom-day">Day 1</p>
+
+## Moving an image on floppy disks
+
+Someone from the company needed an image on a machine without internet: `docker image save` into a `.tar`, compress it, carry it over on floppy disks, and `docker image load` there. Resourceful.
+
+<p class="wisdom-day">Day 3</p>
+
+## The Flash is my slower brother
+
+The instructor talks fast. If you can't keep up, speak up — and if you're shy, say a friend whose microphone doesn't work is asking.
+
+<p class="wisdom-day">Day 1</p>

@@ -1,0 +1,261 @@
+---
+title: Volumes and persistent data
+description: Why a container loses data, what should be persistent, VOLUME in a Dockerfile, anonymous and named volumes, /var/lib/docker, sharing a volume between containers, and docker container cp.
+kind: chapter
+day: 2
+sidebar:
+  order: 6
+  label: 06 · Volumes
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A new container is always "pristine". Data survives `stop` + `start`, but **`rm` deletes it**. Goal: separate **data from the application** so it survives removing the container.
+- Make **data** persistent (database, uploaded files, configuration), not the whole system. Which folders is stated in the documentation and the `VOLUME` instruction in the Dockerfile.
+- An **anonymous volume** (name = a hash) is created automatically for each `VOLUME` path you don't mount anything onto. A new container gets a new one — it has no relation to the old data.
+- **Named volume**: `--volume storage:/data` (created if missing). It survives `rm` and `--rm`, and a new container with the same `--volume` gets the data back.
+- Volumes live in `/var/lib/docker/volumes/<name>/_data` (the Docker root dir). A volume doesn't know what it's attached to — the container does (`inspect` → `Mounts`). One volume can be mounted into several containers.
+</KeyPoints>
+
+## The problem
+
+A database container runs for a year collecting data. If someone just stops and starts it, the data stays — the container's space exists in Docker. But if they **remove** it (`rm`, or it crashes with `--rm`), the data is gone and a new container has an empty database.
+
+Containers are about running processes and every new one is clean. So the data must be **separated from the application**. Docker offers two ways:
+
+1. **volumes** — Docker manages them in its own folder (this chapter),
+2. **bind mounts** — you mount any folder from the host ([next chapter](/devops-notes/en/docker/bind-mounty/)).
+
+Both rest on Linux `mount`: Linux has one file tree with one root, and another filesystem (a USB stick) is attached to some folder in it.
+
+## What should be persistent
+
+Not the whole root `/` — the system can be "reinstalled" from the image at any time. As with installing Linux, where `/home` often sits on a separate partition: the **data** should be persistent.
+
+| Application | Folder |
+| --- | --- |
+| nginx web server | `/usr/share/nginx/html` (pages) |
+| MySQL | `/var/lib/mysql` |
+| RustFS (S3 storage) | `/data` |
+| WordPress | `/var/www/html` (uploaded images, plugins) |
+| anything | configuration files |
+
+Find the recommended folders in the **documentation** or the `VOLUME` instruction of the Dockerfile:
+
+```dockerfile
+VOLUME /var/lib/mysql
+```
+
+```bash
+docker image inspect --format '{{ .Config.Volumes }}' rustfs/rustfs
+# map[/data:{}]
+docker image inspect rustfs/rustfs | jq '.[0].Config.Volumes'
+```
+
+:::note[Correction to the slides]
+The slides use `{{ .ContainerConfig.Volumes }}`. For an image it is **`.Config.Volumes`** — newer Docker doesn't include `ContainerConfig` (in the course it returned *map has no entry*).
+:::
+
+## Anonymous volumes
+
+```bash
+watch -n 1 docker volume ls                 # in another terminal
+docker container run --name storage --env-file rustfs.env rustfs/rustfs
+```
+
+After the start, a volume named like a hash appears — an **anonymous volume**. Docker creates it for every `VOLUME` path you don't mount anything else onto and mounts it on `/data`.
+
+- After `stop` it stays (the data is in it, in case you need to recover it).
+- With **`--rm`** it is deleted **together with the container** — one more reason for caution.
+- A new container from the same image gets a **new** anonymous volume and doesn't use the old one. That's why after removing and re-running RustFS the buckets are gone, even though the data still sits in the old volume on disk.
+
+```bash
+docker volume ls
+docker volume inspect <hash>       # Mountpoint: /var/lib/docker/volumes/<hash>/_data
+docker volume prune                # removes unused volumes
+```
+
+:::note[`docker volume prune`]
+A volume attached to a stopped container is "in use" — `prune` won't delete it until you remove the container. Newer Docker versions remove only **anonymous** volumes with `prune` by default; named ones only with `--all`.
+:::
+
+## Where the data lives
+
+```bash
+docker info | grep 'Docker Root Dir'      # /var/lib/docker
+sudo ls /var/lib/docker                   # containers, image, volumes, …
+sudo ls /var/lib/docker/volumes/<name>/_data
+```
+
+`/var/lib/docker` is the **Docker root dir** — images, volumes, and running containers. You can't get in without `sudo`, on purpose. A volume's content is in its `_data` subfolder (a Docker convention).
+
+On Windows with Docker Desktop this folder is inside WSL (`\\wsl$\docker-desktop\…`). Podman (rootless) keeps volumes in the user's home folder (`~/.local/share/containers/storage/volumes`).
+
+### What is attached to what
+
+A volume **doesn't know** which container it is attached to — `docker volume inspect` shows only the name, driver, and `Mountpoint`. The **container** knows:
+
+```bash
+docker container inspect storage | jq '.[0].Mounts'
+docker container inspect --format '{{ json .Mounts }}' storage
+```
+
+## Named volumes
+
+**The recommended way.** Docker creates the volume in `/var/lib/docker/volumes/` and you give it a name:
+
+```bash
+docker volume create storage              # manually (not required)
+
+docker container run --rm \
+  --name storage \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  --volume storage:/data \
+  rustfs/rustfs
+```
+
+```text
+--volume storage:/data
+         │       └── folder in the container
+         └────────── volume name (created if it doesn't exist)
+```
+
+Now create a bucket in RustFS, upload files, stop the container (with `--rm` it's removed), and run it again with the same `--volume storage:/data` — **the buckets and files are there**. No anonymous volume was created for `/data` because `storage` is mounted there.
+
+### Mounting somewhere other than `VOLUME`
+
+```bash
+docker container run --rm --volume storage:/xxx rustfs/rustfs
+```
+
+You can mount a volume into **any** folder — Docker creates it if needed. But careful: nothing is mounted on `/data` (from `VOLUME`) now, so Docker **also creates an anonymous volume** for `/data`. And the app saves into `/data`, not `/xxx`.
+
+### One volume, several containers
+
+```bash
+docker container run --rm -it --volume storage:/work alpine
+ls /work/images
+touch /work/images/mirek_was_here
+```
+
+A volume already used by the running RustFS can be mounted into another container too — `mirek_was_here` shows up immediately in RustFS under `/data/images`. Useful for **diagnostics**: application images are minimal (also for security), so you attach a "toolbox" image with tools.
+
+Concurrent writes from several containers must be handled by the **application** (a database locks its files, for example) — Docker doesn't deal with it.
+
+:::tip[Alpine]
+`alpine` is a minimal Linux distribution (about 4 MB to download, 13 MB unpacked), a popular base for images. It has only `sh` (no `bash`) and the `apk` package manager.
+:::
+
+## `docker container cp`
+
+Copy files between host and container (both ways):
+
+```bash
+docker container cp www/. homepage:/usr/share/nginx/html/     # contents of www into the container
+docker container cp homepage:/etc/nginx/nginx.conf .           # out of the container
+```
+
+`www/.` = the folder's **contents**, not the folder itself.
+
+### Lab: My Homepage
+
+```bash
+docker container run --rm --detach --name homepage --publish 80:80 nginx
+wget https://github.com/startbootstrap/startbootstrap-freelancer/archive/gh-pages.zip
+unzip gh-pages.zip
+mv startbootstrap-freelancer-gh-pages www
+docker container cp www/. homepage:/usr/share/nginx/html/
+```
+
+Without a volume, the page is gone once the container is removed. With a named volume (*Persistent Homepage*):
+
+```bash
+docker container run --rm --detach --name homepage --publish 80:80 \
+  --volume homepage:/usr/share/nginx/html nginx
+docker container cp www/. homepage:/usr/share/nginx/html/
+```
+
+The page survives a restart. The downside: every edit of `index.html` must be copied again with `cp` — a [bind mount](/devops-notes/en/docker/bind-mounty/) solves that.
+
+## Test yourself
+
+<Question q="Does data in a container survive `stop` + `start`? And `rm`?">
+`stop` + `start` yes — the container's space remains. `rm` deletes it (unless it's in a volume or bind mount).
+</Question>
+
+<Question q="When is an anonymous volume created?">
+When a container starts, for every folder from the Dockerfile's `VOLUME` instruction that you haven't mounted your own volume or bind mount onto.
+</Question>
+
+<Question q="Why are the buckets missing after removing and re-running RustFS (without `--volume`), even though the old anonymous volume is on disk?">
+The new container got a new anonymous volume. It has no relation to the old one.
+</Question>
+
+<Question q="How do you find out which container a volume is attached to?">
+Not from the volume — look at `docker container inspect` of the container, the `Mounts` section.
+</Question>
+
+<Question q="You mount `--volume storage:/xxx` on RustFS, which has `VOLUME /data`. What gets created?">
+The `storage` volume mounted on `/xxx`, plus an anonymous volume on `/data` — and the app writes to `/data`.
+</Question>
+
+<Question q="Can one volume be mounted into two containers at once?">
+Yes. Concurrent writes, however, must be handled by the application; Docker doesn't deal with them.
+</Question>
+
+<Question q="What happens to the anonymous volumes of a container started with `--rm`?">
+They are removed together with the container. Named volumes remain.
+</Question>
+
+## Exercises
+
+### 6.1 · RustFS with custom credentials
+
+Run RustFS from `rustfs/rustfs` named `storage`, publish ports 9000 and 9001, credentials `admin`/`secret123` (variables `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`), enable the console (`RUSTFS_CONSOLE_ENABLE=true`), and the `Europe/Bratislava` time zone (`TZ`). Put the variables in a file. Check the time inside the container.
+
+<p class="practises">Practises: `--env-file`, `--publish`, checking inside the container.</p>
+
+<Solution>
+```bash title="rustfs.env"
+RUSTFS_ACCESS_KEY=admin
+RUSTFS_SECRET_KEY=secret123
+RUSTFS_CONSOLE_ENABLE=true
+TZ=Europe/Bratislava
+```
+
+```bash
+docker container run --rm -it --name storage \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  rustfs/rustfs
+
+docker container exec storage date      # time in the Europe/Bratislava zone
+```
+
+Admin interface: `http://localhost:9001`.
+</Solution>
+
+### 6.2 · Persistent storage
+
+Run RustFS with a named volume `storage` on `/data`. Create a bucket `images` and upload a file. Remove the container, run a new one with the same volume, and check the bucket is there. Then look into the volume from an `alpine` container.
+
+<p class="practises">Practises: named volume, sharing a volume.</p>
+
+<Solution>
+```bash
+docker container run --rm -d --name storage --env-file rustfs.env \
+  -p 9000:9000 -p 9001:9001 --volume storage:/data rustfs/rustfs
+# in the browser: bucket images, upload a file
+docker container stop storage                 # --rm → container removed
+docker container run --rm -d --name storage --env-file rustfs.env \
+  -p 9000:9000 -p 9001:9001 --volume storage:/data rustfs/rustfs
+# the images bucket and the file are back
+
+docker container run --rm -it --volume storage:/work alpine ls /work/images
+docker volume ls              # storage, no new anonymous volume
+```
+</Solution>

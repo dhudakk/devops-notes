@@ -1,0 +1,165 @@
+---
+title: From servers to containers
+description: Why containers appeared (pets vs. cattle), what Docker is, the difference between an image and a container, containers vs. virtual machines, and what it all rests on in Linux.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · From servers to containers
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Back then: an expensive server treated as a **pet** — installed by hand, named, cared for. Google: **cattle** — cheap identical machines, replaced one for one; a server is just a number.
+- **Docker** (Solomon Hykes, 2013) packages an application with its dependencies into an **image** and runs isolated **containers** from it.
+- **Image** = an immutable "zip" of files and metadata (like an `.exe` on disk). **Container** = a running **instance** of an image (like a running process). One image can run any number of containers.
+- A container is **not a virtual machine**: no kernel or guest OS of its own, it is a **process on the host's kernel** in an isolated environment — it starts instantly and shares layers with others.
+- Linux building blocks: **cgroups** (how many resources), **namespaces** (what the process sees), **chroot** (its own filesystem).
+</KeyPoints>
+
+## Deployment before containers
+
+Roughly from the 1990s to 2010: a programmer wrote something and an admin "shoved" it onto a server. The server was a powerful machine looked after by specialists. You had to buy it, install the operating system, libraries, tools (monitoring…), and only then the application.
+
+The problems:
+
+| Problem | Example |
+| --- | --- |
+| **Conflicting dependencies** | one app needs Java 1.7, another 1.8 — installing two versions of the same package on Linux is hard |
+| **Unused capacity** | the server is bought for peak load the app reaches twice a year |
+| **Slow deployment** | installation takes time — it can be automated (e.g. Ansible), but it still costs time |
+| **Painful updates** | developers ship a new version and the admin has to roll it onto a "live" server |
+
+### Pets vs. cattle
+
+Admins treated servers like **pets** — like a Tamagotchi: feed it, pet it, don't let it die. They bragged about **uptime**, patched the kernel by hand, and gave servers grandiose names.
+
+Around 2000 Google came up with **cattle**: no big servers, but **cheap, identical, replaceable machines** wired together. When one fails, the others take over and a technician swaps it one for one. The infrastructure **scales** — adding a machine is no problem. A server is no longer a name but a **number**. And with so many machines, everything gets **automated**.
+
+## What Docker is
+
+In 2013 **Solomon Hykes** introduced Docker. Containerisation technologies (chroot, cgroups, namespaces, Linux Containers) already existed in Linux — Docker made them **usable**: one command-line tool. The first version was written in Python, then rewritten in **Go**, which became the number one language for container tooling.
+
+> Docker is an open source platform that packages applications and their dependencies into lightweight, isolated units called containers.
+
+The logo is a whale, **Moby Dock**, carrying containers. In 2015 came **Kubernetes** and **Docker Swarm** — *orchestration* tools for managing hundreds or thousands of containers.
+
+## Image vs. container
+
+| | Image | Container |
+| --- | --- | --- |
+| What it is | a package: part of a Linux filesystem + the application + metadata (what to run) | a running instance of an image — one process in an isolated environment |
+| Changes | **immutable** — only its author changes it by releasing a new version | has its own current state |
+| Count | one | any number from one image |
+| Analogy | `notepad.exe` on disk, a **class** in OOP | each running Notepad with different text, an **object** (instance of a class) |
+
+> The simplest way to look at it: an image is a **zip file**. A container means you unpack that zip somewhere in memory and run one application inside it.
+
+**A container is an instance of an image** — just as an object is an instance of a class.
+
+## Container vs. virtual machine
+
+```text
+Virtual machines                      Containers
+
+App A    App A'   App B               App A    App A'   App B
+Libs     Libs     Libs                Libs (shared)     Libs
+Guest OS Guest OS Guest OS            ─────────────────────────
+───────────────────────────           Docker Engine
+Hypervisor                            ─────────────────────────
+───────────────────────────           Host OS (Linux kernel)
+Host OS                               ─────────────────────────
+───────────────────────────           Server (hardware)
+Server (hardware)
+```
+
+| | Virtual machine | Container |
+| --- | --- | --- |
+| What runs | a whole **guest OS** on a hypervisor | only the application — a **process on the host kernel** |
+| Startup | host OS boots → guest OS boots (can take minutes) → app | host OS boots → app starts right away |
+| Size | guest OS (1 GB) + libraries + app — again for every machine | only libraries and app; **common layers are shared** |
+| Visibility | the app's process is invisible on the host | `ps aux` on the host **shows** the app |
+
+The "operating system" is really the **kernel**. Everything else (binaries, libraries) is a filesystem — and the container carries that in its image. It uses the host's kernel, so the host must be **Linux** (Docker Desktop on Windows and Mac runs a small Linux in the background).
+
+Layer sharing: two images built on the same base (e.g. Red Hat, 400 MB) with different apps (100 MB) download as 400 + 100 + 100 MB, not 2 × 500 MB — Docker fetches the common layer only once.
+
+Result: **faster deployment, less overhead, easier migration, and much faster restarts**.
+
+:::caution[A container is not a virtual machine]
+"It's like a small VM" helps as a first picture, but in behaviour it is a completely different thing. Container = **a process running in an isolated environment**.
+:::
+
+## Linux building blocks
+
+| Technology | What it provides |
+| --- | --- |
+| **cgroups** (*control groups*) | how much system resource (CPU, RAM) a process may use |
+| **namespaces** | what the process sees — its own processes, network, users, hostname |
+| **chroot** | the process sees only the image's filesystem as its root `/` |
+
+Running a container means: bring in the image's filesystem, "chroot" into it, set up namespaces and cgroups, and run a process there.
+
+## Client and server
+
+Docker uses a **client–server** architecture:
+
+- **client** — the `docker` command in your terminal,
+- **server** — **Docker Engine** (the `dockerd` daemon), a background service (`systemctl start|stop|enable docker`) that actually runs containers.
+
+The client talks to the server through the `/var/run/docker.sock` socket (or over the network). Day 4 uses this for [contexts](/devops-notes/en/docker/kontexty-a-limity/) and [Portainer](/devops-notes/en/docker/nastroje-na-spravu/).
+
+### Rootless
+
+Docker Engine runs as **root**, so it runs containers with root privileges too — not ideal for security (a demonstration is in [Bind mounts and users](/devops-notes/en/docker/bind-mounty/)). The alternative is **rootless** mode: containers are run by an ordinary user, and anyone escaping a container has only that user's rights on the host. **Podman** works this way by default; Docker can be switched to rootless mode.
+
+## Test yourself
+
+<Question q="What does “pets vs. cattle” mean?">
+Pets: expensive, hand-managed, named servers cared for like a pet. Cattle: many cheap identical machines replaced one for one — a server is just a number, everything is automated and scales.
+</Question>
+
+<Question q="What is the relationship between an image and a container?">
+A container is an instance of an image (as an object is an instance of a class). The image is an immutable package; you can run any number of containers from it, each with its own state.
+</Question>
+
+<Question q="Why does a container start faster than a virtual machine?">
+No guest OS boots. The application starts straight away as a process on the host Linux kernel.
+</Question>
+
+<Question q="Will `ps aux` on the host show the process of an app running in a container?">
+Yes. A container is a process on the host, just isolated. With a virtual machine you would not see it.
+</Question>
+
+<Question q="Which three Linux mechanisms are containers built on?">
+cgroups (resource limits), namespaces (isolating what a process sees), and chroot (its own root filesystem).
+</Question>
+
+<Question q="Why do Linux containers need a Linux kernel?">
+A container has no kernel of its own — it uses the host's. The image only contains a filesystem (binaries, libraries).
+</Question>
+
+## Exercises
+
+### 1.1 · Image or container?
+
+Assign each statement to the image or the container: *has state*, *is immutable*, *can be started many times*, *has a PID on the host*, *is pulled from a registry*.
+
+<p class="practises">Practises: image vs. container.</p>
+
+<Solution>
+Image: immutable, many containers can be started from it, pulled from a registry. Container: has its own state, has a PID on the host (it is a process).
+</Solution>
+
+### 1.2 · Counting disk space
+
+Three apps share a Debian base (500 MB). Each app with its libraries is 150 MB. How much space as three virtual machines (each guest OS 1 GB) and as three containers?
+
+<p class="practises">Practises: layer sharing.</p>
+
+<Solution>
+Virtual machines: 3 × (1000 + 150) = 3450 MB. Containers: the base layer is downloaded once — 500 + 3 × 150 = 950 MB.
+</Solution>

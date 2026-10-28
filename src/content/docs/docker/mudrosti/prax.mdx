@@ -1,0 +1,69 @@
+---
+title: Rady z praxe
+description: Postrehy z nasadzovania — --rm v produkcii, latest, Postgres na Windowse, prehrabávanie sa v cudzích Dockerfiles, bezpečnosť Dockera a dlhá syntax príkazov.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## `--rm` je super, ale nie v produkcii
+
+> „Raz sme mali čosi spustené a kolega prišiel a zle to vypol. Bola to testovacia prevádzka, tak sme prišli iba o pár dát. Nebolo to katastrofálne, ale zabolelo. Shit happens.“
+
+`--rm` zmaže kontajner aj jeho anonymné zväzky. Pri ladení je skvelý, pri dôležitom kontajneri prídeš pri páde o všetko, čo v ňom bolo.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Neinštalujte Postgres na Windows
+
+Na študentskom hackathone dávali bývalí študenti (už zamestnanci) radu: „Neinštalujte Postgres na Windows.“ Lektor sa pousmial — sú veci, pri ktorých inštalácii do Windowsu „zomriete“. S Dockerom je to jeden `docker compose up` a celé prostredie (databáza, aplikačný server…) beží, `docker compose down` a je preč.
+
+Podobne Apache Airflow: Python balík ide nainštalovať aj na Windows, ale nespustí sa (jeden balík potrebuje POSIX). V kontajneri beží a DAG-y máš lokálne ako bind mount.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Pozri sa, ako to robia iní
+
+> „Nesnažte sa objavovať teplú vodu.“
+
+Najlepšia škola písania Dockerfile sú oficiálne obrazy na Docker Hube (odkaz z tagu vedie na Dockerfile). Pre jazyky a frameworky existujú udržiavané základné obrazy — niekto sa o ne stará lepšie, ako by si to robil ty. Vo firme sa opýtaj, ako to robia kolegovia (napr. aké základné obrazy schvaľuje firemný register).
+
+<p class="wisdom-day">Deň 3</p>
+
+## latest iba na skúšanie
+
+`latest` v Compose alebo Dockerfile je časovaná bomba: pri ďalšej aktualizácii obrazu príde nová hlavná verzia (Postgres 16 namiesto 15) a databáza nenabehne, lebo dáta sú pre starú verziu. Na skúšanie áno, na nasadenie otestovanú verziu.
+
+<p class="wisdom-day">Deň 3</p>
+
+## Kto smie Docker, je root
+
+Bežný používateľ bez `sudo`, ktorý smie spúšťať kontajnery, si pripojí `/` hostiteľa a urobí čokoľvek. S Dockerom opatrne — a ak to ide, rootless (Podman).
+
+<p class="wisdom-day">Deň 2</p>
+
+## Nikdy nepúšťaj aplikáciu ako root
+
+Aj obraz s vlastnou aplikáciou nech beží pod vlastným používateľom (`USER`). Menej vecí v obraze = menšia plocha pre útok — preto minimalistické obrazy bez `ps`, `bash` a distroless.
+
+<p class="wisdom-day">Deň 3</p>
+
+## Dlhá syntax je pre ľudí
+
+> „Ja ako učiteľ vám budem ukazovať explicitný zápis. Vy ako ľudia z praxe si kľudne komplikujte život krátkym.“
+
+`docker container ls` sa číta lepšie ako `docker ps` a podpríkazy sa opakujú pri všetkých objektoch.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Prenos obrazu na disketách
+
+Jeden človek z firmy potreboval obraz na stroj bez internetu: `docker image save` do `.tar`, zabaliť, preniesť na disketách a tam `docker image load`. Vynašiel sa.
+
+<p class="wisdom-day">Deň 3</p>
+
+## Blesk je môj pomalší brat
+
+Lektor rozpráva rýchlo. Keď nestíhaš, ozvi sa — a ak sa hanbíš, povedz, že sa pýta kamarát, ktorému nefunguje mikrofón.
+
+<p class="wisdom-day">Deň 1</p>

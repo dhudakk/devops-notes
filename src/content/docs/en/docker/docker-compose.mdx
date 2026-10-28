@@ -1,0 +1,313 @@
+---
+title: Docker Compose
+description: Composing several containers in a compose.yaml file — services, volumes, networks, variables, docker compose up and down, the project namespace, management commands, and start order with depends_on.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · Docker Compose
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Compose** = a composition of several containers in one **`compose.yaml`** (or `docker-compose.yaml`) file. Long `docker container run` commands become YAML — which you can version in Git.
+- The main key is **`services`** (not *containers* — the same file also serves Docker Swarm, where a service can run in N copies). Per service: `image`, `volumes`, `environment`, `env_file`, `ports`, `networks`, `restart`, `depends_on`.
+- List named volumes and networks also at the **top level** (`volumes:`, `networks:`), optionally with settings (`{}` = defaults).
+- `docker compose up` (`-d` in the background) creates networks and volumes and starts the services. `docker compose down` stops and removes containers and networks.
+- Names live in the **project namespace** = the folder name: container `rustfs-rustfs-1`, volume `rustfs_storage`. That's why a service can happily be called `db`.
+</KeyPoints>
+
+## Why Compose
+
+Running several containers with long commands full of options, in the right order, with an editor on the side, is impractical. **Compose** (*composition*) starts several containers at once from a single file.
+
+## YAML
+
+The file is in **YAML**. Both JSON and YAML are machine-readable; JSON is better for sending over a network, **YAML for people to read and write** — which is why configuration files use it. Indentation with spaces defines the structure, `-` is a list item, `key: value` is a mapping.
+
+## From a command to a composition
+
+```bash
+docker container run --rm -it --name rustfs \
+  --volume storage:/data \
+  --env RUSTFS_ACCESS_KEY=admin \
+  --env RUSTFS_SECRET_KEY=secret123 \
+  --env RUSTFS_CONSOLE_ENABLE=true \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  --network storage \
+  rustfs/rustfs
+```
+
+```yaml title="compose.yaml"
+services:
+  rustfs:
+    image: rustfs/rustfs
+    volumes:
+      - storage:/data
+    environment:
+      - RUSTFS_ACCESS_KEY=admin
+      - RUSTFS_SECRET_KEY=secret123
+      - RUSTFS_CONSOLE_ENABLE=true
+    env_file:
+      - rustfs.env
+    ports:
+      - 9000:9000
+      - 9001:9001
+    networks:
+      - storage
+
+networks:
+  storage: {}
+
+volumes:
+  storage: {}
+```
+
+| `docker container run` option | Compose key |
+| --- | --- |
+| image name | `image:` |
+| `--name` | the service name (`rustfs:`) |
+| `--volume` | `volumes:` (list) |
+| `--env` | `environment:` (list of `KEY=value`) |
+| `--env-file` | `env_file:` (list — there can be several files) |
+| `--publish` | `ports:` (list) |
+| `--network` | `networks:` (list) |
+| `--restart` | `restart:` |
+
+### Networks and volumes at the top level
+
+Named networks and volumes are listed at the **top level** too. Compose creates them before starting services, and any settings (driver, existing volume…) are written **only once** — services just refer to them by name (DRY).
+
+`{}` is an empty object = default settings. In the course the composition also worked without `{}` (`storage:` with no value), but *explicit is better than implicit*.
+
+To use a volume that already exists outside the composition, use `external: true`:
+
+```yaml
+volumes:
+  wp_db:
+    external: true
+```
+
+## Up and down
+
+```bash
+docker compose up             # start everything, logs in the foreground
+docker compose up --detach    # -d: in the background
+docker compose down           # stop and remove containers and networks
+```
+
+Run it in the folder with `compose.yaml` / `docker-compose.yaml` — any other file name needs `docker compose -f file.yaml up`.
+
+- `up` creates the networks and volumes, then starts the services. Logs of all services are colour-coded.
+- `Ctrl+C` stops the services. While running in the foreground, `d` detaches to the background.
+- `down` stops and **removes the containers and networks**. Named volumes remain (`down --volumes` removes them).
+
+Compose used to be a separate `docker-compose` program; today it's part of Docker as `docker compose`.
+
+## The project namespace
+
+```bash
+docker container ls
+# NAMES: rustfs-rustfs-1
+docker volume ls
+# rustfs_storage
+docker network ls
+# rustfs_storage
+```
+
+Container name = **`folder-service-number`**:
+
+- **folder** (project) — here `rustfs`,
+- **service** — `rustfs`,
+- **instance number** — in Swarm a service can run in ten copies (`-1` to `-10`).
+
+Volumes and networks carry the project prefix too. Why: if 13 people on one server each started a database named `db`, only the first would succeed. With a namespace, it's enough for the folder to differ — so name it after the project.
+
+:::note[The existing volume wasn't used]
+After rewriting WordPress into Compose, the `wp_db` volume from the manual setup wasn't used — the composition created a new `wordpress_wp_db` (with the project prefix). Refer to the original with `external: true`.
+:::
+
+## Managing a composition
+
+Most `docker container` commands have a `docker compose` counterpart — use the **service name** instead of the container name:
+
+| Command | What it does |
+| --- | --- |
+| `docker compose ls` | running compositions on the whole machine (from anywhere) |
+| `docker compose ps` | containers of this composition |
+| `docker compose logs rustfs` | a service's logs (`-f` follows) |
+| `docker compose exec rustfs sh` | a command in a running service |
+| `docker compose images` | images used by the composition |
+| `docker compose volumes` | the composition's volumes |
+| `docker compose stop` / `start` / `restart` | without removing containers |
+| `docker compose up -d rustfs` | only one service |
+
+## Lab: WordPress in Compose
+
+```yaml title="compose.yaml"
+services:
+  db:
+    image: mysql
+    volumes:
+      - wp_db:/var/lib/mysql
+    env_file:
+      - mysql.env
+    networks:
+      - wordpress
+
+  ui:
+    image: adminer
+    networks:
+      - wordpress
+    ports:
+      - 8080:8080
+
+  wp:
+    image: wordpress
+    volumes:
+      - wp_wordpress:/var/www/html
+    env_file:
+      - wp.env
+    networks:
+      - wordpress
+    ports:
+      - 80:80
+
+networks:
+  wordpress: {}
+
+volumes:
+  wp_db: {}
+  wp_wordpress: {}
+```
+
+`mysql.env` and `wp.env` are from the [previous chapter](/devops-notes/en/docker/siete/). `docker compose up`, install at `http://localhost`, `docker compose down` + `up` — the site and your post remain.
+
+## Start order: `depends_on`
+
+Services aren't started in the order they're written. WordPress, though, needs a running database:
+
+```yaml
+services:
+  wp:
+    image: wordpress
+    depends_on:
+      - db
+```
+
+The short form only guarantees **start order**: `db` starts first, then `wp`. It doesn't wait until the database is actually up and accepting connections (a Java app can take 30 s to start).
+
+The long form with a condition:
+
+```yaml
+services:
+  wp:
+    image: wordpress
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+```
+
+| `condition` | Waits until the dependency… |
+| --- | --- |
+| `service_started` | has started (like the short form) |
+| `service_healthy` | is **healthy** according to its healthcheck |
+| `service_completed_successfully` | has exited with code 0 (e.g. an init container) |
+
+`restart: true` also restarts the service whenever Compose restarts its dependency.
+
+The `mysql` image has **no healthcheck**, so `service_healthy` fails with *dependency failed to start: container … has no healthcheck configured*. The healthcheck must be added to the composition (`healthcheck:`) or the image — see [day 3](/devops-notes/en/docker/multi-stage-a-bezpecnost/).
+
+:::note[Docker vs. Kubernetes]
+Docker only **marks** a container as `unhealthy` — nobody restarts it automatically. Kubernetes handles it with probes (*readiness*, *liveness*). Docker is great for local development and smaller deployments; high-availability production setups use Kubernetes.
+:::
+
+## Test yourself
+
+<Question q="Why is the main key `services` and not `containers`?">
+The same file also serves Docker Swarm, where a service can run as several instances (containers).
+</Question>
+
+<Question q="Why is the container of service `rustfs` called `rustfs-rustfs-1`?">
+The name is `project-service-number`. The project defaults to the folder name (`rustfs`), the service is `rustfs`, `1` is the instance number.
+</Question>
+
+<Question q="What does `docker compose down` remove and what not?">
+It stops and removes the composition's containers and networks. Named volumes remain (`down --volumes` removes them).
+</Question>
+
+<Question q="Why list networks and volumes at the top level too?">
+Compose creates them before starting the services, and any settings are written only once — services refer to them by name.
+</Question>
+
+<Question q="Does `depends_on: [db]` guarantee that the database accepts connections when WordPress starts?">
+No. It only guarantees start order. To wait, use `condition: service_healthy` and a healthcheck on the database.
+</Question>
+
+<Question q="Why don't you see the data from the manually created `wp_db` volume after moving to Compose?">
+Compose added the project prefix and created a new volume (e.g. `wordpress_wp_db`). Use the original with `external: true`.
+</Question>
+
+## Exercises
+
+### 9.1 · RustFS as a composition
+
+Rewrite RustFS (volume `storage`, ports 9000 and 9001, variables from `rustfs.env`) into `compose.yaml`. Start it in the background, view the service's logs, get inside it, and finally stop the composition. Check the volume remained.
+
+<p class="practises">Practises: `services`, `volumes`, `env_file`, `ports`, `up -d`, `logs`, `exec`, `down`.</p>
+
+<Solution>
+```yaml title="rustfs/compose.yaml"
+services:
+  rustfs:
+    image: rustfs/rustfs
+    volumes:
+      - storage:/data
+    env_file:
+      - rustfs.env
+    ports:
+      - 9000:9000
+      - 9001:9001
+
+volumes:
+  storage: {}
+```
+
+```bash
+cd rustfs
+docker compose up --detach
+docker compose ps
+docker compose logs -f rustfs
+docker compose exec rustfs sh
+docker compose down
+docker volume ls          # rustfs_storage remained
+```
+</Solution>
+
+### 9.2 · WordPress with ordering
+
+Create the WordPress composition from the lab and add `depends_on` so `wp` and `ui` start after `db`. Check persistence with `down` and `up`.
+
+<p class="practises">Practises: a three-service composition, `depends_on`, persistence.</p>
+
+<Solution>
+The composition from the lab above; add to the `ui` and `wp` services:
+
+```yaml
+    depends_on:
+      - db
+```
+
+```bash
+docker compose up -d
+# install at http://localhost, write a post
+docker compose down
+docker compose up -d
+# the post is there — the data is in volumes wordpress_wp_db and wordpress_wp_wordpress
+```
+</Solution>

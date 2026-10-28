@@ -1,0 +1,288 @@
+---
+title: Dockerfile and your own image
+description: Why changes in a container don't persist, why not to use docker commit, the image lifecycle, a Dockerfile from FROM scratch, ADD, RUN, CMD, and LABEL, docker image build, layers, and the cache.
+kind: chapter
+day: 3
+sidebar:
+  order: 10
+  label: 10 · Dockerfile
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- An image is **immutable** — what you install in a container won't be in a new container. You make a change with a **new image**.
+- **Don't** create images with `docker container commit` (a snapshot of a container) — it is not **reproducible**. The recipe belongs in a **Dockerfile** in Git.
+- Dockerfile: `FROM` (base image, the "parent"), `ADD`/`COPY` (files), `RUN` (a command at build time), `LABEL` (metadata), `CMD` (the default command on `run`).
+- `docker image build --tag name .` — the dot is the **context** (the folder with files). Without `--tag` the image is `<none>`.
+- An image consists of **layers**. Unchanged steps come from the **cache**; from the first change on, everything is rebuilt → put rarely changing steps at the **top**, the application at the **bottom**.
+</KeyPoints>
+
+## The problem: I installed bash
+
+```bash
+docker container run -it alpine bash      # there's no bash in Alpine
+docker container run -it alpine sh
+apk add bash                              # Alpine's package manager is apk (not apt)
+bash                                      # works
+exit
+
+docker container run -it alpine bash      # gone again!
+```
+
+Every `run` starts a **new** container from the **immutable** image — clean, without your installation. Bash stayed only in the old, stopped container. To make a change permanent you need a **new image**.
+
+## What we know about images
+
+- an image is a **template** for creating containers; a container is an **instance** of an image,
+- one image can run any number of containers,
+- an image is **immutable**,
+- the recipe for an image is a **Dockerfile**; the finished image is stored in a **registry**.
+
+```bash
+docker image ls
+```
+
+| Column | Meaning |
+| --- | --- |
+| `IMAGE` | name and tag |
+| `ID` | image identifier |
+| `DISK USAGE` | size unpacked on disk |
+| `CONTENT SIZE` | size of layers and metadata (compressed) — hence smaller |
+| `EXTRA` | `U` = some container is using the image |
+
+### Image lifecycle
+
+```text
+ Dockerfile ──build──▶ image ──run──▶ container (start, stop, restart…)
+                        │  ▲
+                   tag  │  │ pull
+                        ▼  │
+                     push ──▶ registry (Docker Hub, company, ttl.sh)
+            save ▼ ▲ load
+              .tar file
+```
+
+The full image name includes the **registry**: `registry/namespace/repository:tag` (e.g. `ttl.sh/mirek/nyancat:30m`, `localhost:5000/bletvaska/nyancat:latest`). No registry = Docker Hub.
+
+### Why not `docker container commit`
+
+`commit` takes a **snapshot** of a running container — a new image. It would solve the bash problem, but:
+
+- the recipe is **not reproducible** — where did you write down what you installed in the container? What if you forget something?
+- software in the image ages; new versions and security fixes mean building the image **again from scratch**.
+
+The build recipe belongs in a **Dockerfile** versioned in Git. `commit` makes sense only in exceptional cases — e.g. saving the state of a crashed container so you can come back to the error.
+
+## Dockerfile
+
+The best way to learn: look at **how others do it**. Official images on Docker Hub link the Dockerfile from each tag.
+
+A Dockerfile is a text file. Each line is an **instruction** (in capitals) and its arguments.
+
+### FROM — the base image
+
+```dockerfile
+FROM alpine:3.24
+```
+
+`FROM` sets the **base image** you build on — like inheriting from a parent class: you have everything the parent has and add your own. Somebody else maintains the base (filesystem, security fixes).
+
+The ancestry of the official `nginx:alpine`:
+
+```text
+nginx:alpine  ──FROM──▶  alpine:3.24  ──FROM──▶  scratch
+```
+
+**`scratch`** is a special empty image — the ultimate ancestor, nothing above it (like `Object` in Java).
+
+### A minimal image from nothing
+
+This is the Dockerfile of the `alpine` image itself:
+
+```dockerfile title="Dockerfile"
+FROM scratch
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /
+CMD ["/bin/sh"]
+```
+
+```bash
+wget https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.2-x86_64.tar.gz
+```
+
+The *miniroot filesystem* from [alpinelinux.org/downloads](https://alpinelinux.org/downloads/) is Alpine's whole filesystem (~3.6 MB). Every command in `/bin` is a link to **busybox** — one binary with the basic commands.
+
+| Instruction | What it does |
+| --- | --- |
+| `FROM scratch` | start from nothing |
+| `ADD archive.tar.gz /` | copy into the image — **and unpack the archive** (it can also download a URL or a Git repository) |
+| `CMD ["/bin/sh"]` | default command on `docker container run` |
+
+### Building step by step
+
+```bash
+docker image build --tag mini .
+```
+
+- `--tag` (`-t`) names the image; without it you get a `<none>` image (shown by `docker image ls --all`).
+- `.` is the **context** — the folder with the files the Dockerfile copies.
+- The file must be called `Dockerfile`; another name (`Dockerfile.alpine`, `Dockerfile.debian`) is passed with `--file` (`-f`).
+
+What happens as you grow the Dockerfile:
+
+| Dockerfile | `docker container run mini` |
+| --- | --- |
+| only `FROM scratch` | *no command specified* — the image is ~500 B (metadata only) |
+| `FROM scratch` + `docker container run mini /bin/sh` | *exec: "/bin/sh": no such file* — the image is empty |
+| + `ADD …tar.gz /` | works with `/bin/sh`, the image is ~13 MB |
+| + `CMD ["/bin/sh"]` | works without a command too |
+
+The archive on your machine is needed only for the **build**. The finished image already contains it unpacked.
+
+## Layers and cache
+
+An image is made of **layers**, like an onion (or ogres, in Shrek). Each step that changes files (`ADD`, `COPY`, `RUN`) creates a layer — files "unpacked" on top of the previous ones.
+
+```text
+WordPress ─┐
+           ├─ nginx ─┐
+                     ├─ Ubuntu (layers A, B, C)
+```
+
+Ubuntu is downloaded once and used by both nginx and WordPress.
+
+During a build Docker checks for each step whether it changed (the instruction text, and for `ADD`/`COPY` the file contents):
+
+- unchanged step → `CACHED`, the layer comes from the cache,
+- **from the first changed step on, everything is rebuilt**.
+
+```dockerfile
+FROM scratch
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /      # CACHED
+RUN sleep 5                                       # new → 5 s
+CMD ["/bin/sh"]
+```
+
+The second build takes 0 s — everything is cached. Add another `RUN` step **before** the `sleep`, and the `sleep` runs again too: a change higher up invalidates everything below it. Instructions that change only metadata (`LABEL`, `CMD`) don't create a filesystem layer.
+
+:::tip[Instruction order]
+Put **system things that rarely change** at the start (base, system packages) and the **application**, which changes with every release, at the end. That way the whole image isn't rebuilt needlessly.
+:::
+
+The layer cache is shared by all images on the machine — when a new Dockerfile starts with the same steps as another, the first steps are `CACHED` right away.
+
+## Lab: Nyancat
+
+An image that runs the [nyancat](https://pkgs.alpinelinux.org/packages?name=nyancat) animation in the terminal.
+
+The "try first, then write it down" approach: run a container from your work-in-progress image, try commands, and add each working one to the Dockerfile.
+
+```bash
+docker container run --rm -it mini
+apk add nyancat
+nyancat              # works
+which nyancat        # /usr/bin/nyancat
+```
+
+```dockerfile title="Dockerfile"
+FROM scratch
+LABEL maintainer="mirek"
+LABEL description="Nyancat in console."
+ADD alpine-minirootfs-3.24.2-x86_64.tar.gz /
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+```
+
+```bash
+docker image build --tag nyancat .
+docker container run --rm -it nyancat        # -it for the colours
+```
+
+The `ADD` comes from the cache even though you're building a new image — the `mini` image already created that layer.
+
+### Simpler: from `alpine`
+
+The first three lines (`FROM scratch`, `ADD`, `CMD`) are exactly the official `alpine` Dockerfile. No need to repeat them or keep the archive in Git:
+
+```dockerfile title="Dockerfile"
+FROM alpine:3.24
+LABEL maintainer="mirek"
+LABEL description="Nyancat in console."
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+```
+
+If a Dockerfile has several `CMD`s, the **last** one wins.
+
+## Test yourself
+
+<Question q="Why is bash installed in a container missing in the next container from the same image?">
+The image is immutable. Each `run` creates a new container from the original image; the installation stayed only in the old container.
+</Question>
+
+<Question q="Why not create images with `docker container commit`?">
+A snapshot isn't reproducible — the recipe isn't written down anywhere and the image can't be rebuilt (e.g. with newer versions and fixes). The recipe belongs in a Dockerfile in Git.
+</Question>
+
+<Question q="What is `FROM scratch`?">
+Starting from an empty image. `scratch` is the ancestor of all base images; nothing is above it.
+</Question>
+
+<Question q="What is the difference between `RUN` and `CMD`?">
+`RUN` runs at **build** time and its result is saved into an image layer. `CMD` is the default command that runs only on `docker container run`.
+</Question>
+
+<Question q="What does the dot in `docker image build --tag mini .` mean?">
+The build context — the current folder, from which the Dockerfile copies files (and where `Dockerfile` is looked for).
+</Question>
+
+<Question q="You change an instruction in the middle of a Dockerfile. Which steps are rebuilt?">
+The changed step and every step below it. Steps above it come from the cache.
+</Question>
+
+<Question q="Why install system packages before copying the application?">
+System packages change rarely, the application often. A change to the application then invalidates only the last steps and the system layer comes from the cache.
+</Question>
+
+## Exercises
+
+### 10.1 · Mini and nyancat
+
+Download the Alpine miniroot filesystem, build `mini` from `FROM scratch`, and check that `sh` works in it. Then build `nyancat` from `alpine:3.24` and run it.
+
+<p class="practises">Practises: `FROM`, `ADD`, `RUN`, `CMD`, `LABEL`, `docker image build`.</p>
+
+<Solution>
+```bash
+mkdir mini && cd mini
+wget https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/alpine-minirootfs-3.24.2-x86_64.tar.gz
+printf 'FROM scratch\nADD alpine-minirootfs-3.24.2-x86_64.tar.gz /\nCMD ["/bin/sh"]\n' > Dockerfile
+docker image build --tag mini .
+docker container run --rm -it mini        # / #
+cd ..
+
+mkdir nyancat && cd nyancat
+cat > Dockerfile <<'EOF'
+FROM alpine:3.24
+LABEL description="Nyancat in console."
+RUN apk add nyancat
+CMD ["/usr/bin/nyancat"]
+EOF
+docker image build --tag nyancat .
+docker container run --rm -it nyancat
+```
+</Solution>
+
+### 10.2 · Watch the cache
+
+Add `RUN sleep 5` to the end of the `mini` Dockerfile and build twice. Then add another `RUN date` before the `sleep` and build again. How long did each build take?
+
+<p class="practises">Practises: layers, `CACHED`, instruction order.</p>
+
+<Solution>
+1. build: ~5 s (`ADD` is CACHED, `sleep` is new).
+2. build: ~0 s — everything CACHED.
+3. build after adding `RUN date` before `sleep`: `date` is a new step, so the `sleep` below it runs again too — ~5 s.
+</Solution>

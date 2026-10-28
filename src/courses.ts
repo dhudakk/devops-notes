@@ -56,11 +56,11 @@ export const courses: Course[] = [
   {
     id: 'docker',
     abbr: 'Dk',
-    status: 'planned',
+    status: 'active',
     label: { sk: 'Docker', en: 'Docker' },
     summary: {
-      sk: 'Obrazy, kontajnery, Dockerfile, volumes, siete a Docker Compose.',
-      en: 'Images, containers, Dockerfiles, volumes, networks, and Docker Compose.',
+      sk: 'Kontajnery a obrazy, zväzky, siete, Docker Compose, vlastné obrazy cez Dockerfile, bezpečnosť, Portainer a vlastný register.',
+      en: 'Containers and images, volumes, networks, Docker Compose, building images with a Dockerfile, security, Portainer, and a private registry.',
     },
   },
   {

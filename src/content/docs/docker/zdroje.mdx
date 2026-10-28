@@ -1,0 +1,62 @@
+---
+title: Zdroje
+description: Slajdy lektora, labáky a z čoho vznikla ktorá kapitola kurzu Docker.
+kind: sources
+sidebar:
+  order: 99
+---
+
+Kurz **Docker 101 + 202** (štyri dni) vedie Mirek. Poznámky vznikli z prepisu záznamu všetkých štyroch dní, slajdov a materiálov s labákmi. Sú usporiadané podľa tém, opravené a doplnené o otázky a cvičenia. Témy zo slajdov, ktoré sa na kurze nebrali (napr. Lab Matrix, `:Z` pre SELinux, ukážky s Podmanom), v poznámkach nie sú.
+
+:::note[Čo v poznámkach zámerne chýba]
+API kľúč OpenWeatherMap, heslo a IP adresy laboratórnych strojov sú nahradené zástupnými textami (`<API_KEY>`, `<IP>`). Mená účastníkov sú vynechané (kontext `riso` je v poznámkach `kolega`). Postup na smerovanie cez firemnú VPN (`route add`) je firemne špecifický a vynechaný. Prihlasovacie údaje v labákoch (`admin`/`secret123`, `batman`/`catwoman`) sú cvičné.
+:::
+
+:::caution[Príkazy neboli spustené]
+Pri písaní poznámok nebol k dispozícii Docker, takže príkazy neboli spustené ako pri kurze Git. Správanie je overené voči dokumentácii Dockera a záznamu z kurzu.
+:::
+
+## Slajdy
+
+| Deň | Materiál |
+| --- | --- |
+| 1 | [Docker 101: Day 1 — The Basics (PDF) ↗](http://mirek.s.cnl.sk/download/docker.101-day.1.pdf) |
+| 2 | [Docker 101: Day 2 — Networks, Volumes and Composition (PDF) ↗](http://mirek.s.cnl.sk/download/docker.101-day.2.pdf) |
+| 3 | [Docker 202: Day 1 — Creating Docker Images (PDF) ↗](http://mirek.s.cnl.sk/download/docker.202-day.1.pdf) |
+| 3 | [weather-2024.4-py3-none-any.whl ↗](http://mirek.s.cnl.sk/download/weather-2024.4-py3-none-any.whl) — balík na labák |
+| 4 | bez slajdov — ukážky v materiáloch (aliasy, kontexty, limity, Portainer, Watchtower) |
+
+## Z čoho je ktorá kapitola
+
+| Kapitola | Zdroj |
+| --- | --- |
+| [01 · Od serverov ku kontajnerom](/devops-notes/docker/kontajnery/) | deň 1 — slajdy; prepis (pets vs. cattle, obraz vs. kontajner, VM vs. kontajner, rootless) |
+| [02 · Prvé kontajnery](/devops-notes/docker/prve-kontajnery/) | deň 1 — slajdy; prepis (version, info, dlhá syntax, register, typy obrazov, PID 1) |
+| [03 · Správa kontajnerov](/devops-notes/docker/sprava-kontajnerov/) | deň 1 — slajdy; prepis (ls, signály, logs, attach, rm, prune, `-d`, `-it`) |
+| [04 · Konfigurácia a porty](/devops-notes/docker/konfiguracia-a-porty/) | deň 1 — prepis (Twelve-Factor, `--env`, `--env-file`, priorita, inspect, jq, `--publish`); materiály: Lab Weather; deň 2 — prepis (bezpečnosť `.env`) |
+| [05 · Životný cyklus](/devops-notes/docker/zivotny-cyklus/) | deň 1 — prepis (stavy, clock); deň 3 — prepis (reštartovacie politiky, Rambo) |
+| [06 · Zväzky](/devops-notes/docker/zvazky/) | deň 2 — slajdy; prepis (anonymné a pomenované zväzky, `/var/lib/docker`, zdieľanie); materiály: Lab RustFS, My Homepage, Persistent Homepage |
+| [07 · Bind mounty](/devops-notes/docker/bind-mounty/) | deň 2 — slajdy; prepis (bind mount, root v kontajneri, Podman, `--user`) |
+| [08 · Prepojenie kontajnerov](/devops-notes/docker/siete/) | deň 2 — slajdy; prepis (MySQL + Adminer, IP z inspect); materiály: Lab MySQL with Adminer, Lab WordPress App |
+| [09 · Docker Compose](/devops-notes/docker/docker-compose/) | deň 2 — prepis 3. časti (YAML, kompozícia, menný priestor, `depends_on`); materiály: ukážková kompozícia, Composed WordPress |
+| [10 · Dockerfile](/devops-notes/docker/dockerfile/) | deň 3 — slajdy; prepis (commit, FROM scratch, vrstvy a cache, nyancat) |
+| [11 · Zdieľanie obrazov](/devops-notes/docker/zdielanie-obrazov/) | deň 3 — slajdy; prepis (ttl.sh, tagy, jeden `RUN`, dive) |
+| [12 · Balenie aplikácie](/devops-notes/docker/balenie-aplikacie/) | deň 3 — slajdy; prepis 2. časti (hadolint, ShellCheck, Alpine, base image, distroless); materiály: Packaging Own App |
+| [13 · Multi-stage a bezpečnosť](/devops-notes/docker/multi-stage-a-bezpecnost/) | deň 3 — prepis 2. časti (multi-stage, grype, `USER`, HEALTHCHECK, autoheal); materiály |
+| [14 · Aliasy, kontexty a limity](/devops-notes/docker/kontexty-a-limity/) | deň 4 — prepis 1. časti; materiály: The power of aliases, The Context, Limiting Resources |
+| [15 · Nástroje na správu](/devops-notes/docker/nastroje-na-spravu/) | deň 4 — prepis 1. časti (Oh My Zsh, ctop, lazydocker, dry, Cockpit, Portainer); materiály: Running Portainer |
+| [16 · Register a automatizácia](/devops-notes/docker/register-a-automatizacia/) | deň 4 — prepis 2. časti (Traefik, registry:2, Watchtower, Awesome Docker, goss, CI/CD); materiály: Watchtower demo |
+| [Mirekove múdrosti](/devops-notes/docker/mudrosti/historia/) | prepisy všetkých dní |
+
+## Opravy
+
+- **Slajdy, deň 2:** `docker image inspect --format "{{ .ContainerConfig.Volumes }}"` — pri obraze je to `.Config.Volumes` (na kurze `ContainerConfig` vrátil chybu).
+- **Slajdy, deň 3:** `docker image run ttl.sh/…` — správne `docker container run`.
+- **Materiály, deň 3:** vo finálnom Dockerfile builder vytvára `/venv`, ale main stage kopíruje `/app/venv` — cesty musia sedieť.
+- **Materiály, deň 4:** alias obsahuje `$(id--user)` — správne `$(id --user)`.
+- **Prednáška:** úvodzovky v `.env` — `docker container run --env-file` ich neodstraňuje, stanú sa súčasťou hodnoty.
+- **Prednáška:** `curl -f` pri HTTP chybe vracia exit kód 22 (nie „päťdesiat-niečo“); healthcheck berie iba 0 a 1, preto `|| exit 1`.
+- **Prednáška:** v slim obraze nie je `curl`, healthcheck s ním je hneď `unhealthy` — v poznámkach je kontrola cez Python.
+- **Prednáška:** `docker volume prune` v novších verziách maže predvolene iba anonymné zväzky (pomenované s `--all`).
+- **Prednáška:** WordPress `fpm-alpine` sa nenačítal — varianty `fpm` nemajú webový server.
+- **Prednáška:** Docker kontext cez `ssh://ubuntu@IP` zlyhal na kľúči — treba záznam v `~/.ssh/config` s `IdentityFile`.

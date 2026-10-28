@@ -1,0 +1,261 @@
+---
+title: Zväzky a perzistencia dát
+description: Prečo kontajner stratí dáta, čo sa oplatí mať perzistentné, VOLUME v Dockerfile, anonymné a pomenované zväzky, /var/lib/docker, zdieľanie zväzku medzi kontajnermi a docker container cp.
+kind: chapter
+day: 2
+sidebar:
+  order: 6
+  label: 06 · Zväzky
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Nový kontajner je vždy „panenský“. Dáta prežijú `stop` + `start`, ale **`rm` ich zmaže**. Cieľ: oddeliť **dáta od aplikácie**, aby prežili aj zmazanie kontajnera.
+- Perzistentné rob **dáta** (databáza, nahraté súbory, konfigurácia), nie celý systém. Ktoré priečinky, hovorí dokumentácia a inštrukcia `VOLUME` v Dockerfile.
+- **Anonymný zväzok** (meno = hash) vznikne sám pre každú cestu z `VOLUME`, ku ktorej nič nepripojíš. Nový kontajner dostane nový — so starými dátami nemá vzťah.
+- **Pomenovaný zväzok**: `--volume storage:/data` (ak neexistuje, vznikne). Prežije `rm` aj `--rm` a nový kontajner s rovnakým `--volume` má dáta späť.
+- Zväzky sú v `/var/lib/docker/volumes/<meno>/_data` (Docker root dir). Zväzok nevie, ku čomu je pripojený — to vie kontajner (`inspect` → `Mounts`). Jeden zväzok môže byť pripojený k viacerým kontajnerom.
+</KeyPoints>
+
+## Problém
+
+Kontajner s databázou beží rok a zbiera dáta. Keď ho niekto iba zastaví a znova spustí, dáta ostanú — priestor kontajnera v Dockeri existuje. Keď ho ale **zmaže** (`rm`, alebo spadne s `--rm`), dáta sú preč a nový kontajner má prázdnu databázu.
+
+Kontajnery sú o spúšťaní procesov a každý nový je čistý. Dáta preto treba **oddeliť od aplikácie**. Docker na to má dva spôsoby:
+
+1. **zväzky** (*volumes*) — Docker ich spravuje vo svojom priečinku (táto kapitola),
+2. **bind mounty** — pripojíš ľubovoľný priečinok hostiteľa ([ďalšia kapitola](/devops-notes/docker/bind-mounty/)).
+
+Oboje stojí na linuxovom `mount`: v Linuxe je jeden strom súborov s jedným koreňom a ďalší súborový systém (USB kľúč) pripojíš do niektorého priečinka.
+
+## Čo sa oplatí mať perzistentné
+
+Nie celý koreň `/` — systém sa dá kedykoľvek „preinštalovať“ z obrazu. Ako pri inštalácii Linuxu, kde `/home` býva na samostatnej partícii: perzistentné majú byť **dáta**.
+
+| Aplikácia | Priečinok |
+| --- | --- |
+| webový server nginx | `/usr/share/nginx/html` (stránky) |
+| MySQL | `/var/lib/mysql` |
+| RustFS (S3 úložisko) | `/data` |
+| WordPress | `/var/www/html` (nahraté obrázky, pluginy) |
+| čokoľvek | konfiguračné súbory |
+
+Odporúčané priečinky zistíš z **dokumentácie** alebo z inštrukcie `VOLUME` v Dockerfile:
+
+```dockerfile
+VOLUME /var/lib/mysql
+```
+
+```bash
+docker image inspect --format '{{ .Config.Volumes }}' rustfs/rustfs
+# map[/data:{}]
+docker image inspect rustfs/rustfs | jq '.[0].Config.Volumes'
+```
+
+:::note[Oprava zo slajdov]
+Slajdy uvádzajú `{{ .ContainerConfig.Volumes }}`. Pri obraze je to **`.Config.Volumes`** — `ContainerConfig` novší Docker neuvádza (na kurze vrátil chybu *map has no entry*).
+:::
+
+## Anonymné zväzky
+
+```bash
+watch -n 1 docker volume ls                 # v druhom termináli
+docker container run --name storage --env-file rustfs.env rustfs/rustfs
+```
+
+Po spustení v zozname pribudne zväzok s menom ako hash — **anonymný zväzok**. Docker ho vytvorí sám pre každú cestu z `VOLUME`, ku ktorej nepripojíš nič iné, a pripojí ho na `/data`.
+
+- Po `stop` ostane (dáta sú v ňom, keby si ich potreboval vytiahnuť).
+- Po **`--rm`** sa zmaže **spolu s kontajnerom** — ďalší dôvod na opatrnosť.
+- Nový kontajner z toho istého obrazu dostane **nový** anonymný zväzok, starý nepoužije. Preto po zmazaní a novom spustení RustFS sú buckety preč, hoci dáta v starom zväzku na disku stále ležia.
+
+```bash
+docker volume ls
+docker volume inspect <hash>       # Mountpoint: /var/lib/docker/volumes/<hash>/_data
+docker volume prune                # zmaže nepoužívané zväzky
+```
+
+:::note[`docker volume prune`]
+Zväzok pripojený k zastavenému kontajneru sa „používa“ — `prune` ho nezmaže, kým nezmažeš kontajner. Novšie verzie Dockera mažú cez `prune` predvolene iba **anonymné** zväzky; pomenované až s `--all`.
+:::
+
+## Kde sú dáta
+
+```bash
+docker info | grep 'Docker Root Dir'      # /var/lib/docker
+sudo ls /var/lib/docker                   # containers, image, volumes, …
+sudo ls /var/lib/docker/volumes/<meno>/_data
+```
+
+`/var/lib/docker` je **Docker root dir** — obrazy, zväzky aj bežiace kontajnery. Bez `sudo` sa doň nedostaneš, a je to zámer. Obsah zväzku je až v podpriečinku `_data` (konvencia Dockera).
+
+Na Windowse s Docker Desktopom je tento priečinok vo WSL (`\\wsl$\docker-desktop\…`). Podman (rootless) ich má v domovskom priečinku používateľa (`~/.local/share/containers/storage/volumes`).
+
+### Kto je ku komu pripojený
+
+Zväzok **nevie**, ku ktorému kontajneru je pripojený — `docker volume inspect` ukazuje iba meno, driver a `Mountpoint`. Vie to **kontajner**:
+
+```bash
+docker container inspect storage | jq '.[0].Mounts'
+docker container inspect --format '{{ json .Mounts }}' storage
+```
+
+## Pomenované zväzky
+
+**Odporúčaný spôsob.** Docker vytvorí zväzok v `/var/lib/docker/volumes/` a ty ho pomenuješ:
+
+```bash
+docker volume create storage              # ručne (nie je nutné)
+
+docker container run --rm \
+  --name storage \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  --volume storage:/data \
+  rustfs/rustfs
+```
+
+```text
+--volume storage:/data
+         │       └── priečinok v kontajneri
+         └────────── meno zväzku (ak neexistuje, vznikne)
+```
+
+Teraz vytvor v RustFS bucket, nahraj súbory, zastav kontajner (s `--rm` sa zmaže) a spusti ho znova s rovnakým `--volume storage:/data` — **buckety aj súbory sú tam**. Anonymný zväzok pre `/data` nevznikol, lebo na `/data` je pripojený `storage`.
+
+### Pripojenie inde, ako chce `VOLUME`
+
+```bash
+docker container run --rm --volume storage:/xxx rustfs/rustfs
+```
+
+Zväzok môžeš pripojiť do **ľubovoľného** priečinka — ak neexistuje, Docker ho vytvorí. Ale pozor: na `/data` (z `VOLUME`) teraz nič pripojené nie je, takže Docker pre `/data` **vytvorí aj anonymný zväzok**. A aplikácia ukladá do `/data`, nie do `/xxx`.
+
+### Jeden zväzok, viac kontajnerov
+
+```bash
+docker container run --rm -it --volume storage:/work alpine
+ls /work/images
+touch /work/images/mirek_was_here
+```
+
+Zväzok, ktorý už používa bežiaci RustFS, pripojíš aj do ďalšieho kontajnera — súbor `mirek_was_here` hneď uvidíš aj v RustFS v `/data/images`. Hodí sa to na **diagnostiku**: obrazy aplikácií sú minimalistické (aj kvôli bezpečnosti), tak si pripojíš „toolbox“ obraz s nástrojmi.
+
+Súbežný zápis z viacerých kontajnerov musí zvládnuť **aplikácia** (napr. databáza si súbory zamyká) — Docker to nerieši.
+
+:::tip[Alpine]
+`alpine` je minimalistická linuxová distribúcia (asi 4 MB stiahnuť, 13 MB rozbalená), obľúbený základ obrazov. Má iba `sh` (nie `bash`) a balíčkovací systém `apk`.
+:::
+
+## `docker container cp`
+
+Kopírovanie súborov medzi hostiteľom a kontajnerom (oboma smermi):
+
+```bash
+docker container cp www/. homepage:/usr/share/nginx/html/     # obsah www do kontajnera
+docker container cp homepage:/etc/nginx/nginx.conf .           # z kontajnera von
+```
+
+`www/.` = **obsah** priečinka, nie priečinok samotný.
+
+### Lab: My Homepage
+
+```bash
+docker container run --rm --detach --name homepage --publish 80:80 nginx
+wget https://github.com/startbootstrap/startbootstrap-freelancer/archive/gh-pages.zip
+unzip gh-pages.zip
+mv startbootstrap-freelancer-gh-pages www
+docker container cp www/. homepage:/usr/share/nginx/html/
+```
+
+Bez zväzku je stránka po zmazaní kontajnera preč. S pomenovaným zväzkom (*Persistent Homepage*):
+
+```bash
+docker container run --rm --detach --name homepage --publish 80:80 \
+  --volume homepage:/usr/share/nginx/html nginx
+docker container cp www/. homepage:/usr/share/nginx/html/
+```
+
+Po reštarte stránka ostane. Nevýhoda: každú úpravu `index.html` musíš znova kopírovať cez `cp` — to vyrieši [bind mount](/devops-notes/docker/bind-mounty/).
+
+## Otestuj sa
+
+<Question q="Prežijú dáta v kontajneri `stop` + `start`? A `rm`?">
+`stop` + `start` áno — priestor kontajnera ostáva. `rm` ich zmaže (ak nie sú vo zväzku alebo bind mounte).
+</Question>
+
+<Question q="Kedy vznikne anonymný zväzok?">
+Pri spustení kontajnera pre každý priečinok z inštrukcie `VOLUME` v Dockerfile, ku ktorému nepripojíš vlastný zväzok ani bind mount.
+</Question>
+
+<Question q="Prečo po zmazaní a novom spustení RustFS (bez `--volume`) chýbajú buckety, hoci starý anonymný zväzok na disku je?">
+Nový kontajner dostal nový anonymný zväzok. So starým nemá žiadny vzťah.
+</Question>
+
+<Question q="Ako zistíš, ku ktorému kontajneru je zväzok pripojený?">
+Zo zväzku sa to nedá — pozri `docker container inspect` kontajnera, časť `Mounts`.
+</Question>
+
+<Question q="Pripojíš `--volume storage:/xxx` k RustFS, ktorý má `VOLUME /data`. Čo vznikne?">
+Zväzok `storage` pripojený na `/xxx` a navyše anonymný zväzok na `/data` — a aplikácia ukladá do `/data`.
+</Question>
+
+<Question q="Môže byť jeden zväzok pripojený k dvom kontajnerom naraz?">
+Áno. Súbežný zápis však musí zvládnuť aplikácia, Docker ho nerieši.
+</Question>
+
+<Question q="Čo sa stane s anonymnými zväzkami kontajnera spusteného s `--rm`?">
+Zmažú sa spolu s kontajnerom. Pomenované zväzky ostanú.
+</Question>
+
+## Cvičenia
+
+### 6.1 · RustFS s vlastnými prihlasovacími údajmi
+
+Spusti RustFS z obrazu `rustfs/rustfs` s menom `storage`, publikuj porty 9000 a 9001, prihlasovacie údaje `admin`/`secret123` (premenné `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`), zapni konzolu (`RUSTFS_CONSOLE_ENABLE=true`) a časovú zónu `Europe/Bratislava` (`TZ`). Premenné daj do súboru. Over čas vo vnútri kontajnera.
+
+<p class="practises">Precvičíš: `--env-file`, `--publish`, overenie v kontajneri.</p>
+
+<Solution>
+```bash title="rustfs.env"
+RUSTFS_ACCESS_KEY=admin
+RUSTFS_SECRET_KEY=secret123
+RUSTFS_CONSOLE_ENABLE=true
+TZ=Europe/Bratislava
+```
+
+```bash
+docker container run --rm -it --name storage \
+  --env-file rustfs.env \
+  --publish 9000:9000 --publish 9001:9001 \
+  rustfs/rustfs
+
+docker container exec storage date      # čas v časovej zóne Europe/Bratislava
+```
+
+Admin rozhranie: `http://localhost:9001`.
+</Solution>
+
+### 6.2 · Trvalé úložisko
+
+Spusti RustFS s pomenovaným zväzkom `storage` na `/data`. Vytvor bucket `images` a nahraj doň súbor. Kontajner zmaž, spusti nový s rovnakým zväzkom a over, že bucket je tam. Potom do zväzku pozri z kontajnera `alpine`.
+
+<p class="practises">Precvičíš: pomenovaný zväzok, zdieľanie zväzku.</p>
+
+<Solution>
+```bash
+docker container run --rm -d --name storage --env-file rustfs.env \
+  -p 9000:9000 -p 9001:9001 --volume storage:/data rustfs/rustfs
+# v prehliadači: bucket images, upload súboru
+docker container stop storage                 # --rm → kontajner zmazaný
+docker container run --rm -d --name storage --env-file rustfs.env \
+  -p 9000:9000 -p 9001:9001 --volume storage:/data rustfs/rustfs
+# bucket images aj súbor sú späť
+
+docker container run --rm -it --volume storage:/work alpine ls /work/images
+docker volume ls              # storage, žiadny nový anonymný zväzok
+```
+</Solution>

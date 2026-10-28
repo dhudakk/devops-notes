@@ -1,0 +1,260 @@
+---
+title: Packaging your own app
+description: Best practices for packaging an app into an image — the hadolint linter, getting something working first (a Python app on Alpine with compilation), choosing the right base image, slim vs. alpine vs. distroless, COPY vs. ADD, and CMD in exec form.
+kind: chapter
+day: 3
+sidebar:
+  order: 12
+  label: 12 · Packaging an app
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- The steps: **0.** linter, **1.** get something working first, **2.** the right base image, **3.** scan for vulnerabilities, **4.** don't run as root, **5.** security updates.
+- **hadolint** (a Dockerfile linter) warns before the build about `latest`, unpinned package versions, missing `--no-cache`, `ADD` instead of `COPY`… It exits with a non-zero code → fits into CI/CD. For Bash scripts there's **ShellCheck**.
+- A Python app on `alpine` needs pip, a venv, and — for packages without a prebuilt version (pendulum) — a **compiler and headers** → the image is **1.9 GB**.
+- For Python use **`python:<version>-slim`** (Debian). Alpine uses **musl libc** instead of glibc — Python apps on it can be slow or hang. Look for specialised images too (FastAPI, Spring Boot) and **distroless**.
+- `COPY` (only copies) instead of `ADD` (also unpacks, downloads). Write `CMD` in **exec form** `["python3", "-m", "weather"]`.
+</KeyPoints>
+
+## The task
+
+As a DevOps engineer you get a package from the developers and must turn it into an image. Here it's a Python package (*wheel*) of the weather app:
+
+```bash
+mkdir weather && cd weather
+wget http://mirek.s.cnl.sk/download/weather-2024.4-py3-none-any.whl
+```
+
+Best practices from the course (there are many lists online; the core repeats):
+
+0. **Use a linter.**
+1. **Get something working first.**
+2. **Use the correct base image.**
+3. **Scan the image for vulnerabilities.**
+4. **Don't run containers as root.**
+5. **Apply security updates.**
+
+Steps 3–5 are in the [next chapter](/devops-notes/en/docker/multi-stage-a-bezpecnost/).
+
+## 0. Linter
+
+A **linter** is a **static code analysis** tool — it neither runs nor compiles the code, it just reads it and looks for:
+
+- errors (bugs),
+- style violations (e.g. PEP 8 in Python),
+- suspicious constructs — the code works but is inefficient or occasionally causes an error.
+
+(A code formatter that fixes indentation is a different tool.)
+
+**[hadolint](https://github.com/hadolint/hadolint)** (*Haskell Dockerfile Linter*) checks Dockerfiles. Add it to VS Code with the *hadolint* extension; in the terminal:
+
+```bash
+hadolint Dockerfile
+```
+
+```text
+Dockerfile:1 DL3007 warning: Using latest is prone to errors if the image will ever update.
+Dockerfile:4 DL3018 warning: Pin versions in apk add. Instead of `apk add <package>` use `apk add <package>=<version>`
+Dockerfile:4 DL3019 info: Use the `--no-cache` switch to avoid the need to use `--update` and remove `/var/cache/apk/*`
+```
+
+The rule code (`DL3007`) links to documentation with a bad and a correct example.
+
+| Rule | Why |
+| --- | --- |
+| `DL3007` — don't use `latest` | in a month `latest` points to a new version (Postgres 16 instead of 15) and the image builds differently or the app won't start (incompatible data, removed syntax in Python 3.15) |
+| `DL3018`, `DL3008` — pin package versions | `apk add nyancat` / `apt-get install x` always pulls the newest version → a build in a year gives a different result |
+| `DL3019` — `apk add --no-cache` | otherwise the downloaded package index stays in the image |
+| `DL3009` — remove `/var/lib/apt/lists/*` | the same for `apt-get update` (tens of MB extra) |
+| `DL3027` — `apt-get` instead of `apt` | `apt` is meant for people, not scripts |
+| `DL3015` — `--no-install-recommends` | don't install extra recommended packages |
+| `DL3042` — `pip install --no-cache-dir` | pip's cache isn't needed in the image |
+| `DL3020` — `COPY` instead of `ADD` | for ordinary files |
+| `DL3025` — `CMD` in JSON form | see below |
+
+`latest` and unpinned versions are fine while **experimenting**. For production, write down **tested versions** — of the image and the packages.
+
+:::tip[hadolint in CI/CD]
+When it finds a problem it exits with a **non-zero code**. Run it in the pipeline before the build and agree that hadolint must be silent.
+:::
+
+:::note[The VS Code extension didn't work]
+The extension reported *cannot find hadolint from system path*. Setting the absolute path (`which hadolint`) in the **hadolint: Hadolint Path** setting helps. From the command line hadolint always worked.
+:::
+
+**[ShellCheck](https://www.shellcheck.net/)** does the same for Bash scripts — e.g. it warns about a missing shebang (`#!/usr/bin/env bash`). The gallery of bad code in its README is a good school. Bash is extremely prone to such mistakes.
+
+## 1. Get something working first
+
+The approach: run a container from the work-in-progress image, try commands, and write down what works in the Dockerfile. We start with Alpine because it's small:
+
+```dockerfile
+FROM alpine:3.24
+ADD weather-2024.4-py3-none-any.whl /tmp/
+```
+
+```bash
+docker image build --tag weather .
+docker container run --rm -it weather sh
+pip install /tmp/weather-2024.4-py3-none-any.whl
+```
+
+The road to a working image in the course — each row is one problem:
+
+| Error | Fix |
+| --- | --- |
+| `pip: not found` (no Python either) | the **`py3-pip`** package (`apk search`; Python comes as a dependency) |
+| `externally-managed-environment` | install into a **virtual environment**: `python3 -m venv /venv` and activate it |
+| `No space left on device` | free disk space — downloaded images (`docker image rm`, `docker system prune`) |
+| `cc: not found` while building `pendulum` | no prebuilt package for Alpine, it compiles from source → **`gcc`** |
+| `Python.h: No such file` | **`python3-dev`**, **`musl-dev`** |
+| an error in `psutil` | **`linux-headers`** |
+
+```dockerfile title="Dockerfile (Alpine)"
+FROM alpine:3.24
+
+ADD weather-2024.4-py3-none-any.whl /tmp/
+
+RUN apk add py3-pip gcc python3-dev musl-dev linux-headers \
+    && python3 -m venv /venv \
+    && source /venv/bin/activate \
+    && pip install /tmp/weather-2024.4-py3-none-any.whl
+
+CMD ["/venv/bin/python3", "-m", "weather"]
+```
+
+`source` works on Alpine because its `sh` (busybox) knows it, and everything is in one `RUN`.
+
+The result works, but the image is **1.9 GB** (the original `bletvaska/weather` is about 400 MB). The build takes ~3 minutes because of the compilation.
+
+### CMD: exec form
+
+```dockerfile
+CMD ["/venv/bin/python3", "-m", "weather"]      # exec form — recommended
+CMD /venv/bin/python3 -m weather                # shell form
+```
+
+In **exec form** the first item is the program and the rest are its arguments — nothing is interpreted by a shell, so nobody can sneak `&& rm -rf …` or `;` into the command, and the process receives signals directly (it is PID 1). The shell form runs `/bin/sh -c "…"`. hadolint reports it as `DL3025`.
+
+## 2. The right base image
+
+Common languages have **ready-made images** with the language preinstalled and someone maintaining them. The official `python` image has variants:
+
+| Variant | Base | Size (roughly) |
+| --- | --- | --- |
+| `python:3.13` | full Debian | ~1 GB |
+| `python:3.13-slim` | Debian slim | ~120–180 MB |
+| `python:3.13-alpine` | Alpine | ~50–60 MB |
+| `python:3.13-windowsservercore` | Windows | not relevant here |
+
+Alpine is the smallest, but the image's documentation warns: Alpine uses **musl libc** instead of **glibc**, which the whole of Linux rests on. Python software can run into problems there — a request taking a second on Debian can take a minute, or the app **hangs** (the worst thing that can happen to a container). **Don't use Alpine for Python** — go for `-slim`.
+
+More tips:
+
+- **Specialised images** — language plus framework (FastAPI from its author, `tiangolo/uvicorn-gunicorn-fastapi`; Java images with Spring Boot). Search by pull count and freshness. Ask how your company does it — it often has its own approved base images.
+- **Distroless** (*"language minus operating system"*, started by Google) — only the language runtime, no shell, `ls`, or other tools. A smaller image and a smaller attack surface.
+
+```bash
+docker image pull gcr.io/distroless/python3-debian12
+docker container run --rm -it gcr.io/distroless/python3-debian12      # Python 3 interpreter
+docker container run --rm -it gcr.io/distroless/python3-debian12 /bin/sh   # no such file
+```
+
+### Debian slim
+
+```dockerfile title="Dockerfile (Debian)"
+FROM python:3.13-slim
+
+COPY weather-2024.4-py3-none-any.whl /tmp/
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential python3-dev
+
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/weather-2024.4-py3-none-any.whl
+
+EXPOSE 8000
+CMD ["/usr/bin/env", "python3", "-m", "weather"]
+```
+
+- **`COPY`** only copies. **`ADD`** also unpacks archives and can download URLs — for ordinary files use `COPY`.
+- `pip` and Python are in the image, but `pendulum` compiles here too (`build-essential`, `python3-dev`).
+- `RUN source /venv/bin/activate` **fails** here — `RUN` uses `/bin/sh` (dash), which doesn't know `source`, and each `RUN` is a new shell, so activation wouldn't persist anyway. Use `ENV PATH="/venv/bin:$PATH"` instead — it applies to all later steps and to the running container.
+- `/usr/bin/env python3` finds Python via `PATH` (more portable).
+
+The result works (with the web on `--publish 8000:8000`), but it's still **1.9 GB**. Why? The image still holds the package index from `apt-get update`, the compiler, headers, and intermediate build artefacts — none of which is needed to **run** the app. The fix is a [multi-stage build](/devops-notes/en/docker/multi-stage-a-bezpecnost/).
+
+## Test yourself
+
+<Question q="What is static code analysis?">
+Checking code by reading it only — without running or compiling it. A linter finds bugs, style violations, and suspicious constructs this way.
+</Question>
+
+<Question q="Why does hadolint flag `FROM python:latest`?">
+`latest` moves to a new version over time and the build gives a different (possibly broken) result. Pin a tested version.
+</Question>
+
+<Question q="Why does `pip install` on Alpine need gcc and headers?">
+Some packages (pendulum) have no prebuilt version for Alpine (musl), so they compile from source.
+</Question>
+
+<Question q="Why not use Alpine for a Python app?">
+Alpine uses musl libc instead of glibc. Python software on it can be slow, behave unpredictably, or hang.
+</Question>
+
+<Question q="What is the difference between `COPY` and `ADD`?">
+`COPY` only copies files. `ADD` also unpacks local archives and can download a URL or Git repository. For ordinary files use `COPY`.
+</Question>
+
+<Question q="Why does `RUN source venv/bin/activate` fail in a Debian image, and what do you use instead?">
+`RUN` runs `/bin/sh`, which doesn't know `source`, and each `RUN` is a new shell. Use `ENV PATH="/venv/bin:$PATH"`.
+</Question>
+
+<Question q="Why write `CMD` in exec form?">
+The command doesn't go through a shell — nothing is interpreted (no sneaked-in `&&` or `;`) and the app receives signals directly as PID 1.
+</Question>
+
+## Exercises
+
+### 12.1 · Lint
+
+Run hadolint on the nyancat Dockerfile (`FROM alpine:latest`, `RUN apk add nyancat`). Fix every warning.
+
+<p class="practises">Practises: hadolint, pinning versions, `--no-cache`.</p>
+
+<Solution>
+```bash
+hadolint Dockerfile
+# DL3007 latest, DL3018 pin versions, DL3019 --no-cache
+apk search nyancat        # inside an alpine:3.24 container, find the version
+```
+
+```dockerfile
+FROM alpine:3.24
+RUN apk add --no-cache nyancat=1.5.2-r1
+CMD ["/usr/bin/nyancat"]
+```
+
+Check the exact package version with `apk search nyancat` in a container — the one above is only an example.
+</Solution>
+
+### 12.2 · Weather on Debian
+
+From the wheel `weather-2024.4-py3-none-any.whl`, build the image `weather:debian` on `python:3.13-slim`. Check that the web runs on port 8000 and look at the image size.
+
+<p class="practises">Practises: `COPY`, `apt-get`, venv via `ENV PATH`, `EXPOSE`, `CMD`.</p>
+
+<Solution>
+The Dockerfile from *Debian slim* above, then:
+
+```bash
+docker image build --tag weather:debian .
+docker container run --rm -it --publish 8000:8000 weather:debian
+docker image ls weather       # ~1.9 GB — we shrink it in the next chapter
+```
+</Solution>

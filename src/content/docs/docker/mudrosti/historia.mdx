@@ -1,0 +1,53 @@
+---
+title: História a filozofia
+description: Príbehy okolo vzniku Dockera, ako lektor v roku 2013 staval na Dockeri ešte pred verziou 1 a prečo sa servery prestali volať menami.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+Postrehy lektora, ktoré nie sú priamo látkou kurzu. Pri každom je deň, kedy zazneli.
+
+## Servery boli Tamagotchi
+
+V 90. rokoch sa o servery staralo ako o elektronických miláčikov Tamagotchi — kŕmiť, hladkať, aby nezdochli. Admini sledovali fóra, sami kompilovali a patchovali jadro, aby boli o krok pred distribúciou, a chválili sa, komu server vydržal najdlhší uptime. Vymyslieť serveru meno bolo ťažšie ako pomenovať premennú.
+
+> „Pomenovanie servera je väčší problém ako pomenovanie premennej v Pythone.“
+
+Zostalo to dodnes aspoň pri linuxových desktopoch — pri novom notebooku je jednou z prvých otázok, ako sa bude volať.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Výpadok × bulharská konštanta
+
+Keď drahý server spadne (zhorí zdroj, upratovačka ho vytiahne zo zásuvky), každá hodina výpadku krát „bulharská konštanta“ rovná sa strata. Odtiaľ mirroring, redundancia — a nakoniec Googlov prístup lacných vymeniteľných strojov, kde výpadok jedného nikoho netrápi.
+
+Prvý produkčný server Googlu bol voľne poskladaný bez šasi — disky a dosky pokope. Ako to Google robí, nikto presne nevedel; informácie začali presakovať, až keď odtiaľ začali odchádzať ľudia.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Staviť na Docker v roku 2013
+
+Na Technickej univerzite v Košiciach od prvého ročníka robia *test-driven development*: študenti posielajú zadania do Gitu a systém **Arena** ich každé tri hodiny spúšťa proti pripraveným testom. Na to treba izolované prostredie. V roku 2013 lektor zvažoval virtualizáciu (katastrofálne pomalá), chroot, linuxové kontajnery — a stavil na Docker, ktorý vtedy ešte nemal ani verziu 1. Funguje to dodnes, aj keď to „hodne odráža dobu svojho vzniku“.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Docker bol najprv v Pythone
+
+Prvá verzia Dockera bola napísaná v Pythone. Bola pomalá, tak ju prepísali do **Go** — a Go sa stalo jazykom číslo 1 pre kontajnerové nástroje (aj Kubernetes).
+
+Solomon Hykes kontajnery nevynašiel — chroot, cgroups a menné priestory už v Linuxe boli. Jeho prínos: spravil z nich **jeden použiteľný nástroj**.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Moby Dock
+
+Logo Dockera nie je loď, ale veľryba **Moby Dock** (ako Moby Dick, len *Dock* ako Docker) s kontajnermi na chrbte.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Gov stránky
+
+Klasický prístup „kúp server, nainštaluj všetko ručne, staraj sa oň roky“ stretneš dodnes — často pri štátnych projektoch. Keď sledujete, ako sa obstarávajú, človek sa občas smutne pousmeje.
+
+<p class="wisdom-day">Deň 1</p>

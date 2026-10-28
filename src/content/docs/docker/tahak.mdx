@@ -1,0 +1,310 @@
+---
+title: Ťahák
+description: Všetky príkazy z kurzu Docker na jednej stránke a pasce.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Kontajnery
+
+<div class="sheet-grid">
+
+```bash title="Spustenie" wrap
+docker container run obraz
+docker container run --name weather obraz
+docker container run --rm obraz            # zmaž po skončení
+docker container run -d obraz              # na pozadí
+docker container run -it obraz sh          # interaktívne, vlastný príkaz
+docker container run -e KĽÚČ=hodnota --env-file a.env obraz
+docker container run -p 9000:8000 obraz    # hostiteľ:kontajner
+docker container run --restart always obraz
+docker container run --memory 100m --cpus 1 obraz
+docker container run --user $(id -u):$(id -g) obraz
+```
+
+```bash title="Správa" wrap
+docker container ls                 # bežiace
+docker container ls --all           # aj Exited
+docker container stop weather       # SIGTERM, po 10 s SIGKILL
+docker container kill weather       # SIGKILL
+docker container start weather      # na pozadí
+docker container restart weather
+docker container pause / unpause weather
+docker container create --name x obraz
+docker container rm weather
+docker container rm --force weather
+docker container prune              # všetky zastavené
+```
+
+```bash title="Do vnútra a logy" wrap
+docker container logs weather
+docker container logs -f --tail 10 weather
+docker container attach weather     # Ctrl+C zastaví kontajner
+docker container exec -it weather bash
+docker container exec weather printenv
+docker container cp www/. homepage:/usr/share/nginx/html/
+docker container stats
+```
+
+```bash title="inspect" wrap
+docker container inspect weather
+docker container inspect --format '{{.State.Status}}' weather
+docker container inspect weather | jq -r '.[0].State.Status'
+docker container inspect -f \
+  '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' db
+docker container inspect storage | jq '.[0].Mounts'
+docker image inspect --format '{{.Config.Volumes}}' rustfs/rustfs
+```
+
+</div>
+
+## Zväzky a siete
+
+<div class="sheet-grid">
+
+```bash title="Zväzky" wrap
+docker volume ls
+docker volume create storage
+docker volume inspect storage       # Mountpoint
+docker volume rm storage
+docker volume prune                 # nepoužívané (anonymné)
+-v storage:/data                    # pomenovaný zväzok
+-v ./www:/usr/share/nginx/html      # bind mount (cesta)
+sudo ls /var/lib/docker/volumes/storage/_data
+```
+
+```bash title="Siete" wrap
+docker network ls
+docker network create wordpress
+docker network inspect wordpress
+docker network rm wordpress
+docker container run --network wordpress …
+# vo vlastnej sieti funguje meno (db),
+# v predvolenej bridge iba IP
+```
+
+</div>
+
+## Docker Compose
+
+<div class="sheet-grid">
+
+```yaml title="compose.yaml" wrap
+services:
+  db:
+    image: mysql:8.4
+    volumes:
+      - wp_db:/var/lib/mysql
+    env_file:
+      - mysql.env
+    networks:
+      - wordpress
+    restart: always
+  wp:
+    image: wordpress:6
+    environment:
+      - WORDPRESS_DB_HOST=db
+    ports:
+      - 80:80
+    networks:
+      - wordpress
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1"
+networks:
+  wordpress: {}
+volumes:
+  wp_db: {}
+```
+
+```bash title="Príkazy" wrap
+docker compose up
+docker compose up -d
+docker compose down              # kontajnery + siete
+docker compose down --volumes    # aj zväzky
+docker compose ls                # všetky projekty
+docker compose ps
+docker compose logs -f db
+docker compose exec db sh
+docker compose images
+docker compose volumes
+docker compose -f iny.yaml up
+# mená: priečinok-služba-1, priečinok_zväzok
+```
+
+</div>
+
+## Obrazy
+
+<div class="sheet-grid">
+
+```bash title="Build a správa" wrap
+docker image build --tag meno .
+docker image build -f Dockerfile.debian -t meno:debian .
+docker image ls
+docker image ls --all              # aj <none>
+docker image history meno
+docker image rm meno
+docker image prune                 # <none> obrazy
+docker system df
+docker system prune --all
+dive meno
+```
+
+```bash title="Register" wrap
+docker image tag nyancat ttl.sh/jano/nyancat:30m
+docker image push ttl.sh/jano/nyancat:30m
+docker image pull ttl.sh/jano/nyancat:30m
+docker login / docker logout
+docker image push --all-tags bletvaska/mini
+docker container run -d -p 5000:5000 registry:2
+docker image tag nyancat localhost:5000/bletvaska/nyancat
+curl http://localhost:5000/v2/_catalog
+docker image save meno -o meno.tar
+docker image load -i meno.tar
+```
+
+</div>
+
+## Dockerfile
+
+<div class="sheet-grid">
+
+```dockerfile title="Multi-stage, bezpečný" wrap
+FROM python:3.13-slim AS builder
+WORKDIR /app
+COPY app.whl /tmp/
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+RUN pip install --no-cache-dir /tmp/app.whl
+
+FROM python:3.13-slim
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid 1000 --no-create-home app
+WORKDIR /app
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+    --start-period=30s CMD curl -f http://localhost:8000 || exit 1
+EXPOSE 8000
+USER app
+CMD ["python3", "-m", "app"]
+```
+
+```text title="Inštrukcie" wrap
+FROM obraz:tag     základ (scratch = nič)
+LABEL k="v"        metadáta
+ADD a.tar.gz /     kopíruje + rozbaľuje, URL
+COPY src dst       iba kopíruje
+RUN príkaz         pri builde → vrstva
+ENV K=v            premenná (build aj beh)
+WORKDIR /app       pracovný priečinok
+EXPOSE 8000        dokumentácia portu
+VOLUME /data       anonymný zväzok
+USER app           ďalej nie ako root
+HEALTHCHECK …      kontrola zdravia
+CMD ["prog","arg"] predvolený príkaz (exec tvar)
+```
+
+```bash title="Kontrola obrazu" wrap
+hadolint Dockerfile
+grype meno
+grype meno --fail-on high       # exit ≠ 0 pre CI/CD
+shellcheck skript.sh
+```
+
+</div>
+
+## Kontexty, aliasy, nástroje
+
+<div class="sheet-grid">
+
+```bash title="Kontexty" wrap
+docker context ls
+docker context create kolega --docker "host=ssh://kolega"
+docker context use kolega
+docker --context kolega container ls
+docker context use default
+docker context rm kolega
+# ~/.ssh/config: Host, HostName, User, IdentityFile
+```
+
+```bash title="Alias a správa" wrap
+alias mvim='docker container run --rm -it \
+  -v .:/home/work --user $(id -u):$(id -g) \
+  bletvaska/toolbox vim'
+
+docker container run -d -p 9443:9443 --name portainer \
+  --restart always \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data portainer/portainer-ce
+docker container logs portainer   # setup token
+dry
+```
+
+</div>
+
+## Pojmy
+
+| Pojem | Význam |
+| --- | --- |
+| obraz (*image*) | nemenná šablóna — súborový systém + aplikácia + metadáta |
+| kontajner | spustená inštancia obrazu — izolovaný proces na hostiteľovi |
+| register | úložisko obrazov (Docker Hub, `ttl.sh`, `registry:2`) |
+| tag | značka verzie/variantu; predvolená `latest` |
+| vrstva | výsledok `ADD`/`COPY`/`RUN`; zdieľa sa a cachuje |
+| anonymný zväzok | vznikne sám pre `VOLUME`, meno = hash |
+| pomenovaný zväzok | `-v meno:/cesta`, prežije zmazanie kontajnera |
+| bind mount | `-v ./cesta:/cesta` — priečinok hostiteľa |
+| Docker Engine | démon, ktorý spúšťa kontajnery; klient = príkaz `docker` |
+| kontext | ku ktorému Engine sa klient pripája |
+| stack | kompozícia (Compose) v Portaineri |
+| cgroups / namespaces / chroot | limity zdrojov / izolácia / vlastný koreň |
+
+## Pasce na skúške
+
+| Pasca | Správne |
+| --- | --- |
+| kontajner = malý virtuálny stroj | proces nad jadrom hostiteľa, bez guest OS |
+| `docker ps` neukazuje zastavený kontajner, `--name` hlási konflikt | `docker container ls --all`, `rm` |
+| `Ctrl+C` po `attach` iba odpojí | zastaví proces v kontajneri; `logs -f` sa odpojí |
+| `docker container kill` posiela SIGTERM | predvolene SIGKILL (9); SIGTERM posiela `stop` |
+| zmena v kontajneri je trvalá | obraz je nemenný → nový kontajner je čistý |
+| `docker container commit` na tvorbu obrazov | Dockerfile v Gite (replikovateľné) |
+| `--env-file` prebije `-e` | ručné `-e` má vždy prednosť |
+| hodnoty v `.env` v úvodzovkách | `docker run --env-file` úvodzovky neodstraňuje |
+| `EXPOSE` otvorí port | iba dokumentácia; port otvorí `--publish` |
+| `-p 8000:9000` = hostiteľ 9000 | vľavo hostiteľ, vpravo kontajner |
+| `localhost` v kontajneri = hostiteľ | localhost je kontajner sám |
+| meno kontajnera funguje v predvolenej sieti | iba vo vlastnej sieti (`docker network create`) |
+| `--link` | zastarané; vlastná sieť |
+| dáta prežijú `rm` | iba vo zväzku alebo bind mounte |
+| `--rm` zmaže iba kontajner | aj jeho anonymné zväzky |
+| `-v storage:/xxx` nahradí `VOLUME /data` | `/data` dostane navyše anonymný zväzok |
+| `.ContainerConfig.Volumes` pri obraze | `.Config.Volumes` |
+| `docker compose down` zmaže dáta | zväzky ostanú (`down --volumes`) |
+| `depends_on` čaká, kým DB beží | iba poradie; `condition: service_healthy` + healthcheck |
+| Compose použije existujúci zväzok `wp_db` | pridá predponu projektu; `external: true` |
+| `latest` v produkcii | pripnutá otestovaná verzia |
+| `RUN source venv/bin/activate` | `ENV PATH="/venv/bin:$PATH"` |
+| `ADD` na obyčajné súbory | `COPY` |
+| `CMD python -m app` | `CMD ["python3", "-m", "app"]` |
+| Alpine pre Python | `python:<verzia>-slim` (musl vs. glibc) |
+| upratanie v ďalšom `RUN` | v tom istom `RUN` (inak ostane vo vrstve) |
+| zmena na začiatku Dockerfile | zneplatní cache všetkých krokov pod ňou |
+| `docker image run` | `docker container run` |
+| grype zastaví pipeline sám | iba s `--fail-on high` |
+| `HEALTHCHECK CMD curl …` v slim obraze | `curl` tam nie je |
+| Docker reštartuje `unhealthy` kontajner | nie — autoheal / Kubernetes |
+| Watchtower aktualizuje `app:1.2.3` | sleduje tag; pohyblivý tag (`1.2`, `latest`) |
+| `ssh://ubuntu@IP` kontext bez kľúča | záznam v `~/.ssh/config` s `IdentityFile` |
+| bind mount pri vzdialenom kontexte = lokálny priečinok | priečinok na vzdialenom stroji |

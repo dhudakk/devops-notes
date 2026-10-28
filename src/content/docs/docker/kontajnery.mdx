@@ -1,0 +1,165 @@
+---
+title: Od serverov ku kontajnerom
+description: Prečo vznikli kontajnery (pets vs. cattle), čo je Docker, rozdiel medzi obrazom a kontajnerom, kontajner vs. virtuálny stroj a na čom to v Linuxe stojí.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Od serverov ku kontajnerom
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Kedysi: drahý server ako **domáci miláčik** (*pet*) — ručne inštalovaný, pomenovaný, opatrovaný. Google: **dobytok** (*cattle*) — lacné rovnaké stroje, vymeniteľné kus za kus, server je len číslo.
+- **Docker** (Solomon Hykes, 2013) balí aplikáciu aj s jej závislosťami do **obrazu** a z obrazu spúšťa izolované **kontajnery**.
+- **Obraz** = nemenný „zip“ so súbormi a metadátami (ako `.exe` na disku). **Kontajner** = spustená **inštancia** obrazu (ako bežiaci proces). Z jedného obrazu spustíš koľko kontajnerov chceš.
+- Kontajner **nie je virtuálny stroj**: nemá vlastné jadro ani guest OS, je to **proces nad jadrom hostiteľa** v izolovanom prostredí — štartuje okamžite a zdieľa vrstvy s ostatnými.
+- Stavebné bloky v Linuxe: **cgroups** (koľko zdrojov), **menné priestory** (čo proces vidí), **chroot** (vlastný súborový systém).
+</KeyPoints>
+
+## Ako sa nasadzovalo pred kontajnermi
+
+Zhruba od 90. rokov do roku 2010 to vyzeralo takto: programátor niečo naprogramoval a admin to „šupol“ na server. Server bol silný stroj, o ktorý sa starali špeciálni ľudia. Bolo ho treba kúpiť, nainštalovať operačný systém, knižnice, nástroje (monitoring…) a až potom aplikáciu.
+
+Problémy tohto prístupu:
+
+| Problém | Príklad |
+| --- | --- |
+| **Konfliktné závislosti** | jedna aplikácia potrebuje Javu 1.7, druhá 1.8 — v Linuxe sa dve verzie toho istého balíka inštalujú ťažko |
+| **Nevyužitý výkon** | server sa kupuje na maximálnu záťaž, ktorú aplikácia dosiahne dvakrát do roka |
+| **Pomalé nasadenie** | inštalácia trvá — dá sa automatizovať (napr. Ansible), ale stále je to čas |
+| **Náročné aktualizácie** | programátori vydajú novú verziu a admin ju musí nasadiť na „živý“ server |
+
+### Pets vs. cattle
+
+Admini sa ku serverom správali ako ku **domácim miláčikom** (*pets*) — ako ku Tamagotchi: kŕmiť, hladkať, aby nezdochol. Chválili sa, kto má väčší **uptime**, ručne patchovali jadro a dávali serverom megalomanské mená.
+
+Okolo roku 2000 prišiel Google s konceptom **dobytka** (*cattle*): žiadne veľké servery, ale **lacné, rovnaké, vymeniteľné stroje** prepojené dokopy. Keď jeden zlyhá, ostatné prevezmú prácu a technik ho vymení kus za kus. Infraštruktúra sa dá **škálovať** — pridať ďalší stroj nie je problém. Server už nie je meno, je to **číslo**. A keďže strojov je veľa, všetko sa **automatizuje**.
+
+## Čo je Docker
+
+V roku 2013 prišiel **Solomon Hykes** s Dockerom. Technológie na kontajnerizáciu (chroot, cgroups, menné priestory, Linux Containers) už v Linuxe existovali — Docker ich spravil **použiteľné**: jeden nástroj z príkazového riadku. Prvá verzia bola napísaná v Pythone, potom ho prepísali do **Go**, ktoré sa stalo jazykom číslo 1 pre kontajnerové nástroje.
+
+> Docker je open source platforma, ktorá balí aplikácie aj s ich závislosťami do ľahkých, izolovaných jednotiek nazývaných kontajnery.
+
+Logo je veľryba **Moby Dock** s kontajnermi na chrbte. V roku 2015 prišli **Kubernetes** a **Docker Swarm** — nástroje na *orchestráciu*, teda správu stoviek a tisícok kontajnerov naraz.
+
+## Obraz vs. kontajner
+
+| | Obraz (*image*) | Kontajner (*container*) |
+| --- | --- | --- |
+| Čo to je | balík: časť súborového systému Linuxu + aplikácia + metadáta (čo sa má spustiť) | spustená inštancia obrazu — jeden proces v izolovanom prostredí |
+| Zmeny | **nemenný** — mení ho iba jeho autor vydaním novej verzie | má vlastný aktuálny stav |
+| Počet | jeden | z jedného obrazu ľubovoľne veľa |
+| Analógia | `notepad.exe` na disku, **trieda** v OOP | každý spustený Notepad s iným textom, **objekt** (inštancia triedy) |
+
+> Najjednoduchšie sa na to pozeráš tak, že obraz je **zip balík**. Kontajner znamená, že ten zip niekde v pamäti rozbalíš a spustíš jednu aplikáciu, ktorá sa v ňom nachádza.
+
+**Kontajner je inštanciou obrazu** — tak ako objekt je inštanciou triedy.
+
+## Kontajner vs. virtuálny stroj
+
+```text
+Virtuálne stroje                      Kontajnery
+
+App A    App A'   App B               App A    App A'   App B
+Libs     Libs     Libs                Libs (zdieľané)   Libs
+Guest OS Guest OS Guest OS            ─────────────────────────
+───────────────────────────           Docker Engine
+Hypervisor                            ─────────────────────────
+───────────────────────────           Host OS (linuxové jadro)
+Host OS                               ─────────────────────────
+───────────────────────────           Server (železo)
+Server (železo)
+```
+
+| | Virtuálny stroj | Kontajner |
+| --- | --- | --- |
+| Čo beží | celý **guest OS** nad hypervízorom | iba aplikácia — **proces nad jadrom hostiteľa** |
+| Štart | nabootuje host OS → guest OS (môžu to byť minúty) → aplikácia | nabootuje host OS → aplikácia rovno, „na otočku“ |
+| Veľkosť | guest OS (1 GB) + knižnice + aplikácia — pri každom stroji znova | iba knižnice a aplikácia; **spoločné vrstvy sa zdieľajú** |
+| Viditeľnosť | proces aplikácie v hostiteľovi nevidíš | `ps aux` na hostiteľovi aplikáciu **ukáže** |
+
+„Operačný systém“ je v skutočnosti **jadro**. Všetko ostatné (binárky, knižnice) je súborový systém — a ten si kontajner nesie v obraze. Jadro používa hostiteľovo, preto hostiteľ musí byť **Linux** (Docker Desktop na Windowse a Macu má na to malý Linux v pozadí).
+
+Zdieľanie vrstiev: dva obrazy postavené na rovnakom základe (napr. Red Hat, 400 MB) a s rôznou aplikáciou (100 MB) stiahneš ako 400 + 100 + 100 MB, nie 2 × 500 MB — spoločnú vrstvu Docker stiahne iba raz.
+
+Výsledok: **rýchlejšie nasadenie, menšia réžia, jednoduchšia migrácia a výrazne rýchlejší reštart**.
+
+:::caution[Kontajner nie je virtuálny stroj]
+Ilustrácia „je to ako malý virtuál“ pomôže na začiatok, ale vlastnosťami je to úplne iná vec. Kontajner = **spustený proces v izolovanom prostredí**.
+:::
+
+## Stavebné bloky v Linuxe
+
+| Technológia | Čo zabezpečí |
+| --- | --- |
+| **cgroups** (*control groups*) | koľko systémových prostriedkov (CPU, RAM) smie proces používať |
+| **menné priestory** (*namespaces*) | čo proces vidí — vlastné procesy, sieť, používateľov, hostname |
+| **chroot** | proces vidí ako koreň `/` iba súborový systém z obrazu |
+
+Spustiť kontajner teda znamená: dotiahnuť súborový systém z obrazu, „chrootnúť“ sa doň, nastaviť menné priestory a cgroups a spustiť v tom proces.
+
+## Klient a server
+
+Docker má architektúru **klient–server**:
+
+- **klient** — príkaz `docker` v termináli,
+- **server** — **Docker Engine** (démon `dockerd`), služba bežiaca na pozadí (`systemctl start|stop|enable docker`), ktorá kontajnery naozaj spúšťa.
+
+Klient sa so serverom rozpráva cez socket `/var/run/docker.sock` (alebo cez sieť). Na 4. deň to využijeme pri [kontextoch](/devops-notes/docker/kontexty-a-limity/) a [Portaineri](/devops-notes/docker/nastroje-na-spravu/).
+
+### Rootless
+
+Docker Engine beží ako **root**, takže aj kontajnery spúšťa s rootovskými právami — z bezpečnostného hľadiska nie je to ideálne (ukážka v kapitole [Bind mounty a používatelia](/devops-notes/docker/bind-mounty/)). Alternatívou je **rootless** režim: kontajnery spúšťa bežný používateľ a keby sa niekto z kontajnera dostal von, má na hostiteľovi iba jeho práva. Takto štandardne funguje **Podman**; Docker sa do rootless režimu dá prepnúť.
+
+## Otestuj sa
+
+<Question q="Čo znamená prístup „pets vs. cattle“?">
+Pets: drahé, ručne spravované, pomenované servery, o ktoré sa admin stará ako o miláčika. Cattle: veľa lacných rovnakých strojov, ktoré sa vymieňajú kus za kus — server je len číslo, všetko sa automatizuje a škáluje.
+</Question>
+
+<Question q="Aký je vzťah medzi obrazom a kontajnerom?">
+Kontajner je inštanciou obrazu (ako objekt je inštanciou triedy). Obraz je nemenný balík; z jedného obrazu môžeš spustiť ľubovoľne veľa kontajnerov, každý s vlastným stavom.
+</Question>
+
+<Question q="Prečo kontajner štartuje rýchlejšie ako virtuálny stroj?">
+Nebootuje žiadny guest OS. Aplikácia sa spustí rovno ako proces nad jadrom hostiteľského Linuxu.
+</Question>
+
+<Question q="Uvidíš na hostiteľovi cez `ps aux` proces aplikácie bežiacej v kontajneri?">
+Áno. Kontajner je proces na hostiteľovi, iba izolovaný. Pri virtuálnom stroji by si ho nevidel.
+</Question>
+
+<Question q="Ktoré tri mechanizmy Linuxu tvoria základ kontajnerov?">
+cgroups (limit zdrojov), menné priestory (izolácia toho, čo proces vidí) a chroot (vlastný koreňový súborový systém).
+</Question>
+
+<Question q="Prečo kontajnery na Linuxe potrebujú linuxové jadro?">
+Kontajner nemá vlastné jadro — používa jadro hostiteľa. Obraz obsahuje iba súborový systém (binárky, knižnice).
+</Question>
+
+## Cvičenia
+
+### 1.1 · Obraz alebo kontajner?
+
+Ku každému tvrdeniu priraď, či platí o obraze, alebo o kontajneri: *má stav*, *je nemenný*, *dá sa ho spustiť viackrát*, *má PID na hostiteľovi*, *sťahuje sa z registra*.
+
+<p class="practises">Precvičíš: obraz vs. kontajner.</p>
+
+<Solution>
+Obraz: je nemenný, dá sa z neho spustiť viac kontajnerov, sťahuje sa z registra. Kontajner: má vlastný stav, má PID na hostiteľovi (je to proces).
+</Solution>
+
+### 1.2 · Výpočet miesta
+
+Máš tri aplikácie na rovnakom základe Debianu (500 MB). Každá aplikácia s knižnicami má 150 MB. Koľko miesta zaberú ako tri virtuálne stroje (každý guest OS 1 GB) a koľko ako tri kontajnery?
+
+<p class="practises">Precvičíš: zdieľanie vrstiev.</p>
+
+<Solution>
+Virtuálne stroje: 3 × (1000 + 150) = 3450 MB. Kontajnery: základná vrstva sa stiahne iba raz — 500 + 3 × 150 = 950 MB.
+</Solution>
