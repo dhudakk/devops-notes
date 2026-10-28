@@ -1,0 +1,121 @@
+---
+title: More objects and the ecosystem
+description: Job and CronJob, DaemonSet and StatefulSet in brief, Kubernetes distributions for learning (MicroK8s, minikube, K3s, K3d, kubeadm), and graphical tools for managing a cluster (Rancher, OpenLens/Freelens, Headlamp, k9s).
+kind: chapter
+day: 4
+sidebar:
+  order: 15
+  label: 15 · Ecosystem
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+
+<KeyPoints>
+- The course covered about 10 of the 100+ object types. Others that came up: **Job** (runs a command in a container and finishes), **CronJob** (a Job on a schedule), **DaemonSet** (a pod on **every** node — monitoring, logs), **StatefulSet** (a deployment for stateful applications with a PVC per pod).
+- For learning at home: **minikube** (from the Kubernetes project), **MicroK8s** (Canonical), **K3s** (Rancher/SUSE), **K3d** (K3s in Docker containers — several nodes on one machine). The same `kubectl` commands work in all of them.
+- Graphical tools: **Rancher** (web), **OpenLens/Freelens**, **Headlamp** (desktop), **k9s** (terminal), Portainer.
+- Next step: **Helm** — a package manager on top of Kubernetes (a package ≈ a set of manifests).
+</KeyPoints>
+
+## More objects
+
+When you listed `kubectl api-resources` at the start of day 2, there were over 100 of them. The course covered Pod, Deployment, ReplicaSet, Service, Namespace, Ingress, ConfigMap, Secret, HorizontalPodAutoscaler, PersistentVolume, PersistentVolumeClaim, and StorageClass. That's a good foundation — a few words suffice for the rest.
+
+### Job and CronJob
+
+A **Job** runs a command in a container and **finishes**. After completing it stays in the list so you can check the result.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello
+spec:
+  template:
+    spec:
+      containers:
+      - name: hello
+        image: busybox
+        command: ["sh", "-c", "echo Hello from the job"]
+      restartPolicy: Never
+```
+
+Uses: tasks from an orchestrator like [Airflow](/devops-notes/en/python-advanced/) — there are task orchestrators built directly on Kubernetes where each task is a Job. Or testing students' assignments: an isolated environment, run the tests, generate a report, done.
+
+A **CronJob** is a Job with a schedule (`schedule` in cron syntax).
+
+### DaemonSet
+
+A DaemonSet makes sure a pod runs **exactly once on every node**. It isn't for ordinary applications but for monitoring and collecting logs and metrics from nodes — that's where [hostPath](/devops-notes/en/kubernetes/perzistencia/#hostpath) makes sense too. It can't be shown on a single-node cluster.
+
+### StatefulSet
+
+A StatefulSet is like a deployment for **stateful** applications (databases, storage):
+
+- each pod has a **stable identity** (the name `minio-0`, `minio-1`…), which it keeps after a restart,
+- each pod can have **its own PVC** (`volumeClaimTemplates`), which isn't deleted when the pod is,
+- pods are created, scaled, and removed **one by one** in the order 0 → 1 → 2,
+- it's often used with a *headless* service (`clusterIP: None`) so pods find each other through stable DNS names.
+
+The application must be able to run distributed, though — otherwise more replicas won't help (see the [wisdom on databases](/devops-notes/en/kubernetes/mudrosti/prax/#a-database-in-ten-replicas)).
+
+## Distributions for learning
+
+Kubernetes is like Linux: one core, many distributions. `kubectl` is a separate binary and its commands work the same everywhere — what changes is the installation and the add-ons.
+
+| Distribution | Who | Note |
+| --- | --- | --- |
+| **minikube** | the Kubernetes project | the best known for learning; add-ons via *addons* (ingress, dashboard…); runs on Windows too |
+| **MicroK8s** | Canonical | the meta command `microk8s enable dashboard`, DNS, registry, Istio…; an installer for Windows too; the MetalLB load balancer |
+| **K3s** | Rancher/SUSE | used in the course; one binary, can use SQLite instead of etcd; also for production |
+| **K3d** | — | K3s in Docker containers — looks like a multi-node cluster on one machine; networking and ports need extra work (e.g. port 8080 is taken by the load balancer) |
+| **kubeadm** | the Kubernetes project | a tool for building a "real" cluster; packages are in distributions (`dnf search kubernetes`) |
+
+With K3d each node is a container, so you can demonstrate DaemonSets or pods spread over nodes. A new cluster and context:
+
+```bash
+k3d cluster create metropolis
+kubectl config get-contexts          # k3d-metropolis appears
+kubectl config use-context k3d-metropolis
+```
+
+In production, **managed** clusters are common today (AWS EKS, Google GKE, Azure AKS), into which the team only deploys applications.
+
+## Graphical tools
+
+| Tool | Type | Note |
+| --- | --- | --- |
+| **[Rancher](https://www.rancher.com/)** | web | from SUSE; one `docker container run` starts Rancher and a K3s cluster under it; needs at least 4 GB RAM; has a terminal right in the browser |
+| **OpenLens / Freelens** | desktop | Lens was free, then closed up — OpenLens and its successor Freelens appeared |
+| **Headlamp** | web/desktop | recommended by a participant who uses it on AWS EKS |
+| **[k9s](https://k9scli.io/)** | terminal | see [Requests and limits](/devops-notes/en/kubernetes/requesty-a-limity/#k9s) |
+| **Portainer** | web | handles both Docker and Kubernetes |
+
+A graphical tool needs access to the cluster's API server. With managed clusters the port may be blocked from outside — then you use the provider's tools.
+
+:::tip[Why the command line]
+With a GUI you no longer have things "under your fingers". Whoever knows the concepts from the command line (pods, deployments, services, namespaces) finds their way in any GUI — suddenly a lot of it makes sense.
+:::
+
+## What next
+
+The next course is **Helm** — a package manager on top of Kubernetes. A package (*chart*) is, put simply, a set of manifests zipped together. `kubectl` stays for checking things; whole applications get installed at once. For assembling manifests from templates there's also **Kustomize** (built right into `kubectl`).
+
+## Test yourself
+
+<Question q="What is the difference between a Job and a Deployment?">
+A Job runs a command and finishes. A Deployment keeps pods running continuously in the desired number.
+</Question>
+
+<Question q="What is a DaemonSet for?">
+It runs a pod exactly once on every node — typically monitoring or log collection.
+</Question>
+
+<Question q="How does a StatefulSet differ from a Deployment?">
+Its pods have a stable identity (a name with an ordinal number) and their own PVC, and they're created and removed one by one.
+</Question>
+
+<Question q="Do the same commands work in minikube as in K3s?">
+Yes — `kubectl` talks to the Kubernetes API the same way. Distributions differ in installation and add-ons (ingress controller, load balancer, StorageClass).
+</Question>

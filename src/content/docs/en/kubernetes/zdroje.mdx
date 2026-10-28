@@ -1,0 +1,69 @@
+---
+title: Sources
+description: The instructor's slides, the labs, and which chapter of the Kubernetes course came from which material.
+kind: sources
+sidebar:
+  order: 99
+---
+
+The **Kubernetes 101** course (four days) is taught by Mirek. The notes are based on transcripts of all four days, the slides of the first three days, and the lab material with solutions. They are organised by topic, corrected, and extended with questions and exercises. Topics from the slides that weren't covered in class (e.g. creating a cluster with K3d, the MinIO lab, the DaemonSet demo with Telegraf) are left out or only mentioned.
+
+:::note[What is deliberately left out]
+The OpenWeatherMap API key from the slides and materials is replaced with the placeholder `<API_KEY>`, the lab machines' IP addresses with `<IP>`. The lab machines' password and participants' names are omitted. Credentials in the labs (`secret`, `top.secret`, `wpuser`/`end321`, `janosik`/`valaska123`) are practice values.
+:::
+
+:::caution[The commands were not run]
+No Kubernetes cluster (nor Docker) was available while these notes were written, so the commands were not run as they were for the Git course. Behaviour was checked against the Kubernetes documentation, the slides, and the course recording.
+:::
+
+## Slides
+
+| Day | Material |
+| --- | --- |
+| before the course | [(Not) a too short introduction to K8s (video, Slovak) ↗](https://www.youtube.com/watch?v=uvNQgsJLnvE) |
+| 1 | [Kubernetes 101: Day 1 — The Basics (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.1.pdf) |
+| 2 | [Kubernetes 101: Day 2 — Namespaces and Manifests (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.2.pdf) |
+| 3 | [Kubernetes 101: Day 3 — ConfigMaps, Secrets and Ingress Controller (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.3.pdf) |
+| 4 | no slides in the materials — the Nginx, PV, and PVC manifests and persistent RustFS |
+| solutions | [github.com/bletvaska/k8s-manifests ↗](https://github.com/bletvaska/k8s-manifests/) |
+
+Images marked "from the instructor's slides" come from the slides; the instructor took some of them from other sources (The New Stack, Sysdig). The diagrams of service types, the rolling update, volumes, PV/PVC, and Ingress rules are my own.
+
+## Which chapter comes from where
+
+| Chapter | Source |
+| --- | --- |
+| [01 · Why orchestration](/devops-notes/en/kubernetes/orchestracia/) | day 1 — slides; transcript (buses, orchestra, availability, K8s history) |
+| [02 · Architecture](/devops-notes/en/kubernetes/architektura/) | day 1 — slides; transcript (master, node, K3s, `kubectl version`, `cluster-info`) |
+| [03 · Pods](/devops-notes/en/kubernetes/pody/) | day 1 — slides; transcript (pod vs. container, `logs`, `exec`, `describe`, `port-forward --address`) |
+| [04 · Deployments](/devops-notes/en/kubernetes/deploymenty/) | day 1 — slides; transcript (declarative, control loop, six layers, scaling); material: Lab Deploy Rambo |
+| [05 · Services](/devops-notes/en/kubernetes/sluzby/) | day 1 — slides; transcript (selectors, port/targetPort, service types); material: Lab Make Rambo Online; day 2 — the morning lab |
+| [06 · Updates](/devops-notes/en/kubernetes/aktualizacie/) | day 1 — slides, transcript (rolling update, rambo:3); day 3 — slides and material: Morning Exercise, Selective updates |
+| [07 · Namespaces](/devops-notes/en/kubernetes/menne-priestory/) | day 2 — slides; transcript (namespace, context, `~/.kube/config`, Krew); material: Lab Project Namespaces |
+| [08 · Manifests](/devops-notes/en/kubernetes/manifesty/) | day 2 — slides (three approaches, session affinity, the manifest); transcript; material: MariaDB + Adminer, Generating YAML Manifest |
+| [09 · WordPress](/devops-notes/en/kubernetes/wordpress/) | day 2 — slides; transcript (assembling the manifest, indentation errors, VS Code); material: Lab WordPress on K8s |
+| [10 · Requests and limits](/devops-notes/en/kubernetes/requesty-a-limity/) | day 2 — slides; transcript (throttling, OOM kill, k9s, resource-capacity) |
+| [11 · Autoscaling](/devops-notes/en/kubernetes/autoskalovanie/) | day 2 — slides; day 3 — transcript (HPA, wrk, 5 minutes); material: Scaled weather |
+| [12 · ConfigMaps and Secrets](/devops-notes/en/kubernetes/configmapy-a-secrety/) | day 3 — slides; transcript; material: config maps, secrets, Lab RustFS, WordPress with Secrets |
+| [13 · Ingress](/devops-notes/en/kubernetes/ingress/) | day 3 — slides; transcript (Exact/Prefix, `/etc/hosts`, Gateway API); material: Lab Rambo with Ingress; day 4 — transcript and material: RustFS through Ingress |
+| [14 · Persistence](/devops-notes/en/kubernetes/perzistencia/) | day 4 — transcript (emptyDir, hostPath, PV, PVC, StorageClass, CSI); material: Nginx Manifest, Persistent Volume (Claim), persistent RustFS |
+| [15 · Ecosystem](/devops-notes/en/kubernetes/ekosystem/) | day 4 — transcript (Job, DaemonSet, distributions, GUI tools); day 2 — slides (a context via K3d) |
+| [Mirek's wisdoms](/devops-notes/en/kubernetes/mudrosti/historia/) | transcripts of all days |
+
+## Corrections
+
+- **Instructor (day 1):** "Docker came out as version 1 in 2013" — Docker appeared in 2013, version 1.0 came out in 2014. Kubernetes 1.0 and Docker Swarm 1.0 came out in 2015.
+- **Instructor (day 1):** the name Kubernetes — the Greek *kybernétés* is a helmsman.
+- **Instructor (day 1):** an odd number of masters is because of the etcd quorum (a majority), not an "uneven vote" after a failure.
+- **Instructor (day 1):** LoadBalancer services in K3s aren't handled by Traefik but by the built-in **ServiceLB** (Klipper). Traefik is the Ingress Controller on ports 80/443.
+- **Slides (day 1):** "Ingress is a special case of a LoadBalancer service" — Ingress is a separate object with rules; the controller is usually exposed through a LoadBalancer.
+- **Slides (day 2):** "request ≤ value < limit" — actual usage can also be below the request (the instructor said so himself in class).
+- **Slides (day 2, image):** the Redis example uses `apiVersion: extensions/v1beta1`; today it's `apps/v1`.
+- **Instructor (day 3):** the HPA target `--cpu 50` is 50 % of the CPU **request**, not 50 % of a core.
+- **Instructor (day 3):** `minReplicas` and `maxReplicas` aren't in the deployment but in the HorizontalPodAutoscaler object (the instructor checked this on day 4).
+- **Material (day 3):** in the Morning Exercise all four deployments have the same selector `app: rambo` — the selectors overlap. The notes add `city` to the selector. The containers in the solution are called `rambo-mu`, `rambo-ke`…, so `set image … rambo=…` wouldn't match them.
+- **Slides (day 3, cheat sheet):** `kubectl delete configmap credentials` for a Secret — correctly `kubectl delete secret credentials`.
+- **Material (day 3):** the Traefik dashboard via port 9000 — in the new Traefik it's on 8080 (`deploy/traefik 8080:8080`, as on the slides).
+- **Instructor (day 4):** `ReadWriteOnce` = mounted read-write from **one node**, not from one pod.
+- **Instructor (day 4):** the PVC stayed `Pending` because without `storageClassName` it got the default class `local-path` (which also waits for a pod — `WaitForFirstConsumer`), while the manual PVs had no class. That's why the solution uses `storageClassName: ""`.
+- **Instructor (day 4):** `kubectl delete pv` on a bound PV doesn't delete it immediately — it stays `Terminating` while the PVC exists.

@@ -1,0 +1,408 @@
+---
+title: Imperative and declarative, manifests
+description: Three approaches to managing objects, the MariaDB + Adminer lab with commands, session affinity, generating manifests with --dry-run=client -o yaml, the four parts of a manifest, api-resources, explain, several containers in a pod, kubectl apply, and several documents in one file.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Manifests
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Imperative** = commands saying *how* to do it (a recipe). **Declarative** = a description of *what* you want (an order in a restaurant). Kubernetes doesn't impose either; declarative is better for automation and *Infrastructure as Code*.
+- Three approaches: **imperative commands** → **imperative objects** (YAML from each command) → **declarative objects**. The rule: **don't mix them**.
+- A **manifest** = YAML with the keys `apiVersion`, `kind`, `metadata`, `spec` (+ `status` for a running object). Generate it with `--dry-run=client --output yaml` or `kubectl get … -o yaml`.
+- `kubectl explain pod.spec.containers.env` = documentation right in the terminal. `api-resources` = which objects the cluster knows, `api-versions` = which API versions.
+- `kubectl apply -f file.yaml` creates and updates. Several objects in one file are separated by `---`. `apply -f folder/` processes files in **alphabetical** order.
+</KeyPoints>
+
+## Two approaches
+
+| | Imperative | Declarative |
+| --- | --- | --- |
+| focus | **how** things work, the procedure | **what** the result should be |
+| programming | Python — steps top to bottom | SQL — describe the result, the engine picks the procedure (index…) |
+| cooking | a scrambled-eggs **recipe** — the order of steps matters | a **restaurant menu** — you order, the waiter brings it |
+| in K8s | `kubectl` commands | YAML configuration files (manifests) |
+| strength | simple to start with, instant feedback | automation, versioning in Git, large infrastructures |
+
+Kubernetes doesn't tell you which approach to use. Imperative is great for learning — you type a command and see the result straight away, as with Docker before Compose. For automation, though, it's clumsy. Declarative is *Infrastructure as Code*: resources are in files, in Git, with the help of **generators** — "more DevOps style", GitOps.
+
+We'll go through three approaches on one lab:
+
+1. **imperative commands**,
+2. **imperative objects** — a YAML file from each command,
+3. **declarative objects** — manifests.
+
+:::caution
+An important rule: **don't mix** these three approaches.
+:::
+
+## 1. Imperative commands
+
+Simple; used in teaching, development, and personal projects. Easy to learn and try, harder to maintain over time.
+
+### Lab: MariaDB + Adminer with commands
+
+A composition of a MariaDB database and the Adminer web interface, all in the `prod` namespace:
+
+- **MariaDB:** image `mariadb`, the `root` password is `secret`, service `db` in the cluster on the image's port,
+- **Adminer:** image `adminer`, 3 replicas; service `adminer-cl` in the cluster on port 8000, `adminer-np` as a NodePort, `adminer-lb` as a LoadBalancer on port 8080.
+
+```bash
+kubectl config set-context --current --namespace prod
+
+kubectl create deployment db --image mariadb
+kubectl set env deployment/db MARIADB_ROOT_PASSWORD=secret
+kubectl expose deployment db --port 3306
+
+kubectl create deployment adminer --image adminer --replicas 3
+kubectl expose deployment adminer --name adminer-cl --port 8000 --target-port 8080
+kubectl expose deployment adminer --name adminer-np --port 8080 --type NodePort
+kubectl expose deployment adminer --name adminer-lb --port 8080 --type LoadBalancer
+```
+
+Log in to Adminer (`http://<IP>:8080`): server `db`, user `root`, password `secret`.
+
+**Pitfalls:**
+
+- **The password.** The database pod keeps crashing and restarting. `kubectl logs deployment/db` says why: *Database is uninitialized and password option is not specified*. MariaDB won't start without a `root` password. `create deployment` can't set an environment variable, hence the second command `set env`. It changes the pod template → a new ReplicaSet → a pod with the password starts.
+- **Why a service for the database.** Adminer connects to the **service name** `db`, not the pod's IP (that changes). The service is also a load balancer for all pods behind it. ClusterIP is enough — the database should stay hidden; only Adminer goes outside.
+- **`adminer-lb` stuck at `<pending>`.** Port 8080 is held by a LoadBalancer from another namespace (`default`). In K3s, ports on the node can't overlap — delete the old service or pick another port.
+
+### Session affinity
+
+When you log in to Adminer, it mostly fails — *Session expired, please login again*. Sometimes it works. Why?
+
+Adminer keeps the login in a **PHP session**, stored in a file **inside a particular pod**. The other replicas don't know about it. The load balancer sends each request to a random pod — you log in on pod A, the next request goes to pod B, which doesn't know you. A typical problem of a **stateful application behind a load balancer**. In class, `kubectl scale deployment adminer --replicas 1` fixed it temporarily.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/session-no-affinity.png" alt="Three clients with different IP addresses; the service spreads their requests across pods A, B, and C — each request can end up on a different pod." width="680" height="420" loading="lazy" />
+  <figcaption>Without session affinity, each request can end up on a different pod. Image from the instructor's slides.</figcaption>
+</figure>
+
+Solutions:
+
+1. **Session affinity at the service level** (*sticky sessions*) — the service sends all requests from the same IP address to the same pod:
+
+   ```bash
+   kubectl expose deployment adminer --name adminer-lb --port 8080 \
+     --type LoadBalancer --session-affinity ClientIP
+   ```
+
+   In a manifest it's `sessionAffinity: ClientIP` in the service's `spec` (values `ClientIP` or `None`). When the pod goes down, the client ends up on another one and must log in again — the data in the database stays.
+
+   <figure class="slide-figure">
+     <img src="/devops-notes/images/kubernetes/session-affinity.png" alt="Session affinity: the service always sends each client's requests to the same pod based on the source IP address." width="680" height="420" loading="lazy" />
+     <figcaption>Session affinity by source IP: a client stays on one pod. Image from the instructor's slides.</figcaption>
+   </figure>
+
+2. **A sticky cookie on the Ingress** — the Ingress Controller adds a cookie by which it always routes the client to the same pod. It doesn't depend on the IP, so it works behind NAT too. [Ingress](/devops-notes/en/kubernetes/ingress/) is frozen, though; its replacement is the Gateway API.
+3. **Shared session storage** — the **right solution**. When all replicas store sessions in one place (a database, Redis…), the application becomes stateless.
+
+### Lab: automation
+
+Automation would need two scripts — `adminer.up.sh` (starts Adminer and the database) and `adminer.down.sh` (removes them). The commands must run in exactly the right order, and any change, e.g. of the namespace, means editing every line. The more options, the more fun.
+
+## 2. Imperative objects
+
+From each command you can create a YAML specification of the object — a **manifest**. Two options are enough:
+
+- `--dry-run=client` — the command **isn't executed**, it only checks whether it could be,
+- `--output yaml` (`-o yaml`) — prints the result as YAML.
+
+```bash
+kubectl run nginx \
+  --image nginx \
+  --labels app=nginx \
+  --port 80 \
+  --namespace dev \
+  --dry-run=client \
+  --output yaml > pod.yaml
+```
+
+```yaml title="pod.yaml (cleaned up)"
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+  namespace: dev
+spec:
+  containers:
+  - image: nginx
+    name: nginx
+    ports:
+    - containerPort: 80
+```
+
+You can delete empty items (`creationTimestamp: null`, `resources: {}`, `status: {}`) and default values (`dnsPolicy`, `restartPolicy`).
+
+Behind this are **generators**: each K8s resource has a specification, and a generator is a template with default values into which the command fills what you gave it (image, port, label).
+
+You can also pull a manifest out of a **running object**:
+
+```bash
+kubectl get pod nginx --output yaml
+kubectl get service db --output yaml > db.service.yaml
+```
+
+Such output also contains `status`, `uid`, `resourceVersion`, `creationTimestamp` — things belonging to that particular instance, which you delete before reuse.
+
+:::caution[kubecolor and redirection]
+On the lab machines `kubectl` is aliased through `kubecolor`, which adds colour escape codes to the output even when redirected to a file — the YAML is then unusable and `grep` doesn't find what it's looking for. When generating manifests, call the binary directly: `/usr/local/bin/kubectl … -o yaml > file.yaml`.
+:::
+
+### Lab: MariaDB + Adminer as imperative objects
+
+Turn each command of the previous lab into a separate YAML file. When you then apply them in the right order, the composition is rebuilt.
+
+```bash
+kubectl create namespace the-project --dry-run=client -o yaml > step.00.yaml
+kubectl create deployment db --image mariadb --namespace the-project \
+  --dry-run=client -o yaml > step.01.yaml
+kubectl set env deployment db MARIADB_ROOT_PASSWORD=secret --namespace the-project \
+  --dry-run=client -o yaml > step.02.yaml
+kubectl expose deployment db --port 3306 --namespace the-project \
+  --dry-run=client -o yaml > step.03.yaml
+kubectl create deployment adminer --image adminer --replicas 2 --namespace the-project \
+  --dry-run=client -o yaml > step.04.yaml
+kubectl expose deployment adminer --name adminer-cl --port 8000 --target-port 8080 \
+  --namespace the-project --dry-run=client -o yaml > step.05.yaml
+kubectl expose deployment adminer --name adminer-np --port 8080 --type NodePort \
+  --namespace the-project --dry-run=client -o yaml > step.06.yaml
+kubectl expose deployment adminer --name adminer-lb --port 8080 --type LoadBalancer \
+  --namespace the-project --dry-run=client -o yaml > step.07.yaml
+
+# delete in reverse order, create in the right order
+for file in $(ls -r step.0*); do kubectl delete -f "$file"; done
+for file in $(ls step.0*); do kubectl apply -f "$file"; done
+```
+
+`set env` and `expose` with `--dry-run` need the deployment to **exist** — without it they fail with *not found*. If the deployment with the password is already running, `set env` returns nothing; then set a different password or pull `kubectl get deploy/db -o yaml`. It's simpler to add the variable to the deployment's manifest by hand:
+
+```yaml
+    spec:
+      containers:
+      - image: mariadb
+        name: mariadb
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: secret
+```
+
+## Anatomy of a manifest
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/manifest.png" alt="The Manifest File with four parts: API version (which API group and version the object comes from), kind (what you're creating — Pod, Service…), metadata (what uniquely identifies the object), and spec (what the object's state should be, the image, configuration)." width="1024" height="768" loading="lazy" />
+  <figcaption>The four parts of a manifest. Image from the instructor's slides.</figcaption>
+</figure>
+
+| Key | Meaning |
+| --- | --- |
+| `apiVersion` | the object's API version — the cluster must support it. It determines what can go into `spec` (a new version needn't be backwards compatible). Pod and Service are `v1`, Deployment `apps/v1`, Ingress `networking.k8s.io/v1`. |
+| `kind` | the object type — `Pod`, `Deployment`, `Service`, `Namespace`… |
+| `metadata` | what uniquely identifies the object. Only `name` is required; `namespace`, `labels`, `annotations` are optional. Without `namespace` the object is created in the current namespace — the manifest is more portable. |
+| `spec` | the desired state — for a pod the containers, images, environment variables; for a service the ports and type |
+| `status` | the actual state of a running object, filled in by Kubernetes — you don't write it in a manifest |
+
+Object names must be **lowercase** (`100mega`, not `100Mega`), otherwise *Invalid value… must consist of lower case*.
+
+```bash
+kubectl api-versions                 # supported API versions (apps/v1, autoscaling/v2, …)
+kubectl api-resources                # all object types: NAME, SHORTNAMES, APIVERSION, NAMESPACED, KIND
+kubectl api-resources | wc -l        # 109 lines in class
+```
+
+There are over 100 object types and you can add your own — e.g. `traefik.io` brings Traefik's objects. Kubernetes really is a colossus.
+
+### explain
+
+What can go into `spec` is shown by the documentation right in the terminal — the path is built with dots:
+
+```bash
+kubectl explain pod                      # top-level keys
+kubectl explain pod.spec                 # containers is required
+kubectl explain pod.spec.containers      # [] = a list; command, env, image, ports, resources…
+kubectl explain pod.spec.containers.env  # name, value, valueFrom
+kubectl explain service.spec
+```
+
+Online it's the [Kubernetes API reference](https://kubernetes.io/docs/reference/).
+
+## More containers in one pod
+
+`spec.containers` is a **list** — adding another item adds a container:
+
+```yaml title="adminer-and-db.yaml"
+apiVersion: v1
+kind: Pod
+metadata:
+  name: adminer
+spec:
+  containers:
+  - image: adminer
+    name: adminer
+  - image: mariadb
+    name: mariadb
+    env:
+    - name: MARIADB_ROOT_PASSWORD
+      value: secret
+```
+
+```bash
+kubectl apply -f adminer-and-db.yaml
+kubectl get pods
+# NAME      READY   STATUS    RESTARTS   AGE
+# adminer   2/2     Running   0          20s
+```
+
+`READY 2/2` — two containers out of two. Both **share one IP address** of the pod and see each other: in Adminer on the pod's IP and port 8080 you log in as `root`/`secret` to the server `127.0.0.1`.
+
+The downside: the **whole pod** always restarts, not one container. And you can't change most properties of a running pod (e.g. environment variables) — `apply` fails with *The Pod is invalid*; you must delete the pod and create it again.
+
+## 3. Declarative objects
+
+A manifest is applied with **`apply`**:
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl delete -f manifest.yaml        # deletes everything in the manifest
+```
+
+`apply` **creates** the object if it doesn't exist and **updates** it if the manifest changed (`configured`); with no change it prints `unchanged`. Hence `apply` rather than `create`.
+
+How you organise manifests is up to you:
+
+- **a separate file for each object** — and you apply the whole folder:
+
+  ```bash
+  kubectl apply -f .
+  kubectl apply -f lab/
+  ```
+
+  The files are processed in **alphabetical order**. In class `namespace.yaml` was applied last, so everything before it failed with *namespaces "prod" not found*. The second run went through. Fix: number prefixes `00-namespace.yaml`, `01-…`.
+
+- **everything in one file** — YAML allows several **documents** in one file separated by `---`. It's like a JSON array with several objects, only the separator isn't a comma:
+
+  ```yaml title="manifest.yaml"
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: prod
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: db
+    namespace: prod
+  # …
+  ---
+  apiVersion: v1
+  kind: Service
+  # …
+  ```
+
+  You can join files like this:
+
+  ```bash
+  sed --separate '$a---' step.*.yaml > manifest.yaml
+  ```
+
+In one file everything goes top to bottom, so put the `Namespace` first. A service and a deployment don't depend on each other — a service without pods just has empty endpoints — so their mutual order doesn't matter.
+
+The advantage: the config goes to **Git**, and anyone can edit and apply it any time. For example a specific NodePort, which can't be set from the command line:
+
+```yaml
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 32222
+```
+
+## Test yourself
+
+<Question q="What is the difference between the imperative and the declarative approach?">
+Imperative says how to proceed (commands in order). Declarative describes the desired result (a manifest) and Kubernetes takes care of the procedure.
+</Question>
+
+<Question q="How do you generate a manifest without creating the object?">
+Add `--dry-run=client --output yaml` to the command and redirect the output to a file.
+</Question>
+
+<Question q="Which four keys does every manifest have, and which metadata item is required?">
+`apiVersion`, `kind`, `metadata`, `spec`. In metadata only `name` is required.
+</Question>
+
+<Question q="How do you find out what can go into a container's environment variables?">
+`kubectl explain pod.spec.containers.env` (or the online API reference).
+</Question>
+
+<Question q="Why can't you log in to Adminer with 3 replicas?">
+The session is stored in a file in one pod and the next request goes to another pod. Session affinity, a sticky cookie, or — properly — shared session storage solves it.
+</Question>
+
+<Question q="What does `READY 2/2` mean?">
+The pod has two containers and both are running.
+</Question>
+
+<Question q="`kubectl apply -f lab/` failed with *namespace not found*, the second attempt worked. Why?">
+Files are processed alphabetically and `namespace.yaml` came after the others. Number prefixes or one file with the Namespace first help.
+</Question>
+
+<Question q="What is the difference between `create -f` and `apply -f`?">
+`create` only creates (an existing object is an error). `apply` creates or updates according to the changes in the manifest.
+</Question>
+
+## Exercises
+
+### 8.1 · The composition in one manifest
+
+Make one `manifest.yaml` from the files `step.00.yaml` to `step.07.yaml`. Delete the composition and create it with one command. Then set NodePort `32222` for the `adminer-np` service in the manifest and apply the change.
+
+<p class="practises">Practises: several YAML documents, `apply`, `delete -f`, `nodePort`.</p>
+
+<Solution>
+```bash
+sed --separate '$a---' step.0*.yaml > manifest.yaml
+for file in $(ls -r step.0*); do kubectl delete -f "$file"; done
+kubectl apply -f manifest.yaml
+```
+
+```yaml title="manifest.yaml (the adminer-np service)"
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+    nodePort: 32222
+```
+
+```bash
+kubectl apply -f manifest.yaml       # service/adminer-np configured, the rest unchanged
+kubectl get svc adminer-np           # 8080:32222/TCP
+```
+</Solution>
+
+### 8.2 · Session affinity
+
+Change the `adminer-lb` service so that each client stays on one pod, and check logging in with three Adminer replicas.
+
+<p class="practises">Practises: `sessionAffinity`, `get -o yaml`.</p>
+
+<Solution>
+```bash
+kubectl expose deployment adminer --name adminer-lb --port 8080 \
+  --type LoadBalancer --session-affinity ClientIP --dry-run=client -o yaml
+```
+
+`sessionAffinity: ClientIP` appears in the service's `spec`. Add it to the manifest and apply it (`kubectl apply -f manifest.yaml`). The first login may still fail; after that you stay on one pod.
+</Solution>

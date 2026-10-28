@@ -1,0 +1,59 @@
+---
+title: Tools
+description: Tools the instructor recommends or uses with Kubernetes — k9s, Krew and its plugins, kubecolor, Starship, wrk, VS Code extensions, the Traefik dashboard, Kustomize, and help from AI.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## k9s
+
+> "When you administer Kubernetes, you do it remotely over SSH from the command line. This is a top tool. And every admin will mention it."
+
+Learn a few shortcuts and off you go. It's operated much like `dry` for Docker and Vim — a colon and a command (`:deploy`, `:svc`), `s` for a shell, `l` for logs.
+
+<p class="wisdom-day">Day 2</p>
+
+## Krew and plugins
+
+When choosing `kubectl` plugins the instructor goes by GitHub stars — `ns` and `ctx` have around 20 thousand. With **fzf** installed they're interactive. For an overview of resources he recommends **resource-capacity**. Many plugins also exist as distribution packages (`kubectx`, `kubens`) — or you make an alias.
+
+<p class="wisdom-day">Day 2</p>
+
+## Colours and the prompt
+
+The lab machines have **kubecolor** (coloured `kubectl` output) and the **Starship** prompt, which shows the current namespace next to the ship's wheel icon. The price of colours: when redirecting to a file or into `grep`, the escape codes get in the way — then call `/usr/local/bin/kubectl`.
+
+<p class="wisdom-day">Days 2 and 3</p>
+
+## wrk for load tests
+
+To test how a web application behaves under a surge, `wrk` is enough — hundreds of parallel connections to one URL. "It's good to know in advance how it behaves. To be prepared." Useful for developers and testers, not just for the autoscaling demo.
+
+<p class="wisdom-day">Day 3</p>
+
+## VS Code for manifests
+
+YAML by Red Hat, Better YAML Formatter, and Microsoft's Kubernetes extension. The last one complains about *noisy neighbor issues* for every container without `resources` — "it wouldn't be Microsoft if it liked anything". But hovering shows the documentation and it can fill in missing values.
+
+<p class="wisdom-day">Day 2</p>
+
+## The Traefik dashboard
+
+The instructor likes Traefik for its **dashboard** too — you can see entry points, routers, middleware, and services graphically. You quickly check whether you wrote the rules right. Nginx has a similar dashboard only through a third-party extension.
+
+<p class="wisdom-day">Day 3</p>
+
+## Templates and Kustomize
+
+> "Yes, the format is verbose. Building it takes quite some work."
+
+Professionals keep a `templates` folder with generic manifests and the result is a jigsaw. The next step is **Kustomize** — it treats manifests as templates whose parts another template overrides. "An even bigger Lego, but simpler."
+
+<p class="wisdom-day">Day 2</p>
+
+## Help from AI
+
+After the Docker course the instructor sat down with Claude over the lab machines' initialisation scripts and improved them a lot (including Krew). Claude drew the session affinity image for him, and he tuned the memory-exhausting script with it. The `resources` values for the manifest were suggested by the VS Code extension — whether from the internet or from usage, the instructor has no idea.
+
+<p class="wisdom-day">Days 2 and 3</p>

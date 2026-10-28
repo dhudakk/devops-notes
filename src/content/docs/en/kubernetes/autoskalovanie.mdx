@@ -1,0 +1,227 @@
+---
+title: Autoscaling
+description: The Horizontal Pod Autoscaler, Vertical Pod Autoscaler, and Cluster Autoscaler, kubectl autoscale, watching the HPA, artificial load with an infinite loop and the wrk tool, the five-minute window before scaling down, and hysteresis.
+kind: chapter
+day: 3
+sidebar:
+  order: 11
+  label: 11 · Autoscaling
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- `kubectl scale` has to be typed by a human. **Autoscaling** changes the number (or size) of pods by itself according to load.
+- **HPA** (*Horizontal Pod Autoscaler*) adds and removes pods — it's part of Kubernetes. **VPA** (*Vertical*) changes pods' requests and limits. **Cluster Autoscaler** adds a **node** when pods hang in `Pending` for lack of resources. Neither VPA nor Cluster Autoscaler is in the base installation.
+- `kubectl autoscale deployment weather --min 2 --max 5 --cpu 50` creates a **HorizontalPodAutoscaler** object (`hpa`). The percentage is of the CPU **request** — without `resources` the HPA doesn't work.
+- The HPA **scales down only after 5 minutes** below the target, so the count doesn't oscillate (hysteresis). It's configurable in the HPA manifest.
+- You create load with an infinite loop in a pod or with the **wrk** tool over HTTP.
+</KeyPoints>
+
+## Buses, automatically
+
+At the start of the course we dealt with the [bus line](/devops-notes/en/kubernetes/orchestracia/#the-bus-stop) — more passengers than the bus can carry. `kubectl scale` can add pods, but an admin has to type the command. We'd want it to happen **automagically** under given conditions — before Christmas, at night during backups — without a paid operator who happens to be on holiday.
+
+> Autoscaling is a method of automatically scaling K8s workloads up or down based on historical resource usage.
+
+| Method | What it does | In the base installation |
+| --- | --- | --- |
+| **HPA** — Horizontal Pod Autoscaler | adds/removes **pods** (another bus) | yes |
+| **VPA** — Vertical Pod Autoscaler | raises/lowers pods' **requests and limits** (a bigger bus) | no |
+| **Cluster Autoscaler** | adds a **node** to the infrastructure when pods stay `Pending` | no |
+
+Cluster Autoscaler steps in when the HPA adds pods but the scheduler can't find a node with free resources for them — the pods wait in `Pending`. It adds a new node (from prepared machines, typically in the cloud) and the waiting pods move to it.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/hpa-scaling.png" alt="A node before HPA scaling with one pod and after scaling with three pods." width="963" height="421" loading="lazy" />
+  <figcaption>The HPA adds more pods to the node. Image from the instructor's slides.</figcaption>
+</figure>
+
+## How the HPA works
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/hpa-flow.png" alt="The HPA queries the Metrics Server for metrics, calculates the number of replicas, updates the replica count in the Deployment, and the ReplicaSet scales pods POD 1 to POD N." width="1400" height="996" loading="lazy" />
+  <figcaption>1. query metrics, 2. calculate the replicas, 3. update the count in the deployment, 4. the ReplicaSet scales the pods. Image from the instructor's slides.</figcaption>
+</figure>
+
+1. The HPA asks the **Metrics Server** for the pods' usage,
+2. calculates the required number of replicas,
+3. changes the number of replicas in the **deployment**,
+4. the ReplicaSet adds or removes pods.
+
+It's another control loop — comparing usage with the target in real time.
+
+## Demo
+
+The deployment must have **`resources`** set — otherwise nothing happens:
+
+```yaml title="weather.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather
+  labels:
+    app: weather
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weather
+  template:
+    metadata:
+      labels:
+        app: weather
+    spec:
+      containers:
+      - image: bletvaska/weather:latest
+        name: weather
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather
+  labels:
+    app: weather
+spec:
+  type: LoadBalancer
+  selector:
+    app: weather
+  ports:
+  - name: www
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+```
+
+```bash
+kubectl apply -f weather.yaml
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch                     # in a second pane
+# NAME      REFERENCE            TARGETS        MINPODS   MAXPODS   REPLICAS
+# weather   Deployment/weather   cpu: 2%/50%    2         5         2
+```
+
+- `--min 2 --max 5` — the number of pods stays between 2 and 5. Right after creation a second pod appears, because the minimum is 2.
+- `--cpu 50` — the target is **50 % CPU**. The percentage is of the **request**: with a `100m` request that's 50m per pod. (Older `kubectl` versions had the option `--cpu-percent 50`.)
+- `kubectl autoscale` created a separate **HorizontalPodAutoscaler** object — you can see it in `kubectl get all`.
+
+Load — an infinite loop in one of the pods:
+
+```bash
+kubectl exec -it deployment/weather -- bash
+while true; do date; done
+```
+
+`TARGETS` rises above 50 % and `REPLICAS` grows — 3, 4, up to 5 (the maximum). After stopping the loop (`Ctrl+C`) usage drops, but the pods stay for another **5 minutes**.
+
+### Why 5 minutes
+
+The HPA starts scaling down only after usage has been below the target for **5 minutes**. If it reacted immediately, with usage hovering around 50 % (51, 49, 52…) it would keep adding and removing pods — **hysteresis**. Like a dusk light switch: when the sun goes behind a cloud and comes out again, the light would flicker; that's why the switch has a band (off below 50, on only above 60).
+
+The interval can be changed in the HPA manifest (`spec.behavior.scaleDown.stabilizationWindowSeconds`, 300 s by default). You won't find it in `kubectl get hpa weather -o yaml` until you set it.
+
+```bash
+kubectl get hpa weather -o yaml
+# spec:
+#   maxReplicas: 5
+#   minReplicas: 2
+#   metrics:
+#   - resource:
+#       name: cpu
+#       target:
+#         averageUtilization: 50
+#         type: Utilization
+#     type: Resource
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: weather
+```
+
+:::note[minReplicas and maxReplicas]
+In class someone asked whether `min replicas` and `max replicas` belong in the deployment. No — they're in the **HorizontalPodAutoscaler** object (`minReplicas`, `maxReplicas`). The deployment only has `replicas`, which the HPA then overwrites.
+:::
+
+### wrk
+
+For a web application a load-testing tool such as **wrk** is better — it calls one URL repeatedly and in parallel:
+
+```bash
+sudo apt install wrk
+wrk http://localhost:8000/ \
+  --connections 400 \
+  --duration 2m \
+  --threads 20
+```
+
+400 concurrent connections, 2 minutes, 20 threads. Requests go through the service (the load balancer), so the load is spread over all pods and the HPA adds them again. wrk is handy for developers and testers too for load tests — it's good to know in advance how the application behaves under a surge.
+
+## Test yourself
+
+<Question q="What is the difference between HPA and VPA?">
+The HPA changes the number of pods (horizontally). The VPA changes pods' requests and limits (vertically). The HPA is part of Kubernetes, the VPA isn't.
+</Question>
+
+<Question q="When does Cluster Autoscaler step in?">
+When pods stay `Pending` because no node has enough resources — it adds a new node to the cluster.
+</Question>
+
+<Question q="Why does an HPA on a deployment without `resources` do nothing?">
+The target is a percentage of the CPU request. Without a request, utilisation can't be calculated.
+</Question>
+
+<Question q="The request is 100m and the target is `--cpu 50`. At what usage per pod does the HPA add pods?">
+At an average above 50m of CPU per pod.
+</Question>
+
+<Question q="Why doesn't the HPA remove pods straight after the load ends?">
+It waits 5 minutes below the target so the pod count doesn't oscillate when usage hovers around the threshold (hysteresis).
+</Question>
+
+<Question q="Where are `minReplicas` and `maxReplicas`?">
+In the HorizontalPodAutoscaler object, not in the deployment.
+</Question>
+
+## Exercises
+
+### 11.1 · Scaled weather
+
+Deploy weather from the demo (requests and limits, a LoadBalancer service on 8000). Create an HPA with a minimum of 2, a maximum of 5, and a 50 % CPU target. Create load with an infinite loop and watch the HPA; then stop it and measure when the pod count returns to 2.
+
+<p class="practises">Practises: `autoscale`, `get hpa --watch`, behaviour when load drops.</p>
+
+<Solution>
+```bash
+kubectl apply -f weather.yaml
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch                                  # pane 1
+kubectl exec -it deployment/weather -- bash -c 'while true; do date; done'   # pane 2
+# REPLICAS 2 → 3 → 4 → 5; Ctrl+C
+# after about 5 minutes REPLICAS drops to 2
+```
+</Solution>
+
+### 11.2 · Load with wrk
+
+Load the weather service with wrk (400 connections, 2 minutes, 20 threads) and watch the HPA add pods.
+
+<p class="practises">Practises: an HTTP load test.</p>
+
+<Solution>
+```bash
+sudo apt install wrk
+wrk http://localhost:8000/ --connections 400 --duration 2m --threads 20
+kubectl get hpa --watch
+```
+
+At the end wrk prints requests per second and latencies.
+</Solution>

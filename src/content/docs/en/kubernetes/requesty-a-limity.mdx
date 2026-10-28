@@ -1,0 +1,232 @@
+---
+title: Requests and limits
+description: Limiting a container's CPU and memory — the request for the scheduler and the limit as a ceiling, millicores and Mi, the Pending state, CPU throttling and OOM kill, checking with describe, kubectl top, resource-capacity, and k9s, and demos with an infinite loop and string concatenation.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Requests and limits
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **request** = the guaranteed minimum. The **scheduler** uses it to find a node; when none has enough free, the pod stays **`Pending`**.
+- **limit** = the maximum the container may use. The **kubelet** enforces it.
+- Exceeding the **CPU** limit → **throttling** (slowed down, the container keeps running). Exceeding the **memory** limit → **OOM kill** (the container is killed and restarted).
+- CPU in **millicores**: `1000m` = 1 core, `500m` = half a core. Memory in `Mi`/`Gi`.
+- Actual usage can also be **below** the request — a request is a reservation, not a minimum usage.
+- Checking: `describe pod` (Limits/Requests), `kubectl top pods`, `kubectl resource-capacity --pods --util` (Krew), **k9s**.
+</KeyPoints>
+
+## Why limit
+
+Without limits one application (perhaps a third-party one) can eat all of a node's resources and the other pods — the neighbours — are left without. The Kubernetes extension in VS Code warns about it as *noisy neighbor issues*. The same topic came up with [limits in Docker](/devops-notes/en/docker/kontexty-a-limity/).
+
+What's usually limited is **CPU** and **memory (RAM)**, with two values.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/request-limit.png" alt="A CPU with two values: CPU Request 1G (guaranteed) and CPU Limit 2G (maximum)." width="1170" height="585" loading="lazy" />
+  <figcaption>The request is the guaranteed amount, the limit is the ceiling. Image from the instructor's slides.</figcaption>
+</figure>
+
+| | request | limit |
+| --- | --- | --- |
+| meaning | the **guaranteed** minimum reserved for the container | the **maximum** the container may use |
+| who uses it | **kube-scheduler** when choosing a node; the kubelet reserves the resources | the **kubelet** makes sure it isn't exceeded |
+| when it can't be met / is exceeded | no node has enough free → the pod is **`Pending`** | CPU → **throttling**, memory → **OOM kill** |
+
+The slide says `request <= value < limit`. In reality an application can also run **below** the request — when it's idle it takes e.g. 0.1 of a core even though it asked for one. A request is a reservation, not a lower bound on usage.
+
+## Units
+
+- **CPU** in cores or **millicores**: `1000m` = 1 core, `500m` = 0.5 core, `100m` = 0.1 core,
+- **memory** in bytes with a suffix: `128Mi` (mebibytes), `1Gi`.
+
+## In a manifest
+
+`resources` belongs to the **container** — in pods, deployments, and StatefulSets (in the pod template):
+
+```yaml
+    spec:
+      containers:
+      - image: bletvaska/weather:latest
+        name: weather
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+```
+
+The values the VS Code extension filled in with *Fix* in class (request → limit): WordPress `100m`/`128Mi` → `500m`/`256Mi`, MariaDB `100m`/`256Mi` → `500m`/`512Mi`, Adminer `50m`/`64Mi` → `200m`/`128Mi`. The CPU limit is roughly 4–5× the request, memory 2×.
+
+:::tip[Which values to choose?]
+Start with a reasonable estimate (documentation, the internet, AI) and watch the real usage. For your own bespoke application there's nothing to google — the best source is **production metrics**, e.g. from Prometheus over time. Even the developer often doesn't know how much their application eats.
+:::
+
+## An example
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/resources-example.png" alt="A node with 4 vCPUs and 16 GB RAM and a deployment with two containers: redis with a request of 300Mi and 500m and a limit of 600Mi and 1 CPU, busybox with a request of 100Mi and 100m and a limit of 200Mi and 300m. Labels explain the pod's effective request, CPU shares, OOM kill, and throttling." width="1170" height="828" loading="lazy" />
+  <figcaption>A pod with redis and busybox containers on a node with 4 vCPUs. Image from the instructor's slides (source: Sysdig).</figcaption>
+</figure>
+
+1. The pod's total request is **400 MiB** of memory (300 + 100) and **600 millicores** of CPU (500 + 100). It needs a node with that much free.
+2. Kubernetes assigns 1024 *shares* per core: redis gets 1024 × 0.5 ≅ **512**, busybox 1024 × 0.1 ≅ **102**.
+3. Redis is **OOM killed** if it tries to allocate more than 600 MiB — most likely failing the pod.
+4. Redis is **throttled** if it uses more than 100 ms of CPU every 100 ms (a limit of 1 core; the whole node with 4 cores has 400 ms every 100 ms).
+5. Busybox is OOM killed above 200 MiB.
+6. Busybox is throttled above 30 ms of CPU every 100 ms (a 300m limit).
+
+The image shows `apiVersion: extensions/v1beta1` — today Deployment is in `apps/v1`.
+
+## Checking
+
+```bash
+kubectl describe pod/weather           # Limits and Requests sections for each container
+kubectl top pods                       # current CPU (m) and memory (Mi) usage
+```
+
+`top` needs *metrics-server* (K3s has it). Values refresh with a delay (tens of seconds), so you won't see sudden changes immediately.
+
+The **resource-capacity** plugin (*kube-capacity*) combines the best of `top` and `describe`:
+
+```bash
+kubectl krew install resource-capacity
+kubectl resource-capacity                                # per node
+kubectl resource-capacity --pods --namespace wordpress   # pod requests and limits
+kubectl resource-capacity --pods --namespace wordpress --util   # current utilisation too
+```
+
+### k9s
+
+**[k9s](https://k9scli.io/)** is a terminal UI for Kubernetes — very popular, "every admin will mention it". It's operated like `dry` from the [Docker course](/devops-notes/en/docker/nastroje-na-spravu/) and its syntax resembles Vim:
+
+- `:pods`, `:deploy`, `:svc` — change the displayed object type (colon and a command),
+- `Enter` on a pod — its containers, `s` — a shell in the container, `l` — logs, `y` — YAML,
+- `/` — filter, `?` — keyboard shortcuts.
+
+The pod list has the columns `CPU`, `MEM` and `%CPU/R`, `%CPU/L`, `%MEM/R`, `%MEM/L` — usage as a percentage of the request and limit.
+
+:::note[k9s on the lab machine]
+In class k9s first failed with *permission denied* — a folder in `~/.local` had been created by `root` during installation. Giving the ownership back helped: `sudo chown -R ubuntu:ubuntu ~/.local`.
+:::
+
+## Demo: throttling
+
+An **infinite loop** is enough for throttling. When the container exceeds the limit it isn't killed, only slowed down. One shell loop uses at most one core, so the limit must be below 1 CPU, otherwise throttling won't happen.
+
+```bash
+kubectl exec -it deployment/adminer -- sh
+while true; do date; done
+```
+
+In a second pane `kubectl top pods` (or k9s): usage jumps but stops at the limit — around **200m** for Adminer. More loops in more `exec` sessions won't push it past the limit.
+
+## Demo: OOM kill
+
+Memory is exhausted by a script that builds up a string in 10 MiB steps:
+
+```bash
+kubectl exec -it deployment/weather -- sh -c '
+i=0; s=""
+while true; do
+  i=$((i + 10))
+  s="$s$(head -c 10485760 /dev/zero | tr "\0" x)"
+  echo "allocated ~${i} MiB"
+  sleep 1
+done'
+```
+
+`head -c` takes 10 MiB of zero bytes and `tr` turns them into `x` (the shell can't hold null bytes in a variable). Watch the dollar signs — without `$` before `s` or `(` nothing is allocated (it happened in class).
+
+**The OOM kill comes sooner** than you'd think — around **half** of the limit. While concatenating, both the old and the new version of the string are in memory for a moment (50 MiB + 60 MiB = 110 MiB).
+
+```bash
+kubectl get pods --watch
+# weather-…   0/1   OOMKilled          0   2m
+# weather-…   0/1   CrashLoopBackOff   1   2m
+# weather-…   1/1   Running            1   2m
+```
+
+The container's current memory usage is shown by the cgroup right inside it — `top` refreshes slowly, this is immediate:
+
+```bash
+kubectl exec deployment/weather -- cat /sys/fs/cgroup/memory.current
+```
+
+## Test yourself
+
+<Question q="What is a request for and who uses it?">
+It's the guaranteed amount of a resource. The scheduler uses it to choose a node and the kubelet reserves it.
+</Question>
+
+<Question q="What happens when no node has enough free resources for the request?">
+The pod doesn't start and stays `Pending` until resources free up.
+</Question>
+
+<Question q="What happens when the CPU limit is exceeded, and what when the memory limit is?">
+CPU → throttling, the container slows down. Memory → OOM kill, the container is killed and restarted.
+</Question>
+
+<Question q="How much is `250m` of CPU?">
+A quarter of a core (1000m = 1 core).
+</Question>
+
+<Question q="A pod has containers with requests of 300Mi/500m and 100Mi/100m. What node does it need?">
+One with at least 400 MiB of memory and 600 millicores of CPU free.
+</Question>
+
+<Question q="Why did the OOM kill in the string demo happen around half of the limit?">
+While concatenating, both the old and the new version of the string are briefly in memory, so the real usage is roughly double.
+</Question>
+
+## Exercises
+
+### 10.1 · Limits for WordPress
+
+Add `resources` to all three containers in the WordPress manifest: WordPress request `100m`/`128Mi`, limit `500m`/`256Mi`; the database request `100m`/`256Mi`, limit `500m`/`512Mi`; Adminer request `50m`/`64Mi`, limit `200m`/`128Mi`. Apply and check the requests and limits in two ways.
+
+<p class="practises">Practises: `resources`, `describe`, `resource-capacity`.</p>
+
+<Solution>
+```yaml title="WordPress (the database and Adminer likewise)"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+```
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl describe pod -l app=db -n wordpress | grep -A2 -E "Limits|Requests"
+kubectl resource-capacity --pods --namespace wordpress --util
+```
+</Solution>
+
+### 10.2 · Throttling and OOM kill
+
+Deploy weather with a request of `100m`/`128Mi` and a limit of `300m`/`256Mi`. In one pane watch the pods and usage, in another try the infinite loop and then the memory script.
+
+<p class="practises">Practises: `top pods`, `memory.current`, the `OOMKilled` and `CrashLoopBackOff` states.</p>
+
+<Solution>
+```bash
+kubectl apply -f weather.yaml
+watch -n 1 kubectl top pods                       # pane 1
+
+kubectl exec -it deployment/weather -- sh -c 'while true; do date; done'
+# CPU stops around 300m — throttling, the pod keeps running (Ctrl+C)
+
+kubectl exec -it deployment/weather -- sh -c '…the script from the demo…'
+# after ~130 MiB "allocated": OOMKilled, then a restart (RESTARTS 1)
+```
+</Solution>

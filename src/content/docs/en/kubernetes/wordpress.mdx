@@ -1,0 +1,331 @@
+---
+title: WordPress as a manifest
+description: The WordPress on K8s lab — a namespace, a MariaDB database, the application behind a load balancer, and Adminer on a NodePort, labels in metadata and in the pod template, common indentation mistakes, and VS Code extensions for writing manifests.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · WordPress
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A manifest is assembled from pieces: a `Namespace`, and for each service a **Deployment + Service** pair. Templates for each object type are a good start — in the end it's a jigsaw.
+- Labels are in **three places**: the deployment's `metadata.labels`, `spec.template.metadata.labels` (which the **pods** get), and `spec.selector.matchLabels` — the selector must match the labels in the template.
+- WordPress connects to the database through the **service name**: `WORDPRESS_DB_HOST=db:3306`.
+- Service type and ports: `db` ClusterIP 3306, `app` LoadBalancer 8000 → 80, `adminer` NodePort 31500. With several WordPress replicas, `sessionAffinity: ClientIP`.
+- The most common mistake is **indentation** in YAML (`unknown field`, `cannot unmarshal`). VS Code extensions (YAML by Red Hat, Kubernetes) help.
+</KeyPoints>
+
+## The assignment
+
+Container orchestration that ends up serving WordPress:
+
+1. A separate namespace **`wordpress`** — all objects go there.
+2. A service **`db`** with the database:
+   - image [`mariadb`](https://hub.docker.com/_/mariadb), the standard MariaDB port,
+   - the `root` password is `top.secret`; on start create the database `wordpress` and the user `wpuser` with password `end321`,
+   - one replica, labels `tier: backend`, `env: prod`, `customer: tuke`.
+3. A service **`app`** with WordPress:
+   - image [`wordpress`](https://hub.docker.com/_/wordpress), connected to the `db` database,
+   - through a load balancer on port **8000**, **4 replicas**,
+   - labels `tier: frontend`, `env: prod`, `customer: tuke`.
+4. A service **`adminer`**:
+   - image [`adminer`](https://hub.docker.com/_/adminer), through a NodePort on port **31500**,
+   - labels `tier: frontend`, `env: dev`.
+5. Four files: `database.yaml`, `application.yaml`, `adminer.yaml`, and `manifest.yaml` with everything together.
+
+The approach from class: there's a ready-made `templates` folder with a template for each object type. Take a template, rewrite the values, and paste it into the manifest. You can apply the manifest as you go and debug it.
+
+## Solution
+
+### Namespace and database
+
+```yaml title="database.yaml"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wordpress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: wordpress
+  labels:
+    app: db
+    tier: backend
+    env: prod
+    customer: tuke
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+        tier: backend
+        env: prod
+        customer: tuke
+    spec:
+      containers:
+      - image: mariadb:latest
+        name: mariadb
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: top.secret
+        - name: MARIADB_DATABASE
+          value: wordpress
+        - name: MARIADB_USER
+          value: wpuser
+        - name: MARIADB_PASSWORD
+          value: end321
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: wordpress
+  labels:
+    app: db
+    tier: backend
+    env: prod
+    customer: tuke
+spec:
+  type: ClusterIP
+  selector:
+    app: db
+  ports:
+  - name: www
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+```
+
+Where the labels are and why:
+
+- the deployment's `metadata.labels` — they label the **deployment** (e.g. `kubectl get deploy -l tier=backend`),
+- `spec.template.metadata.labels` — pods are created from this template, so the **pods** get these labels. In class we forgot them here at first and `kubectl get pods --show-labels` showed only `app` and `pod-template-hash`,
+- `spec.selector.matchLabels` — by this the deployment (ReplicaSet) recognises **its** pods. It must match the labels in the template,
+- the service's `selector` — by this the service finds pods (endpoints).
+
+Port 3306 is the standard MySQL/MariaDB port.
+
+### The application
+
+```yaml title="application.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: wordpress
+  labels:
+    app: app
+    tier: frontend
+    env: prod
+    customer: tuke
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+        tier: frontend
+        env: prod
+        customer: tuke
+    spec:
+      containers:
+      - image: wordpress:latest
+        name: wordpress
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: db:3306
+        - name: WORDPRESS_DB_NAME
+          value: wordpress
+        - name: WORDPRESS_DB_USER
+          value: wpuser
+        - name: WORDPRESS_DB_PASSWORD
+          value: end321
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: wordpress
+  labels:
+    app: app
+    tier: frontend
+    env: prod
+    customer: tuke
+spec:
+  type: LoadBalancer
+  sessionAffinity: ClientIP
+  selector:
+    app: app
+  ports:
+  - name: www
+    port: 8000
+    protocol: TCP
+    targetPort: 80
+    nodePort: 31000
+```
+
+- `WORDPRESS_DB_HOST: db:3306` — `db` is the **service name**, not an IP address. The port is the MariaDB default, so `db` alone would do.
+- Port 8000 is the port of the service (and the load balancer); WordPress listens on **80** in the container.
+- A LoadBalancer also creates a NodePort; you can set `nodePort`, otherwise it's picked at random. The template had `30000` — with several services, watch for collisions.
+
+:::note[Session affinity with WordPress]
+The first attempt in class: the installation went through, but after logging in you were sometimes logged out. Four replicas and a load balancer — each request can go to a different pod, and not everything about the login is in the database. `sessionAffinity: ClientIP` always sends a client to the same pod. The first login after the change may still fail, later ones don't. Posts in the database are visible to all replicas.
+:::
+
+### Adminer
+
+```yaml title="adminer.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: wordpress
+  labels:
+    app: adminer
+    tier: frontend
+    env: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+        tier: frontend
+        env: dev
+    spec:
+      containers:
+      - image: adminer:latest
+        name: adminer
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: wordpress
+  labels:
+    app: adminer
+    tier: frontend
+    env: dev
+spec:
+  type: NodePort
+  selector:
+    app: adminer
+  ports:
+  - name: www
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+    nodePort: 31500
+```
+
+### Running it
+
+```bash
+sed --separate '$a---' database.yaml application.yaml adminer.yaml > manifest.yaml
+kubectl apply -f manifest.yaml
+kubectl config set-context --current --namespace wordpress
+kubectl get all
+```
+
+- WordPress: `http://<IP>:8000` → installation (language, site name, administrator),
+- Adminer: `http://<IP>:31500` → server `db`, user `wpuser`, password `end321`.
+
+The instructor's finished solution is at [github.com/bletvaska/k8s-manifests](https://github.com/bletvaska/k8s-manifests/).
+
+## Common mistakes
+
+**Indentation.** YAML is sensitive to indentation and the errors are cryptic:
+
+```text
+Error from server (BadRequest): error when creating "manifest.yaml":
+Deployment in version "v1" cannot be handled as a Deployment:
+strict decoding error: unknown field "spec.template.labels"
+```
+
+`labels` was one level higher than it should be — it belongs under `spec.template.metadata`, not under `spec.template`.
+
+```text
+cannot unmarshal object into Go struct field Container.spec.template.spec.containers.ports
+```
+
+`ports` in a container is a **list** — each item starts with a dash:
+
+```yaml
+        ports:
+        - containerPort: 8080
+```
+
+**`<pending>` on a LoadBalancer.** Port 8000 is held by another LoadBalancer service (e.g. `weather` in `default`). Delete it — in K3s, LoadBalancer service ports on the node can't overlap.
+
+**The database pod crashes.** Check `kubectl logs deployment/db` — usually the password is missing or a variable name has a typo.
+
+## VS Code extensions
+
+For writing manifests the instructor recommends these extensions:
+
+- **YAML** (Red Hat) — YAML support with built-in Kubernetes syntax support,
+- **Better YAML Formatter** — YAML formatting,
+- **Kubernetes** (Microsoft) — develop, deploy, and debug Kubernetes applications; hovering shows a key's documentation.
+
+The Kubernetes extension immediately starts reporting: *One or more containers do not have resources — this can cause noisy neighbor issues*. A container without limits can eat all of a node's resources and leave nothing for the "neighbours". That's the topic of the next chapter — [Requests and limits](/devops-notes/en/kubernetes/requesty-a-limity/). `Alt+Enter` → *Fix* fills in estimated `resources` values.
+
+## Test yourself
+
+<Question q="In which three places of a deployment are labels, and what is each for?">
+`metadata.labels` labels the deployment, `spec.template.metadata.labels` go to the pods, `spec.selector.matchLabels` determines which pods the deployment considers its own (it must match the template).
+</Question>
+
+<Question q="Why is `WORDPRESS_DB_HOST` set to `db` and not an IP address?">
+`db` is the service name. Pod IP addresses change, the service name stays, and the service does load balancing.
+</Question>
+
+<Question q="The `app` service has `port: 8000` and `targetPort: 80`. Where does WordPress listen?">
+In the container on port 80; from outside it's reachable through the load balancer on 8000.
+</Question>
+
+<Question q="Why does `sessionAffinity: ClientIP` help with 4 WordPress replicas?">
+Requests from one IP always go to the same pod, so you aren't logged out when the load balancer sends you to another replica.
+</Question>
+
+<Question q="What does the error *unknown field spec.template.labels* mean?">
+`labels` is indented wrongly — it belongs under `spec.template.metadata`.
+</Question>
+
+## Exercises
+
+### 9.1 · WordPress from scratch
+
+Without looking at the solution, write `database.yaml`, `application.yaml`, and `adminer.yaml` according to the assignment. Join them into `manifest.yaml`, apply it, install WordPress, and check in Adminer that tables appeared in the `wordpress` database.
+
+<p class="practises">Practises: Deployment + Service in YAML, labels, service types, debugging.</p>
+
+<Solution>
+The solution is in the [Solution](#solution) section above. Checking:
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl get all -n wordpress --show-labels
+kubectl describe svc app -n wordpress        # Endpoints: 4 IP addresses
+# http://<IP>:8000 — WordPress installation
+# http://<IP>:31500 — Adminer, server db, wpuser / end321 → the wordpress database, wp_* tables
+```
+</Solution>

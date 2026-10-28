@@ -1,0 +1,309 @@
+---
+title: Ingress
+description: Ingress (the rule) and the Ingress Controller (Traefik in K3s), the URL format, HOST/PATH=SERVICE:PORT rules, the Exact and Prefix types, the problem with a prefixed path and rewriting, host-based rules via /etc/hosts, the Traefik dashboard, and its successor the Gateway API.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Ingress
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- LoadBalancer = one port per service. **Ingress** routes HTTP(S) requests on port **80/443** to different services by the **host** and **path** in the URL.
+- **Ingress** is a K8s object with rules, the **Ingress Controller** is the program that carries them out — a reverse proxy and load balancer. In K3s it's **Traefik**.
+- A rule from the command line: `HOST/PATH=SERVICE:PORT`, e.g. `--rule /*=weather:8000`. Without `*` the type is **Exact** (only the exact path), with `*` it's **Prefix**.
+- An application behind a prefixed path (`/rambo/2`) doesn't know what to do with the prefix — it needs a **rewrite**, which isn't part of Ingress but of the particular controller. The alternative: **host-based** rules (`1.rambo.sk`).
+- Ingress is **frozen** — its successor is the **Gateway API**.
+</KeyPoints>
+
+## Why Ingress
+
+With LoadBalancer services each application has its own port — weather on 8000, Rambo on 8080, RustFS on 9000/9001. Often, though, you want several HTTP services on **one address**, distinguished by domain or path, without ports.
+
+> Ingress exposes HTTP and HTTPS routes from outside the cluster to services within the cluster. Traffic routing is controlled by rules defined on the Ingress resource.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ingress.png" alt="A client goes through an Ingress-managed load balancer into the cluster; the Ingress routes by rule to a service and the service to pods." width="1400" height="542" loading="lazy" />
+  <figcaption>Client → Ingress → routing rule → service → pods. Image from the instructor's slides.</figcaption>
+</figure>
+
+Two terms to tell apart:
+
+- **Ingress** — a K8s object, a routing **rule**. In Kubernetes we define exactly these rules,
+- **Ingress Controller** — the **program** that carries out the rules: a reverse proxy and load balancer that takes traffic from outside and sends it to pods.
+
+Lots of solutions can serve as the controller — Nginx, Apache, Traefik… In **K3s it's [Traefik](https://traefik.io/)**, listening on ports **80 and 443** (which is why other services can't use them). You know Traefik from the [Docker course](/devops-notes/en/docker/register-a-automatizacia/).
+
+## The URL and the rule
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/url.png" alt="The URL http://api.site.com/v1/users?offset=50 split into scheme, host (api.site.com), path (/v1/users), and query (offset=50)." width="729" height="214" loading="lazy" />
+  <figcaption>Ingress rules look only at the host and the path. Image from the instructor's slides.</figcaption>
+</figure>
+
+```text
+HOST/PATH=SERVICE_NAME:SERVICE_PORT
+```
+
+- the **host** is optional. Without it the rule applies to all HTTP traffic to the IP address; with it only to that domain,
+- **paths** — each has a **backend**: a service and its port,
+- a request must match the host **and** the path before it goes to the service.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ingress-rules.svg" alt="A client goes to the Ingress Controller (Traefik in K3s, ports 80 and 443), which reads rules from the Ingress object: /* routes to the weather:8000 service, 1.rambo.sk/* to rambo-1:8000, and 2.rambo.sk/* to rambo-2:8000." width="720" height="290" loading="lazy" />
+  <figcaption>One controller on port 80, path-based and host-based rules. Own diagram.</figcaption>
+</figure>
+
+## A path-based rule
+
+Weather on the home page `http://<IP>/`:
+
+```bash
+kubectl create ingress weather --rule /=weather:8000
+kubectl get ingresses
+# NAME      CLASS     HOSTS   ADDRESS         PORTS   AGE
+# weather   traefik   *       172.31.47.159   80      5s
+```
+
+| Column | Meaning |
+| --- | --- |
+| `CLASS` | which Ingress Controller handles it (`spec.ingressClassName`); `<none>` = the default one |
+| `HOSTS` | domains from the rules; `*` = any host |
+| `ADDRESS` | the IP address the Ingress is reachable on — filled in by the controller |
+| `PORTS` | 80, with TLS 80 and 443 |
+
+```bash
+kubectl describe ingress weather
+# Ingress Class:  traefik
+# Rules:
+#   Host  Path  Backends
+#   ----  ----  --------
+#   *     /     weather:8000 (10.42.0.14:8000)
+```
+
+When troubleshooting, check that the rule shows the **pods' IP address and port** — otherwise the service has no endpoints.
+
+### Exact vs. Prefix
+
+The page shows, but without styles and images. The `Server` header shows the difference:
+
+```bash
+http --headers http://localhost/
+# HTTP/1.1 200 OK
+# Server: uvicorn                     ← the application answered (Uvicorn, a Python web server)
+
+http --headers http://localhost/static/css/style.css
+# HTTP/1.1 404 Not Found              ← no Server: uvicorn — Traefik answered
+```
+
+The rule `/` is of type **Exact** — only exactly `/` gets through. Everything else (CSS, images) is answered by the Ingress Controller itself with a 404 and the request never reaches the application.
+
+| Type | From the command line | What gets through |
+| --- | --- | --- |
+| **Exact** | `/foo` | only `/foo` — not `/foo/` or `/bar` |
+| **Prefix** | `/foo*` | `/foo`, `/foo/`, `/foo/bar` — everything under `/foo` (by whole path segments) |
+
+```bash
+kubectl delete ingress weather
+kubectl create ingress weather --rule '/*=weather:8000'
+http --headers http://localhost/hello/world
+# HTTP/1.1 404 Not Found
+# Server: uvicorn                      ← now the application answers
+```
+
+In a manifest:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: weather
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: weather
+            port:
+              number: 8000
+```
+
+### A prefixed path
+
+The rule `/weather/*` sends the request to the application, but with the whole path `/weather/…`. The application knows `/static/css/style.css`, not `/weather/static/css/style.css` — as if it were looking for a non-existent folder, so it returns 404.
+
+Solutions:
+
+- a **rewrite** rule — strip the `/weather` prefix before sending to the service. That's **not part of Ingress**: the Nginx Ingress Controller does it with **annotations**, Traefik with a **Middleware** object (e.g. *StripPrefix*). The Traefik dashboard shows the middleware for each router,
+- **configuring the application** with a *path prefix* (*base URL*) — if the application allows it.
+
+## A host-based rule
+
+Some applications can't work with a prefixed path at all (the instructor mentions InfluxDB). Then **host-based** rules help — the application will be at `www.weather.sk`.
+
+We don't have our own DNS records, so we use the local `hosts` file on **your own** computer — it acts as a local DNS with precedence over the DNS server:
+
+- Linux/macOS: `/etc/hosts`,
+- Windows: `C:\Windows\System32\drivers\etc\hosts` (needs administrator rights).
+
+```text title="/etc/hosts"
+<IP>   www.weather.sk
+```
+
+```bash
+kubectl delete ingress weather
+kubectl create ingress weather --rule 'www.weather.sk/*=weather:8000'
+kubectl get ingress
+# NAME      CLASS     HOSTS            ADDRESS         PORTS   AGE
+# weather   traefik   www.weather.sk   172.31.47.159   80      3s
+```
+
+A browser on `http://www.weather.sk` now opens the application on your lab machine (pinging the domain shows your IP).
+
+## The Traefik dashboard
+
+Traefik has a dashboard that graphically shows the entry points, routers, middleware, and services — good for quickly checking your configuration. For security it isn't publicly reachable; you need to forward a port:
+
+```bash
+kubectl port-forward --namespace kube-system --address 0.0.0.0 deploy/traefik 8080:8080
+# http://<IP>:8080/dashboard/        ← including the trailing slash
+```
+
+Older Traefik versions had the dashboard on port 9000 — the course materials still forward `9000:9000` to a pod found with `grep`, which didn't work with the new version. When grepping `kubectl get pods`, `kubecolor` also gets in the way (colour codes at the start of the line) — call `/usr/local/bin/kubectl`.
+
+## Gateway API
+
+The Kubernetes documentation has a note on Ingress: **Ingress is frozen** — it won't get new features, at most bug fixes. The project recommends the **Gateway API**.
+
+Ingress's problems:
+
+- **a limited model** — HTTP(S) only, no TCP/UDP, no advanced routing,
+- **controller-specific annotations** — extra features (rewrite…) were added with annotations that differ in Nginx and Traefik. The configuration isn't portable — your Ingress won't work for a colleague with another controller,
+- **hard to extend** — there's no standard way to split responsibilities (the infra team manages the gateway, the app team defines routes).
+
+The Gateway API builds on that experience: it handles routing from outside into the cluster (*north-south*) and between services (*east-west*), protocols from L4 (TCP/UDP) to L7 (HTTP), and it's more flexible and portable. It's supported since Kubernetes 1.24. In practice, though, Ingress is still widely used.
+
+## Test yourself
+
+<Question q="What is the difference between an Ingress and an Ingress Controller?">
+An Ingress is a K8s object with routing rules. The Ingress Controller (Traefik in K3s) is the program — a reverse proxy — that carries them out.
+</Question>
+
+<Question q="Why don't styles load with the rule `/=weather:8000`?">
+A rule without `*` is of type Exact and lets through only exactly `/`. Traefik rejects requests for CSS and images with a 404.
+</Question>
+
+<Question q="How can you tell whether the application or the Ingress Controller answered a request?">
+From the response headers — the weather app sends `Server: uvicorn`, Traefik doesn't.
+</Question>
+
+<Question q="Why doesn't Rambo show images at `/rambo/2`?">
+The application receives the path with the `/rambo/2` prefix, which it doesn't know. It needs a rewrite (specific to the controller) or host-based rules.
+</Question>
+
+<Question q="How do you try a host-based rule without your own DNS?">
+Add the line `<IP> www.weather.sk` to `/etc/hosts` (Windows: `C:\Windows\System32\drivers\etc\hosts`).
+</Question>
+
+<Question q="Why is Ingress frozen and what replaces it?">
+It supports only HTTP(S), extensions depend on controller-specific annotations (not portable), and responsibilities are hard to split. The Gateway API replaces it.
+</Question>
+
+## Exercises
+
+### 13.1 · Rambo with Ingress
+
+Create an Ingress for the whole Rambo series: `/rambo/1` → Rambo 1 to `/rambo/5` → Rambo 5. Each part is a separate deployment and service in the `rambo` namespace. One and two are enough — the rest are the same.
+
+After starting it you'll probably see just text instead of a grinning Rambo — the application can't work with the prefix. If you can, change the task to host-based rules: `1.rambo.sk/` to `5.rambo.sk/`.
+
+<p class="practises">Practises: generating a manifest, an Ingress with several rules, path vs. host.</p>
+
+<Solution>
+```bash
+kubectl create namespace rambo --dry-run=client -o yaml > manifest.yaml
+echo "---" >> manifest.yaml
+kubectl create deployment rambo-1 --image bletvaska/rambo:1 --namespace rambo \
+  --dry-run=client -o yaml >> manifest.yaml
+echo "---" >> manifest.yaml
+kubectl expose deployment rambo-1 --name rambo-1 --port 8000 --namespace rambo \
+  --dry-run=client -o yaml >> manifest.yaml
+# … the same for rambo-2 to rambo-5 (expose with --dry-run needs an existing deployment,
+#   otherwise write the service by hand following the pattern)
+echo "---" >> manifest.yaml
+kubectl create ingress rambo --namespace rambo \
+  --rule '/rambo/1*=rambo-1:8000' \
+  --rule '/rambo/2*=rambo-2:8000' \
+  --dry-run=client -o yaml >> manifest.yaml
+```
+
+The host-based version (`/etc/hosts`: `<IP> 1.rambo.sk 2.rambo.sk`):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rambo
+  namespace: rambo
+spec:
+  rules:
+  - host: 1.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-1
+            port:
+              number: 8000
+  - host: 2.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-2
+            port:
+              number: 8000
+```
+
+The `rambo-1` and `rambo-2` services are ClusterIP — everything goes out through the Ingress on port 80. `host` sits at the `- host:` level, above `http:`.
+</Solution>
+
+### 13.2 · RustFS through Ingress
+
+*The day 4 morning lab.* Extend RustFS from the [previous chapter](/devops-notes/en/kubernetes/configmapy-a-secrety/#121--rustfs-with-a-configmap-and-a-secret) so that the console is reachable through an Ingress on `/`. Change the service to ClusterIP.
+
+<p class="practises">Practises: an Ingress in a manifest, ClusterIP behind an Ingress.</p>
+
+<Solution>
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rustfs
+            port:
+              number: 9001
+```
+
+Set `type: ClusterIP` in the `rustfs` service. The console is then at `http://<IP>/` (port 80). The backend is port **9001** — the console, not the S3 API.
+</Solution>

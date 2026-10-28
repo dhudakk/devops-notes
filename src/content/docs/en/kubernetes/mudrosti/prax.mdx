@@ -1,0 +1,61 @@
+---
+title: Practical advice
+description: When to scale horizontally, databases and multiple replicas, stateful applications from a developer's view, beware deleting a namespace, labels for gradual updates, time in UTC, hostPath, and the demo effect.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## Start vertical, grow horizontal
+
+At the start of a project a bigger machine makes sense — it's simpler and cheaper (you save the "second driver"). But the project reaches a point where horizontal scaling starts paying off, and in the long run it comes out better.
+
+<p class="wisdom-day">Day 1</p>
+
+## A database in ten replicas
+
+Starting a process ten times isn't the problem. The **filesystem** is: MySQL or Postgres in ten replicas over one volume — the first one locks the files and the others fall over. Classic relational databases (Oracle and DB2 too) weren't designed to run distributed, at most mirrored. For distributed operation there are NoSQL databases (MongoDB, document-oriented) or distributed SQL such as **CockroachDB** — it looks like Postgres and replicates data between nodes by itself, so losing a node doesn't mean losing data.
+
+<p class="wisdom-day">Day 1</p>
+
+## As a developer you (mostly) don't care
+
+A developer's question: what happens to the application when it runs in n instances? With a three-tier application almost nothing — the frontend and backend sit behind a load balancer on one address, and it doesn't matter which replica answered. You use the database through a driver; running it is the infrastructure's business. Watch out only for **state** in a pod's memory or files — sessions. That belongs in shared storage.
+
+<p class="wisdom-day">Days 1 and 2</p>
+
+## delete namespace confirms nothing
+
+Most participants guessed that Kubernetes wouldn't allow deleting a full namespace or would want `--force`. It deleted everything without asking. "This is a very dangerous thing."
+
+<p class="wisdom-day">Day 2</p>
+
+## Labels for gradual updates
+
+When your solution is deployed in many countries, don't update them all at once — if you forgot something, it's a problem everywhere. Well-labelled deployments (country, region, city) let you update in parts. And different countries can have different laws and licence terms. "And it's such a simple thing."
+
+<p class="wisdom-day">Day 3</p>
+
+## Store time in UTC
+
+When an application writes a time somewhere, store it in **UTC**. Convert it to local time only when showing it to the user — according to their setting or the browser. The `TZ` variable in a container changes only the system time, not what the application displays.
+
+<p class="wisdom-day">Day 3</p>
+
+## Never hostPath in production
+
+hostPath is great for development on a single-node cluster. On several nodes each node has different data. The exception is DaemonSets that need a specific node's files. For production there's storage that works across nodes (e.g. Longhorn) or an external service.
+
+<p class="wisdom-day">Day 4</p>
+
+## The end of Ingress
+
+Ingress is frozen, but companies still use it. Until you migrate to the Gateway API, agree in the team on **one** Ingress Controller — Traefik annotations don't work in Nginx and vice versa, and then you can't share configurations.
+
+<p class="wisdom-day">Days 3 and 4</p>
+
+## The demo effect
+
+A port-forward that worked a moment ago stopped. The memory-exhausting script allocated nothing (a missing dollar sign). The Traefik dashboard wouldn't open (a new version, a different port). "Oh, the demo effect once again." Consolation: hunting for the bug teaches you more than when everything works.
+
+<p class="wisdom-day">Days 1, 3, and 4</p>

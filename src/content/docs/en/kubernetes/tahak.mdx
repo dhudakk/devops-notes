@@ -1,0 +1,293 @@
+---
+title: Cheat sheet
+description: Every command and manifest skeleton from the Kubernetes course on one page, object short names, and traps.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Pods, deployments, services
+
+<div class="sheet-grid">
+
+```bash title="Pods" wrap
+kubectl version / cluster-info
+kubectl run weather --image bletvaska/weather
+kubectl get pods / get all / get all -A
+kubectl get pods --watch
+kubectl logs pod/weather -f --tail 2
+kubectl exec -it weather -- sh
+kubectl describe pod/weather          # Events at the end
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+kubectl delete pod/weather / delete pods --all
+```
+
+```bash title="Deployments" wrap
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 5
+kubectl scale deployment/rambo --replicas 2
+kubectl scale deployment/rambo --replicas 0     # "switch off"
+kubectl logs deployment/rambo                   # one pod only
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+kubectl set env deployment/db MARIADB_ROOT_PASSWORD=secret
+kubectl get rs -l app=rambo                     # ReplicaSets = history
+kubectl delete deployment/rambo
+```
+
+```bash title="Services and labels" wrap
+kubectl expose deployment rambo --name rambo-cl --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-np --port 8080 --target-port 8000 --type NodePort
+kubectl expose deployment rambo --name rambo-lb --port 8080 --target-port 8000 --type LoadBalancer
+kubectl expose deployment adminer --port 8080 --type LoadBalancer --session-affinity ClientIP
+kubectl describe svc rambo-lb          # Endpoints
+kubectl get pods --show-labels
+kubectl get all --selector app=rambo   # -l
+kubectl delete pods -l app=weather
+kubectl label pods weather org=shmu
+```
+
+</div>
+
+## Namespaces, contexts, manifests
+
+<div class="sheet-grid">
+
+```bash title="Namespaces and contexts" wrap
+kubectl get ns
+kubectl create namespace dev
+kubectl get all --namespace dev        # -n dev
+kubectl --namespace dev get pods <Tab>
+kubectl delete namespace dev           # deletes everything, no questions!
+kubectl config get-contexts / current-context
+kubectl config use-context staging
+kubectl config set-context --current --namespace dev
+# ~/.kube/config
+kubectl krew install ns ctx resource-capacity
+kubectl ns dev / kubectl ctx
+alias kns='kubectl config set-context --current --namespace'
+```
+
+```bash title="Manifests" wrap
+kubectl create deployment db --image mariadb --dry-run=client -o yaml > db.yaml
+kubectl get svc db -o yaml             # from a running object
+kubectl apply -f manifest.yaml         # create or update
+kubectl apply -f lab/                  # alphabetical order!
+kubectl delete -f manifest.yaml
+kubectl api-resources / api-versions
+kubectl explain pod.spec.containers.env
+sed --separate '$a---' *.yaml > manifest.yaml
+/usr/local/bin/kubectl …               # without kubecolor when redirecting
+```
+
+```yaml title="Deployment + Service" wrap
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels: { app: app }
+spec:
+  replicas: 4
+  selector:
+    matchLabels: { app: app }
+  template:
+    metadata:
+      labels: { app: app }
+    spec:
+      containers:
+      - name: wordpress
+        image: wordpress:latest
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: db:3306
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+spec:
+  type: LoadBalancer        # ClusterIP | NodePort
+  sessionAffinity: ClientIP
+  selector: { app: app }
+  ports:
+  - port: 8000
+    targetPort: 80
+    nodePort: 31000         # 30000–32767
+```
+
+</div>
+
+## Resources, autoscaling, configuration
+
+<div class="sheet-grid">
+
+```bash title="Requests, limits, HPA" wrap
+kubectl top pods
+kubectl resource-capacity --pods --util -n wordpress
+kubectl exec -it deployment/adminer -- sh -c 'while true; do date; done'
+kubectl exec deployment/weather -- cat /sys/fs/cgroup/memory.current
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch
+wrk http://localhost:8000/ --connections 400 --duration 2m --threads 20
+k9s
+```
+
+```bash title="ConfigMaps and Secrets" wrap
+kubectl create configmap weather --from-literal WEATHER_QUERY=poprad,sk
+kubectl create cm weather --from-env-file weather.env
+kubectl create secret generic weather --from-literal WEATHER_TOKEN=<API_KEY>
+kubectl create secret generic creds --from-env-file credentials.env
+kubectl get cm / get secrets
+kubectl describe cm weather / describe secret weather
+kubectl delete configmap weather / delete secret weather
+echo -n 'janosik' | base64 / base64 --decode
+kubectl exec deployment/weather -- printenv
+```
+
+```yaml title="env and envFrom" wrap
+env:
+- name: WEATHER_QUERY
+  valueFrom:
+    configMapKeyRef: { name: weather, key: WEATHER_QUERY }
+- name: WEATHER_TOKEN
+  valueFrom:
+    secretKeyRef: { name: weather, key: WEATHER_TOKEN }
+envFrom:
+- configMapRef: { name: weather }
+- secretRef: { name: weather }
+```
+
+</div>
+
+## Ingress and storage
+
+<div class="sheet-grid">
+
+```bash title="Ingress" wrap
+kubectl create ingress weather --rule '/*=weather:8000'            # Prefix
+kubectl create ingress weather --rule /=weather:8000               # Exact
+kubectl create ingress weather --rule 'www.weather.sk/*=weather:8000'
+kubectl get ingress / describe ingress weather
+http --headers http://localhost/   # Server: uvicorn = the application
+# /etc/hosts: <IP> www.weather.sk
+kubectl port-forward -n kube-system --address 0.0.0.0 deploy/traefik 8080:8080
+# http://<IP>:8080/dashboard/
+```
+
+```yaml title="Host-based Ingress" wrap
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rambo
+spec:
+  rules:
+  - host: 1.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-1
+            port: { number: 8000 }
+```
+
+```yaml title="Volumes, PV, PVC" wrap
+# container
+volumeMounts:
+- { name: data, mountPath: /data }
+# pod
+volumes:
+- name: tmp
+  emptyDir: { sizeLimit: 100Mi }
+- name: html
+  hostPath: { path: /opt/www, type: DirectoryOrCreate }
+- name: data
+  persistentVolumeClaim: { claimName: rustfs }
+---
+kind: PersistentVolume
+spec:
+  storageClassName: ""
+  capacity: { storage: 300Mi }
+  accessModes: [ReadWriteOnce]
+  hostPath: { path: /tmp/data-300, type: DirectoryOrCreate }
+---
+kind: PersistentVolumeClaim
+spec:
+  storageClassName: ""      # no key = local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 300Mi }
+```
+
+```bash title="Storage" wrap
+kubectl get pv / get pvc / get storageclass
+sudo chown -R 10001:10001 /tmp/data-300   # RustFS
+```
+
+</div>
+
+## Object short names
+
+| Object | Short | Object | Short |
+| --- | --- | --- | --- |
+| pods | `po` | configmaps | `cm` |
+| deployments | `deploy` | persistentvolumes | `pv` |
+| replicasets | `rs` | persistentvolumeclaims | `pvc` |
+| services | `svc` | horizontalpodautoscalers | `hpa` |
+| namespaces | `ns` | ingresses | `ing` |
+
+## Terms
+
+| Term | Meaning |
+| --- | --- |
+| cluster | master(s) + worker nodes |
+| control plane | API server, scheduler, controller manager, etcd |
+| kubelet / kube-proxy | the node's agent / networking and load balancing on the node |
+| pod | the smallest deployable unit, one or more containers with one IP |
+| ReplicaSet | keeps the number of pods of one template |
+| Deployment | declaratively manages ReplicaSets, rolling updates |
+| Service | a stable name and IP + a load balancer for pods by selector |
+| label / selector | a `key=value` tag / a filter on tags |
+| manifest | a YAML description of an object: apiVersion, kind, metadata, spec |
+| request / limit | the guaranteed minimum for the scheduler / the ceiling (throttling, OOM kill) |
+| HPA | automatic scaling of the number of pods |
+| Ingress / Ingress Controller | HTTP routing rules / the program that carries them out (Traefik) |
+| PV / PVC / StorageClass | a volume / a request for one / automatic PV creation |
+
+## Exam traps
+
+| Trap | Right way |
+| --- | --- |
+| a pod = a container | a pod can have several containers; usually 1 pod = 1 application |
+| the scheduler starts pods | it only plans the node; the kubelet and runtime start them |
+| a node needs Docker | any CRI runtime (K3s: containerd) |
+| `kubectl logs pod weather` | `kubectl logs pod/weather` |
+| port-forward works from another PC | only with `--address 0.0.0.0` |
+| a deleted deployment pod is gone | the ReplicaSet replaces it; delete the deployment |
+| `logs deployment/x` = logs of all pods | only one |
+| a service is tied to a deployment | to pods through a selector; they're independent |
+| `--port` = the application's port | the service's port; the application is `--target-port` |
+| you set a NodePort in `expose` | only in a manifest (`nodePort`) |
+| Traefik handles LoadBalancer in K3s | ServiceLB; Traefik is the Ingress Controller on 80/443 |
+| two LB services on the same port | the second stays `<pending>` |
+| `get all` without `-n` sees everything | only the current namespace |
+| `delete namespace` asks first | deletes everything without confirmation |
+| `apply -f folder/` goes in the right order | alphabetically — use number prefixes |
+| changing env in a running pod with apply | most pod fields are immutable — delete and recreate |
+| request = minimum usage | a reservation; usage can be lower |
+| exceeding the CPU limit kills the container | throttling; memory kills (OOM) |
+| HPA % = % of a core | % of the request; without `resources` it doesn't work |
+| the HPA scales down immediately | after 5 minutes |
+| `minReplicas` in the deployment | in the HPA object |
+| a ConfigMap change applies immediately | only in new pods |
+| `envFrom` with arbitrary keys | keys = the application's variable names |
+| a Secret is encrypted | only base64 |
+| the rule `/` also lets CSS through | Exact; a prefix is `/*` |
+| rewrite is part of Ingress | of the particular controller (annotations, Middleware) |
+| Ingress is the future | frozen → Gateway API |
+| hostPath in production | tied to one node |
+| `ReadWriteOnce` = one pod | one node (`ReadWriteOncePod` = one pod) |
+| a PVC without a class uses a manual PV | it gets the default `local-path`; needs `storageClassName: ""` |

@@ -1,0 +1,478 @@
+---
+title: Persistent storage
+description: Stateful applications and three storage requirements, volume types, emptyDir with sizeLimit, hostPath, PersistentVolume and PersistentVolumeClaim, reclaim policy and access modes, StorageClass with dynamic provisioning, an empty storageClassName, permissions, and CSI drivers.
+kind: chapter
+day: 4
+sidebar:
+  order: 14
+  label: 14 · Persistence
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Containers are stateless, but applications often aren't (files, a database, sessions). Storage must **outlive the pod**, be **reachable from all nodes**, and ideally **outlive the whole cluster**. An external service is recommended (*database as a service*).
+- A volume is mounted in the container with `volumeMounts` (`name`, `mountPath`) and defined in the pod's `spec.volumes` (`name` + type).
+- **emptyDir** — an empty folder that lives with the pod (cache, exchange between containers). `sizeLimit` caps it; exceeding it → the pod is evicted.
+- **hostPath** — a folder on the node; it outlives the pod but is tied to **one node**. Only for development and testing, **never in production**.
+- **PV** (created by the admin, capacity, access) + **PVC** (the developer's request) → they're paired (*Bound*). A **StorageClass** creates PVs automatically; in K3s the default is `local-path`. `storageClassName: ""` turns StorageClass off and the PVC looks for manually created PVs.
+</KeyPoints>
+
+## Stateful applications
+
+Containers are **stateless** — much like the HTTP protocol doesn't know you're logged in as John Rambo. An application's state is its **data**: files, a database, login information.
+
+The day 4 morning demo: RustFS behind an [Ingress](/devops-notes/en/kubernetes/ingress/#132--rustfs-through-ingress). You create a bucket, upload images, delete and re-apply the manifest — **the bucket is gone**. Deleting just the pod is enough: the deployment creates a new one and the bucket is gone again.
+
+Storage requirements:
+
+1. **independent of the pod's lifecycle** — restarting the pod doesn't delete it,
+2. **reachable from all nodes** — the scheduler can start the pod on any node,
+3. **survives the whole cluster crashing** — pods are just processes; users' data is what matters. Ideally it's outside the cluster.
+
+:::note[Database as a service]
+A long-standing recommendation: for data durability use a dedicated service (e.g. *database as a service*) that handles mirroring and backups. Persistence inside the cluster brings many more problems. Some say this no longer applies — in a company the existing team usually decides.
+:::
+
+## Volume types
+
+The mechanism is very similar to [volumes in Docker](/devops-notes/en/docker/zvazky/). Besides the local filesystem, Kubernetes can use external storage (AWS, Azure, Google Cloud). The built-in types are listed in the [documentation](https://kubernetes.io/docs/concepts/storage/volumes/) — the list used to be longer; third-party drivers moved to CSI plugins (below). On our single-node cluster we try **emptyDir** and **hostPath**.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/volumes.svg" alt="A node with two pods. The first pod has an emptyDir, deleted together with the pod. The second pod mounts hostPath /opt/www on the node, which outlives the pod but stays on this node, and a PVC leading through a PV to storage outside the node (disk, NFS, cloud, CSI driver), independent of the pod's lifecycle." width="720" height="340" loading="lazy" />
+  <figcaption>emptyDir lives with the pod, hostPath with the node, PV/PVC independently of the pod. Own diagram.</figcaption>
+</figure>
+
+The demos use Nginx — the home page is in `/usr/share/nginx/html`:
+
+```bash
+kubectl exec -it deployment/nginx -- bash
+echo "Mirek was here" > /usr/share/nginx/html/index.html
+```
+
+Mounting a volume has two parts — in the container **where**, in the pod **what**:
+
+```yaml
+    spec:
+      containers:
+      - image: nginx:latest
+        name: nginx
+        volumeMounts:
+        - name: html                      # which volume
+          mountPath: /usr/share/nginx/html # where in the container
+      volumes:
+      - name: html                        # the same name
+        emptyDir: {}                      # the type and its settings
+```
+
+It resembles named volumes in Docker Compose: `volumes` with a name and path in the service, a list of volumes at the top level. `{}` means an empty object — default settings.
+
+## emptyDir
+
+As the name says, it creates an **empty folder**. It exists as long as the **pod** exists. A container restart in the pod doesn't delete it; deleting the pod does.
+
+What for:
+
+- **cache** and temporary data while the application runs (like `/tmp` in Linux, emptied on reboot),
+- **exchanging data between containers** in one pod.
+
+Mounted on `/usr/share/nginx/html`, Nginx returns **403 Forbidden** — the folder is empty, there's no `index.html`. When you create it, the page appears; after deleting the pod it's empty again.
+
+### sizeLimit
+
+```yaml
+      volumes:
+      - name: empty
+        emptyDir:
+          sizeLimit: 100Mi
+```
+
+The control loop watches for it being exceeded:
+
+```bash
+kubectl exec -it deployment/nginx -- bash
+cd /tmp
+dd if=/dev/zero of=garbage bs=1M count=200      # a 200 MiB file
+```
+
+For a while (about a minute in class) nothing happens, then:
+
+```bash
+kubectl describe pod nginx-…
+# Warning  Evicted  … Usage of EmptyDir volume "empty" exceeds the limit "100Mi".
+```
+
+The pod is stopped and the deployment starts a new one. **The original pod stays in the list** as *Error*/*Evicted* — so that you as an admin can look at what happened rather than losing resources without explanation (like a stopped container in Docker). `kubectl describe pod` shows where volumes are mounted.
+
+`sizeLimit` limits the **filesystem**, not RAM — memory is limited by [limits](/devops-notes/en/kubernetes/requesty-a-limity/).
+
+## hostPath
+
+Mounts a folder of the **node's host system**. The data outlives the pod and is available to all containers on **the same node**.
+
+```yaml
+      volumes:
+      - name: html
+        hostPath:
+          path: /opt/www
+          type: DirectoryOrCreate         # create the folder if it doesn't exist
+```
+
+What for:
+
+- local development and testing, when the cluster node is the developer's laptop — exactly our single-node cluster,
+- a pod needs a file of a specific node (e.g. the Docker socket, `/var/lib/docker`) — typically in a DaemonSet for monitoring.
+
+The folder is created by `root`, so writing needs `sudo`:
+
+```bash
+sudo vim /opt/www/index.html     # on the lab machine, not in the pod
+```
+
+The page survives deleting the pod and even the whole deployment.
+
+:::caution[hostPath not in production]
+On a multi-node cluster **each node has its own** folder. A pod on node 1 writes somewhere else than a pod on node 2, and when a pod moves to another node the data "disappears". Apart from special cases (DaemonSets), don't use hostPath in production.
+:::
+
+## PersistentVolume and PersistentVolumeClaim
+
+Volumes aren't everything. Kubernetes has two more objects: the **PersistentVolume** (PV) and the **PersistentVolumeClaim** (PVC). The idea splits the work between two roles:
+
+1. the cluster **administrator** creates a **PV** — a volume with a specific capacity and properties (access type…). Where it physically is (a local disk, NFS, the cloud) isn't the developer's concern,
+2. a **developer** who needs durable data creates a **PVC** — a *claim*, i.e. a request/order: "I need at least 200 MiB with write access",
+3. Kubernetes finds a suitable PV and **pairs** them (*Bound*). From then on nobody else can use that PV,
+4. the PVC is used instead of a volume in the pod's manifest. Until the PVC is bound, **the pod won't start**.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/pv-pvc.svg" alt="The admin created PVs of 100, 300, and 400 Mi. The developer created a 300 Mi PVC used by a pod through claimName. The PVC is bound to the smallest PV that fits — 300 Mi. If the PVC gives a storageClassName, the local-path StorageClass creates a PV pvc-… automatically." width="720" height="300" loading="lazy" />
+  <figcaption>The admin prepares PVs, the developer orders them with a PVC, and a StorageClass can create them by itself. Own diagram.</figcaption>
+</figure>
+
+```bash
+kubectl get pv
+kubectl get pvc
+```
+
+### PV
+
+```yaml title="pv-300.yaml"
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-300
+spec:
+  storageClassName: ""          # no StorageClass (explained below)
+  capacity:                     # how much
+    storage: 300Mi
+  accessModes:                  # how it can be mounted
+  - ReadWriteOnce
+  hostPath:                     # the volume type and its parameters
+    path: /tmp/data-300
+    type: DirectoryOrCreate
+```
+
+```bash
+kubectl apply -f pv-300.yaml
+kubectl get pv
+# NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   AGE
+# data-300   300Mi      RWO            Retain           Available                          5s
+```
+
+| Column | Meaning |
+| --- | --- |
+| `CAPACITY` | the volume's capacity |
+| `ACCESS MODES` | `RWO` = *ReadWriteOnce* (read and write from **one node**), `ROX` = *ReadOnlyMany*, `RWX` = *ReadWriteMany*, `RWOP` = *ReadWriteOncePod* |
+| `RECLAIM POLICY` | what happens to the PV once released: `Retain` (it stays with its data), `Delete` (it's deleted) |
+| `STATUS` | `Available` (free), `Bound` (paired), `Released`… |
+| `CLAIM` | which PVC uses it (`namespace/name`) |
+| `STORAGECLASS` | which StorageClass it came from |
+
+Object names must be lowercase — `100Mega` fails, `100mega` works.
+
+### PVC
+
+```yaml title="pvc.yaml"
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Mi
+```
+
+Using it in a pod — instead of `emptyDir` or `hostPath`:
+
+```yaml
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: rustfs
+```
+
+When PVs of 300 and 400 MiB are available, a 300 MiB PVC is bound to the **300** one — Kubernetes picks the smallest one that satisfies the request.
+
+A bound PV can't be deleted straight away: `kubectl delete pv` switches it to `Terminating` and it's deleted only after the PVC is.
+
+## StorageClass
+
+A **StorageClass** defines how PVs are created **dynamically**. A user requests storage without an admin creating PVs by hand — loosely: "so the admins have nothing to eat" :-) Other reasons: different storage types for different applications (fast SSDs for databases, cheap HDDs for archives) and the cloud, where there are different providers (*provisioners*).
+
+```bash
+kubectl get storageclass
+# NAME                   PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      …
+# local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsumer
+```
+
+In K3s the only and **default** StorageClass is **`local-path`** — under the hood it creates hostPath volumes. The `storageClassName` key in a PVC:
+
+| In the PVC | What happens |
+| --- | --- |
+| the key is **missing** | the **default** StorageClass is used (`local-path` in K3s) |
+| `storageClassName: ""` | **no** StorageClass — the PVC binds only to a manually created PV without a class |
+| `storageClassName: "name"` | that StorageClass automatically creates the needed PV |
+
+:::note[Why the PVC hung in Pending in class]
+In class we created PVs of 100 and 300 MiB and a 200 MiB PVC without `storageClassName` — the PVC stayed `Pending`. The reasons:
+
+- the PVC without the key got the default class `local-path`, but the manual PVs had no class — **they didn't match**,
+- `local-path` uses `WaitForFirstConsumer` — it creates the PV only when a **pod** uses the PVC.
+
+When the PVC was used in a pod, `local-path` created its own PV `pvc-…` of exactly 200 MiB (reclaim policy `Delete`) and the manual PVs went unused. For the PVC to use the manual PVs, both must have `storageClassName: ""`.
+:::
+
+### Permissions
+
+RustFS with a PVC on a manual PV (`hostPath` in `/tmp/data-300`) kept crashing — the container runs as the user with UID **10001** and the folder created by root wasn't its own:
+
+```bash
+sudo chown -R 10001:10001 /tmp/data-300
+kubectl delete pod -l app=rustfs --namespace prod
+```
+
+With `local-path` the provisioner took care of it for us.
+
+## CSI drivers
+
+Third-party storage drivers (AWS, Google Cloud…) used to be part of the Kubernetes core. A new Kubernetes version then had to wait for all of them to update. Hence **CSI** (*Container Storage Interface*): anyone who wants Kubernetes to use their filesystem writes a **CSI plugin** — in simple terms, implements reading and writing. The plugin is installed into the cluster and its type is used as a volume or through a StorageClass.
+
+The list of [CSI drivers](https://kubernetes-csi.github.io/docs/drivers.html) has around 150 entries — Google, AWS, Azure, NFS… For example **Longhorn** (from Rancher) is distributed storage that works across nodes.
+
+## Test yourself
+
+<Question q="What three requirements should storage in Kubernetes meet?">
+Outlive a pod restart, be reachable from all nodes, and survive the whole cluster crashing (ideally be outside it).
+</Question>
+
+<Question q="How long does an emptyDir live and what is it good for?">
+As long as the pod exists (a container restart doesn't delete it). For a cache and exchanging data between containers in the pod.
+</Question>
+
+<Question q="What happens when an emptyDir exceeds its `sizeLimit`?">
+After a while the pod is evicted and the deployment starts a new one. The original pod stays in the list for diagnosis.
+</Question>
+
+<Question q="Why not hostPath in production?">
+The folder is on a particular node. On a multi-node cluster each node has different data, and when a pod moves to another node the data "disappears".
+</Question>
+
+<Question q="Who creates PVs and who creates PVCs?">
+PVs are created by the administrator (or automatically by a StorageClass); a PVC is created by a developer as a request for storage.
+</Question>
+
+<Question q="What does `ReadWriteOnce` mean?">
+The volume can be mounted read-write from one node.
+</Question>
+
+<Question q="Why doesn't a PVC without `storageClassName` use a manually created PV in K3s?">
+It gets the default class `local-path`, and the manual PVs have no class. `local-path` creates its own PV when a pod uses the PVC.
+</Question>
+
+## Exercises
+
+### 14.1 · Nginx with emptyDir and hostPath
+
+Deploy Nginx (a deployment + a LoadBalancer service on 8000 → 80). Mount an emptyDir limited to 100Mi on `/tmp` and hostPath `/opt/www` on `/usr/share/nginx/html`. Check that the page survives deleting the pod and that exceeding the emptyDir limit evicts the pod.
+
+<p class="practises">Practises: `volumeMounts`, `volumes`, emptyDir, hostPath.</p>
+
+<Solution>
+```yaml title="nginx.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - image: nginx:latest
+        name: nginx
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: empty
+          mountPath: /tmp
+        - name: html
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: empty
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: html
+        hostPath:
+          path: /opt/www
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+  - name: www
+    port: 8000
+    targetPort: 80
+```
+
+```bash
+kubectl apply -f nginx.yaml
+http "$HOST_IP:8000"                                   # 403 — the folder is empty
+echo '<h1>Hello world</h1>' | sudo tee /opt/www/index.html
+kubectl delete pod -l app=nginx                        # the page stays
+kubectl exec -it deployment/nginx -- dd if=/dev/zero of=/tmp/garbage bs=1M count=200
+kubectl get pods --watch                               # after a while Error/Evicted + a new pod
+```
+</Solution>
+
+### 14.2 · Persistent RustFS
+
+Add persistence to RustFS behind the Ingress: two manual PVs (300Mi and 400Mi, hostPath in `/tmp`) and a 300Mi PVC `rustfs` mounted on `/data`. Create a bucket, upload a file, delete the pod, and check the bucket is still there.
+
+<p class="practises">Practises: PV, PVC, `storageClassName: ""`, permissions.</p>
+
+<Solution>
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-300
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 300Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: /tmp/data-300
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-400
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 400Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: /tmp/data-400
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Mi
+```
+
+PVs have no `namespace` — they're cluster-wide objects. The RustFS deployment gets:
+
+```yaml
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: rustfs
+```
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl get pv,pvc -n prod                  # rustfs Bound to data-300, data-400 Available
+sudo chown -R 10001:10001 /tmp/data-300     # if RustFS crashes on permissions
+kubectl delete pod -l app=rustfs -n prod
+# http://<IP>/ — the bucket and files are still there
+```
+</Solution>
+
+### 14.3 · Persistent WordPress
+
+Add a PVC for the database to the WordPress manifest and mount it on `/var/lib/mysql`. Try it once with a manual PV and once through the default StorageClass (without `storageClassName`).
+
+<p class="practises">Practises: a PVC for a database, the `local-path` StorageClass.</p>
+
+<Solution>
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db
+  namespace: wordpress
+spec:                       # no storageClassName → local-path creates the PV itself
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+```
+
+```yaml
+        volumeMounts:             # in the mariadb container
+        - name: data
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: db
+```
+
+After `kubectl delete -f manifest.yaml` (which also deletes the PVC → `local-path` with `Delete` deletes the data too) WordPress would start from the installation. After deleting just the database pod, posts and users remain. With a manual PV, add `storageClassName: ""` to the PVC.
+</Solution>

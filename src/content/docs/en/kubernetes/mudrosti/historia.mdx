@@ -1,0 +1,55 @@
+---
+title: Stories and history
+description: The train in Orava, buses with trailers, outages of state websites, the name Kubernetes, the Honeypot documentary, and how the instructor chose the distribution for the course.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+The instructor's remarks that aren't strictly course material. Each has the day it was mentioned.
+
+## "Granny, get on!"
+
+The instructor went to secondary school by train from Dolný Kubín to Tvrdošín — an hour on the Orava line. There's a joke about how fast that line is: the conductor shouts "Granny, get on!" and the granny replies "No, I can't, son, I'm in a hurry."
+
+Normally a locomotive and two carriages came. It was critical when a locomotive with one carriage came. Once, though, **only the locomotive** arrived — everyone was very close to each other. The service was provided, under strange conditions — exactly like horizontal scaling when one bus fails.
+
+<p class="wisdom-day">Day 1</p>
+
+## Buses with trailers
+
+A bigger bus isn't a new idea. Under communism there were buses with a covered trailer hitched behind — the forerunner of today's articulated buses. Vertical scaling in practice.
+
+<p class="wisdom-day">Day 1</p>
+
+## Weekend outages
+
+Availability statistics give figures like 99.9 % a year. The contrast: the state portal announces maintenance for the whole Saturday and the train-ticket app reports an outage. Exactly what happens when everything runs on one server.
+
+> "We don't work for the government, we work for business. We can't afford outages of a day or two. Only the state can provide that kind of embarrassment."
+
+<p class="wisdom-day">Day 1</p>
+
+## The helmsman
+
+The instructor wasn't sure whether Kubernetes means "to steer" or "a ship's wheel". The Greek *kybernétés* is the **helmsman** — the one who steers the ship. Hence the wheel in the logo and the word *cybernetics*.
+
+<p class="wisdom-day">Day 1</p>
+
+## Kubernetes: The Documentary
+
+Anyone who wants to know how Kubernetes came about, what problems they solved, and who the first customers were should watch the two-part **Kubernetes: The Documentary** by Honeypot (each part about an hour). "A really nice thing, the story behind it is really good." Kubernetes caught on despite how it all started.
+
+<p class="wisdom-day">Day 1</p>
+
+## How the distribution was chosen
+
+The instructor started the trainings with **MicroK8s** from Canonical — back then every participant had Windows installed differently and MicroK8s had an installer for it. Later he tried **K3d** (K3s in Docker, several nodes on one machine), but networking ports added extra work. He also considered **Rancher**, but it wanted at least 4 GB of RAM. Today the course uses K3s on EC2 machines.
+
+<p class="wisdom-day">Day 4</p>
+
+## Arena to Kubernetes
+
+The university's **Arena** system (testing students' assignments in containers, see the [Docker wisdoms](/devops-notes/en/docker/mudrosti/historia/)) is about to migrate to Kubernetes. Testing an assignment is a textbook **Job**: an isolated environment, run the tests, generate a report, finish.
+
+<p class="wisdom-day">Days 2 and 4</p>
