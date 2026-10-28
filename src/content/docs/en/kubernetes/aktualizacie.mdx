@@ -1,0 +1,243 @@
+---
+title: Rolling updates and selective updates
+description: Updating without downtime with set image, a new ReplicaSet for each template, going back to the old version, an application that crashes, and gradual updates by label (country, region, city).
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · Updates
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- Deleting a deployment and creating a new one = downtime. A **rolling update** replaces pods gradually, so the service keeps responding (*zero downtime*).
+- `kubectl set image deployment/rambo rambo=bletvaska/rambo:2` — `rambo=` is the **container name** in the pod template (with `create deployment` = the image name without registry and tag).
+- Every change to the pod template creates a **new ReplicaSet**; the old one is scaled to 0 but stays. Going back to the previous image reuses the old ReplicaSet.
+- `rambo:3` crashes after ~10 s — Kubernetes restarts it (`RESTARTS` grows, state `Error` / `CrashLoopBackOff`).
+- **Selective updates**: `set image deployments … --selector country=sk,region=east` updates only deployments with matching labels — a bug shows up in only part of the service.
+</KeyPoints>
+
+## The problem
+
+Rambo runs in five replicas and we want to move from version 1 to version 2. With what we know so far, we'd delete the deployment and create a new one — the service would be unavailable meanwhile. The state can afford a weekend outage, business can't. The goal is the shortest possible outage, ideally none (**zero downtime**).
+
+## set image
+
+First look at what's running and from which image:
+
+```bash
+kubectl get deployments
+kubectl get pods --selector app=rambo
+kubectl describe pods --selector app=rambo | grep Image:
+#     Image:          bletvaska/rambo:1
+```
+
+Change the image in the deployment with `set image`:
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+```
+
+- `deployment/rambo` — which deployment,
+- `rambo=` — the **container name** in the pod template. `create deployment` derives it from the image (`bletvaska/rambo:1` → `rambo`). You can check it with `describe deployment/rambo` (the *Containers* section),
+- `bletvaska/rambo:2` — the new image.
+
+`set` can change other parts of the template too, e.g. environment variables (`kubectl set env`).
+
+It's best watched in several browser windows with Rambo and in the terminal:
+
+```bash
+kubectl get pods --watch
+```
+
+Kubernetes starts new pods and stops old ones **gradually**. A brief "outage" in the browser is just a moment when the page refreshed exactly during the swap — negligible from the user's point of view.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/rolling-update.svg" alt="Rolling update over time: the rambo:1 ReplicaSet has 3, 2, 1, and 0 pods in turn, the rambo:2 ReplicaSet 0, 1, 2, and 3 pods." width="720" height="250" loading="lazy" />
+  <figcaption>Rolling update, simplified: the old ReplicaSet shrinks, the new one grows, and the service sends requests to all ready pods. Own diagram.</figcaption>
+</figure>
+
+## A new ReplicaSet
+
+```bash
+kubectl get replicasets --selector app=rambo
+# NAME               DESIRED   CURRENT   READY   AGE
+# rambo-6d4c9b7f8    0         0         0       25m      ← rambo:1
+# rambo-5b8f6c9d4    5         5         5       40s      ← rambo:2
+```
+
+Changing the image changed the **template** the ReplicaSet creates pods from. A ReplicaSet is responsible for one particular template, so the deployment created a **new** one and scaled the old one to 0. The service isn't affected — it finds pods by the `app=rambo` label, which both old and new pods have.
+
+When you go back to the previous image, the deployment reuses the **old ReplicaSet** (the template is the same as before) instead of creating another:
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2   # rambo:3 → back to 2
+kubectl get rs --selector app=rambo                          # the ReplicaSet from rambo:2 comes back to life
+```
+
+:::tip[History and going back]
+Old ReplicaSets are the deployment history (10 are kept by default). To go back one step there's also `kubectl rollout undo deployment/rambo`, and `kubectl rollout status deployment/rambo` follows the progress — in class we went back with `set image`.
+:::
+
+## When the new version crashes
+
+`bletvaska/rambo:3` has a feature (not a bug): it crashes after ~10 seconds.
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:3
+kubectl get pods --watch
+# rambo-7c…   0/1   Error              2   40s
+# rambo-7c…   0/1   CrashLoopBackOff   2   45s
+# rambo-7c…   1/1   Running            3   60s
+```
+
+Kubernetes restarts the crashed container and `RESTARTS` grows. With repeated crashes it waits longer and longer before the next attempt (`CrashLoopBackOff`).
+
+## Selective updates
+
+*Added from day 3.* So that a bad update doesn't hit the whole service, it's good to update **gradually** — e.g. just one street, town, city, country, or continent. If the update is broken, it shows up on only some of the pods. OTA updates of IoT devices work the same way. Another reason: different countries can have different laws and licence terms.
+
+In Kubernetes **labels** and a **selector** make this possible. The morning lab on day 3: infrastructure according to the diagram.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/morning-exercise.png" alt="Diagram: the service rambo:8000 points to four deployments. Germany, test environment: city=mu, 2 replicas. Slovakia, production: region east with city=ke (3 replicas) and city=po (2 replicas), region west with city=ba (4 replicas). All pods from the bletvaska/rambo:1 image." width="1171" height="1416" loading="lazy" />
+  <figcaption>The day 3 morning lab: one service, four deployments with labels for country, environment, region, and city. Image from the instructor's slides.</figcaption>
+</figure>
+
+Each deployment has the label `app: rambo` plus its own labels. One service with the selector `app: rambo` spreads requests across all 11 pods.
+
+```yaml title="rambo-ke (one of the four deployments)"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rambo-ke
+  labels:
+    app: rambo
+    country: sk
+    env: prod
+    region: east
+    city: ke
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rambo
+      city: ke
+  template:
+    metadata:
+      labels:
+        app: rambo
+        country: sk
+        env: prod
+        region: east
+        city: ke
+    spec:
+      containers:
+      - image: bletvaska/rambo:1
+        name: rambo
+```
+
+:::caution[Non-overlapping selectors]
+In the solution from the materials all four deployments have just `app: rambo` as their selector — they overlap. Kubernetes doesn't forbid it, but the documentation warns that controllers with overlapping selectors can fight over the same pods. It's safer to add the label that distinguishes the deployment (here `city`) to `selector.matchLabels`, as in the example above. The service only needs `app: rambo`.
+
+The example also names the container the same in every deployment (`rambo`), so one `set image … rambo=…` command matches all of them. In the materials the containers are called `rambo-mu`, `rambo-ke`…, and `rambo=` wouldn't find them.
+:::
+
+Updating by selector — the command doesn't name a specific deployment, it selects them by label (or all with `--all`):
+
+```bash
+# Rambo 2 in eastern Slovakia
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+# Rambo 3 in western Slovakia
+kubectl set image deployments rambo=bletvaska/rambo:3 --selector country=sk,region=west
+# Rambo 4 in Germany
+kubectl set image deployments rambo=bletvaska/rambo:4 --selector country=de
+# everywhere back to 1
+kubectl set image deployments rambo=bletvaska/rambo:1 --all
+```
+
+Several labels in a selector separated by commas mean **and** — like `WHERE country = 'sk' AND region = 'east'`.
+
+## Test yourself
+
+<Question q="Why not delete the deployment and create a new one with the new version?">
+The service is unavailable until the new one is up. A rolling update replaces pods gradually without downtime.
+</Question>
+
+<Question q="What does `rambo=` mean in `kubectl set image deployment/rambo rambo=bletvaska/rambo:2`?">
+The name of the container in the pod template whose image is changed. With `create deployment` it's derived from the image name.
+</Question>
+
+<Question q="Why did a ReplicaSet appear after `set image`?">
+The pod template changed, and a ReplicaSet belongs to one particular template. The new one scales up, the old one to 0 and stays as history.
+</Question>
+
+<Question q="What happens when you go back to the previous image?">
+The deployment reuses the old ReplicaSet with the same template; it doesn't create a new one.
+</Question>
+
+<Question q="How do you update only the deployments in eastern Slovakia?">
+`kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east`.
+</Question>
+
+<Question q="Why update gradually by region?">
+A broken update hits only part of the service, not all users. Different rules may also apply in different countries.
+</Question>
+
+## Exercises
+
+### 6.1 · Rambo 1 → 2 → 3 → 2
+
+Upgrade the `rambo` deployment (5 replicas, `bletvaska/rambo:1`) to version 2, then to 3, and go back to 2. Watch the pods and ReplicaSets at each step.
+
+<p class="practises">Practises: `set image`, `get --watch`, ReplicaSets as history.</p>
+
+<Solution>
+```bash
+kubectl get pods --watch                                      # in a second pane
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl get rs -l app=rambo                                   # 2 ReplicaSets
+kubectl set image deployment/rambo rambo=bletvaska/rambo:3    # pods crash, RESTARTS grows
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl get rs -l app=rambo                                   # 3 ReplicaSets, the rambo:2 one is active
+```
+</Solution>
+
+### 6.2 · Selective updates
+
+Build the infrastructure from the diagram (four deployments, one LoadBalancer service `rambo` on port 8000). Then run Rambo 2 in eastern Slovakia, Rambo 3 in western Slovakia, and Rambo 4 in Germany — **with commands**, not by editing the manifest.
+
+<p class="practises">Practises: labels, `set image` with a selector.</p>
+
+<Solution>
+A manifest with four deployments following the example (`rambo-mu` with `country: de`, `env: test`, `city: mu`, 2 replicas; `rambo-ke` and `rambo-po` with `region: east`; `rambo-ba` with `region: west`, 4 replicas) and a service:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rambo
+  labels:
+    app: rambo
+spec:
+  type: LoadBalancer
+  selector:
+    app: rambo
+  ports:
+  - name: www
+    port: 8000
+    targetPort: 8000
+```
+
+```bash
+kubectl apply -f rambo.yaml
+kubectl get pods --show-labels
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+kubectl set image deployments rambo=bletvaska/rambo:3 --selector country=sk,region=west
+kubectl set image deployments rambo=bletvaska/rambo:4 --selector country=de
+kubectl get deployments -o wide          # the IMAGES column
+```
+</Solution>

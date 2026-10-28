@@ -1,0 +1,251 @@
+---
+title: Namespaces and contexts
+description: A namespace as a folder for K8s objects, the default namespaces, --namespace and -A, deleting a whole namespace without confirmation, the context and ~/.kube/config, the default namespace, Krew with the ns and ctx plugins, and aliases.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Namespaces
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **namespace** (`ns`) is a logical division of K8s objects — like folders in a filesystem or a Docker composition. Typically per project, team, or environment (`dev`, `qa`, `prod`).
+- Without `--namespace` (`-n`), every command works in the **current** namespace (`default` by default). `-A` / `--all-namespaces` = all of them.
+- `kubectl delete namespace X` deletes **everything in it, without confirmation**.
+- A **context** = cluster + user + default namespace, stored in `~/.kube/config`. Change the default namespace with `kubectl config set-context --current --namespace dev` or directly in the file.
+- **Krew** is a plugin manager for `kubectl`. `kubectl krew install ns ctx` → `kubectl ns`, `kubectl ctx` (interactive with `fzf`).
+</KeyPoints>
+
+## Why namespaces
+
+Once you start creating K8s objects, their number grows very quickly. Different teams want to use the same names and listing takes longer and longer. Labels and filtered `get` help, but they're not enough.
+
+A **namespace** is a mechanism for structuring and organising K8s objects. The closest comparisons:
+
+- a **folder** in a filesystem — into a "holiday" folder you put the itinerary, photos, invoices; into a namespace you put the objects of one project or team,
+- a **Docker composition** — its containers are on their own network and see each other; connecting them to another composition takes extra work.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/namespaces.png" alt="One K8s node divided into the default, dev, qa, and prod namespaces; each has a service and two pods." width="1024" height="330" loading="lazy" />
+  <figcaption>The default, dev, qa, and prod namespaces on one node. Image from the instructor's slides.</figcaption>
+</figure>
+
+The documentation adds that clusters with a few to tens of users don't need namespaces. Start using them when you need what they offer.
+
+## Listing and the default namespaces
+
+```bash
+kubectl get namespaces        # or kubectl get ns
+# NAME              STATUS   AGE
+# default           Active   9d
+# kube-node-lease   Active   9d
+# kube-public       Active   9d
+# kube-system       Active   9d
+```
+
+| Namespace | What it's for |
+| --- | --- |
+| `default` | objects with no namespace specified — where we've worked so far |
+| `kube-system` | objects created by the Kubernetes system (Traefik, CoreDNS, metrics-server…) |
+| `kube-public` | readable by everyone including unauthenticated users, reserved for the cluster |
+| `kube-node-lease` | the nodes' *Lease* objects — the kubelet sends heartbeats through them so the control plane can detect a node failure |
+
+The Starship prompt on the lab machines shows the current namespace next to the ship's wheel icon.
+
+## Working in a particular namespace
+
+```bash
+kubectl create namespace rambo
+kubectl create deployment rambo --image bletvaska/rambo:4 --replicas 5 --namespace rambo
+kubectl get all --namespace rambo
+kubectl get all -A                         # all namespaces, a NAMESPACE column is added
+```
+
+:::caution[Looking in the wrong folder]
+In class we created Rambo in the `rambo` namespace and `kubectl get all` showed 5 pods aged 21 hours. Those weren't new pods — they were yesterday's in `default`, where `get all` looks without `-n`. Always check which namespace you're in.
+:::
+
+`create namespace` creates only one namespace at a time (`exactly one NAME is required`), even if you give it several names. A shell loop handles several:
+
+```bash
+for ns in dev qa prod; do kubectl create namespace "$ns"; done
+```
+
+:::tip[Tab completion in another namespace]
+Put `--namespace` **at the start** of the command. Tab completion then offers objects from that namespace:
+
+```bash
+kubectl --namespace rambo get pods rambo<Tab>
+```
+
+When `--namespace` is at the end, completion comes from the current namespace.
+:::
+
+## Deleting a namespace
+
+```bash
+kubectl delete namespace rambo
+```
+
+**Careful!** If the namespace contains objects, `delete` removes the namespace **and everything in it** — deployments, pods, services — **without confirmation** and without a `--force` switch. In class most people expected Kubernetes not to allow it. It did.
+
+## Context
+
+Adding `--namespace` to every command is a pain. Which namespace is the default is decided by the **context**. A Kubernetes context, like a [Docker context](/devops-notes/en/docker/kontexty-a-limity/), is for working with several clusters, and it's a group of access parameters:
+
+- **which cluster** you talk to,
+- **as which user**,
+- **in which namespace** you work.
+
+Typically you have contexts for a local, a *staging*, and a production cluster. The configuration lives in **`~/.kube/config`**.
+
+```bash
+kubectl config get-contexts
+# CURRENT   NAME      CLUSTER   AUTHINFO   NAMESPACE
+# *         default   default   default
+kubectl config current-context
+kubectl config use-context staging          # switching context
+```
+
+The asterisk in the `CURRENT` column marks the current context.
+
+### The default namespace
+
+```bash
+kubectl config set-context --current --namespace dev
+kubectl config get-contexts                 # dev in the NAMESPACE column
+```
+
+Or directly in the file — the instructor does it this way because he says he never remembers the command:
+
+```yaml title="~/.kube/config (excerpt)"
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: …
+    server: https://127.0.0.1:6443
+  name: default
+contexts:
+- context:
+    cluster: default
+    namespace: dev          # ← the default namespace
+    user: default
+  name: default
+current-context: default
+users:
+- name: default
+  user: …
+```
+
+The structure resembles Docker Compose: lists of `clusters` and `users`, from which `contexts` are composed (cluster + user + namespace). Adding another cluster means adding items to these lists.
+
+:::note[A non-existent namespace]
+`set-context` doesn't check that the namespace exists. You can set the already deleted `rambo` and `kubectl get all` just says *No resources found*. Once you create the namespace, it starts working.
+:::
+
+## Krew and plugins
+
+You can extend `kubectl`. **[Krew](https://krew.sigs.k8s.io/)** is a plugin manager for `kubectl` (itself installed as a plugin); its repository has over 300 plugins. It was installed on the lab machines.
+
+```bash
+kubectl krew list                 # installed
+kubectl krew search ns            # search
+kubectl krew install ns
+kubectl krew install ctx
+```
+
+Plugins aren't audited — Krew warns about that on install. GitHub stars help when choosing.
+
+```bash
+kubectl ns              # list of namespaces, interactive selection with fzf
+kubectl ns dev          # switch
+kubectl ctx             # the same for contexts
+```
+
+They're installed as the commands `kubectl-ns` and `kubectl-ctx` and also as `kubectl` subcommands. If **fzf** is installed, both are interactive. The original tools are **kubens** and **kubectx** and can also be installed as distribution packages.
+
+### Aliases
+
+```bash
+# without plugins
+alias kns='kubectl config set-context --current --namespace'
+alias kctx='kubectl config use-context'
+
+# with plugins
+alias kns='kubectl ns'
+alias kctx='kubectl ctx'
+```
+
+Plugins, a package, or an alias — pick whatever suits you.
+
+## Test yourself
+
+<Question q="What is a namespace and what is it like?">
+A logical division of K8s objects (projects, teams, environments). It's like a folder in a filesystem or a Docker composition.
+</Question>
+
+<Question q="You created a deployment with `--namespace rambo`, but `kubectl get all` shows old pods. Why?">
+`get all` without `-n` looks in the current namespace (`default` by default), not in `rambo`.
+</Question>
+
+<Question q="What does `kubectl delete namespace prod` do when deployments are running in it?">
+It deletes the namespace and all objects in it, without confirmation.
+</Question>
+
+<Question q="Which three things does a context define?">
+The cluster, the user, and the default namespace.
+</Question>
+
+<Question q="Where is the context configuration stored?">
+In `~/.kube/config`.
+</Question>
+
+<Question q="How do you list objects from all namespaces?">
+`kubectl get all -A` (`--all-namespaces`).
+</Question>
+
+## Exercises
+
+### 7.1 · Project namespaces
+
+Create three namespaces for environments: `dev` (development), `qa` (testing), and `prod` (production). The agreement: LoadBalancer services only in `prod`; elsewhere only NodePort or `port-forward`. Make `dev` the default.
+
+<p class="practises">Practises: `create namespace`, `set-context`.</p>
+
+<Solution>
+```bash
+kubectl create namespace dev
+kubectl create namespace qa
+kubectl create namespace prod
+kubectl get ns
+kubectl config set-context --current --namespace dev
+kubectl config get-contexts
+```
+</Solution>
+
+### 7.2 · kns and kctx aliases
+
+Create the aliases `kns` and `kctx` — first without Krew plugins, then with them. Use the alias to switch to `qa`, check it, and go back to `default`.
+
+<p class="practises">Practises: aliases, Krew.</p>
+
+<Solution>
+```bash
+alias kns='kubectl config set-context --current --namespace'
+alias kctx='kubectl config use-context'
+kns qa
+kubectl config get-contexts        # NAMESPACE: qa
+kns default
+
+kubectl krew install ns ctx
+alias kns='kubectl ns'
+alias kctx='kubectl ctx'
+kns                                # pick with the arrow keys via fzf
+```
+
+To keep the aliases after logging out, put them in `~/.bashrc` (or `~/.zshrc`).
+</Solution>

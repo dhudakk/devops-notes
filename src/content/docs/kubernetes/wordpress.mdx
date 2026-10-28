@@ -1,0 +1,331 @@
+---
+title: WordPress ako manifest
+description: Labák WordPress na K8s — menný priestor, databáza MariaDB, aplikácia za load balancerom a Adminer na NodePorte, štítky v metadátach aj v šablóne podu, časté chyby v odsadení a rozšírenia VS Code na písanie manifestov.
+kind: chapter
+day: 2
+sidebar:
+  order: 9
+  label: 09 · WordPress
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Manifest sa skladá z dielikov: `Namespace`, a pre každú službu dvojica **Deployment + Service**. Šablóny pre každý typ objektu sú dobrý štart — vo výsledku je to skladačka.
+- Štítky sú na **troch miestach**: `metadata.labels` deploymentu, `spec.template.metadata.labels` (dostanú ich **pody**) a `spec.selector.matchLabels` — selektor musí sedieť so štítkami v šablóne.
+- WordPress sa na databázu pripája cez **meno služby**: `WORDPRESS_DB_HOST=db:3306`.
+- Typ služby a porty: `db` ClusterIP 3306, `app` LoadBalancer 8000 → 80, `adminer` NodePort 31500. Pri viacerých replikách WordPressu `sessionAffinity: ClientIP`.
+- Najčastejšia chyba je **odsadenie** v YAML (`unknown field`, `cannot unmarshal`). Pomôžu rozšírenia VS Code (YAML od Red Hatu, Kubernetes).
+</KeyPoints>
+
+## Zadanie
+
+Orchestrácia kontajnerov, ktorá vo výsledku poskytne WordPress:
+
+1. Samostatný menný priestor **`wordpress`** — všetky objekty doň.
+2. Služba **`db`** s databázou:
+   - obraz [`mariadb`](https://hub.docker.com/_/mariadb), štandardný port MariaDB,
+   - heslo pre `root` je `top.secret`, pri štarte vytvor databázu `wordpress` a používateľa `wpuser` s heslom `end321`,
+   - jedna replika, štítky `tier: backend`, `env: prod`, `customer: tuke`.
+3. Služba **`app`** s WordPressom:
+   - obraz [`wordpress`](https://hub.docker.com/_/wordpress), pripojenie na databázu `db`,
+   - cez load balancer na porte **8000**, **4 repliky**,
+   - štítky `tier: frontend`, `env: prod`, `customer: tuke`.
+4. Služba **`adminer`**:
+   - obraz [`adminer`](https://hub.docker.com/_/adminer), cez NodePort na porte **31500**,
+   - štítky `tier: frontend`, `env: dev`.
+5. Štyri súbory: `database.yaml`, `application.yaml`, `adminer.yaml` a `manifest.yaml` so všetkým spolu.
+
+Postup z kurzu: v priečinku je pripravený priečinok `templates` so šablónami pre každý typ objektu. Vezmeš šablónu, prepíšeš hodnoty a prilepíš do manifestu. Manifest môžeš priebežne aplikovať a ladiť.
+
+## Riešenie
+
+### Menný priestor a databáza
+
+```yaml title="database.yaml"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wordpress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: wordpress
+  labels:
+    app: db
+    tier: backend
+    env: prod
+    customer: tuke
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+        tier: backend
+        env: prod
+        customer: tuke
+    spec:
+      containers:
+      - image: mariadb:latest
+        name: mariadb
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: top.secret
+        - name: MARIADB_DATABASE
+          value: wordpress
+        - name: MARIADB_USER
+          value: wpuser
+        - name: MARIADB_PASSWORD
+          value: end321
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: wordpress
+  labels:
+    app: db
+    tier: backend
+    env: prod
+    customer: tuke
+spec:
+  type: ClusterIP
+  selector:
+    app: db
+  ports:
+  - name: www
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+```
+
+Kde sú štítky a prečo:
+
+- `metadata.labels` deploymentu — označujú **deployment** (napr. `kubectl get deploy -l tier=backend`),
+- `spec.template.metadata.labels` — z tejto šablóny vznikajú pody, takže štítky dostanú **pody**. Na kurze sme ich tu najprv zabudli a `kubectl get pods --show-labels` ukázal iba `app` a `pod-template-hash`,
+- `spec.selector.matchLabels` — podľa toho deployment (ReplicaSet) spozná **svoje** pody. Musí sedieť so štítkami v šablóne,
+- `selector` služby — podľa neho služba hľadá pody (endpointy).
+
+Port 3306 je štandardný port MySQL/MariaDB.
+
+### Aplikácia
+
+```yaml title="application.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: wordpress
+  labels:
+    app: app
+    tier: frontend
+    env: prod
+    customer: tuke
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+        tier: frontend
+        env: prod
+        customer: tuke
+    spec:
+      containers:
+      - image: wordpress:latest
+        name: wordpress
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: db:3306
+        - name: WORDPRESS_DB_NAME
+          value: wordpress
+        - name: WORDPRESS_DB_USER
+          value: wpuser
+        - name: WORDPRESS_DB_PASSWORD
+          value: end321
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: wordpress
+  labels:
+    app: app
+    tier: frontend
+    env: prod
+    customer: tuke
+spec:
+  type: LoadBalancer
+  sessionAffinity: ClientIP
+  selector:
+    app: app
+  ports:
+  - name: www
+    port: 8000
+    protocol: TCP
+    targetPort: 80
+    nodePort: 31000
+```
+
+- `WORDPRESS_DB_HOST: db:3306` — `db` je **meno služby**, nie IP adresa. Port je pri MariaDB predvolený, takže by stačilo aj `db`.
+- Port 8000 je port služby (a load balancera), WordPress v kontajneri počúva na **80**.
+- LoadBalancer vytvára aj NodePort; `nodePort` môžeš zadať, inak sa vyberie náhodne. V šablóne bolo `30000` — pri viacerých službách si daj pozor na kolízie.
+
+:::note[Session affinity pri WordPresse]
+Prvý pokus na kurze: inštalácia prešla, ale po prihlásení ťa to občas odhlásilo. Štyri repliky a load balancer — každá požiadavka môže ísť na iný pod a nie všetko o prihlásení je v databáze. `sessionAffinity: ClientIP` posiela klienta stále na ten istý pod. Prvé prihlásenie po zmene môže ešte zlyhať, ďalšie už nie. Príspevky v databáze vidia všetky repliky.
+:::
+
+### Adminer
+
+```yaml title="adminer.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: wordpress
+  labels:
+    app: adminer
+    tier: frontend
+    env: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+        tier: frontend
+        env: dev
+    spec:
+      containers:
+      - image: adminer:latest
+        name: adminer
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: wordpress
+  labels:
+    app: adminer
+    tier: frontend
+    env: dev
+spec:
+  type: NodePort
+  selector:
+    app: adminer
+  ports:
+  - name: www
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+    nodePort: 31500
+```
+
+### Spustenie
+
+```bash
+sed --separate '$a---' database.yaml application.yaml adminer.yaml > manifest.yaml
+kubectl apply -f manifest.yaml
+kubectl config set-context --current --namespace wordpress
+kubectl get all
+```
+
+- WordPress: `http://<IP>:8000` → inštalácia (jazyk, názov stránky, administrátor),
+- Adminer: `http://<IP>:31500` → server `db`, používateľ `wpuser`, heslo `end321`.
+
+Hotové riešenie lektora je na [github.com/bletvaska/k8s-manifests](https://github.com/bletvaska/k8s-manifests/).
+
+## Časté chyby
+
+**Odsadenie.** YAML je na odsadenie citlivý a chyby sú krkolomné:
+
+```text
+Error from server (BadRequest): error when creating "manifest.yaml":
+Deployment in version "v1" cannot be handled as a Deployment:
+strict decoding error: unknown field "spec.template.labels"
+```
+
+`labels` boli o úroveň vyššie, než mali — patria pod `spec.template.metadata`, nie pod `spec.template`.
+
+```text
+cannot unmarshal object into Go struct field Container.spec.template.spec.containers.ports
+```
+
+`ports` v kontajneri je **zoznam** — každá položka začína pomlčkou:
+
+```yaml
+        ports:
+        - containerPort: 8080
+```
+
+**`<pending>` pri LoadBalancer.** Port 8000 drží iná LoadBalancer služba (napr. `weather` v `default`). Zmaž ju — v K3s sa porty LoadBalancer služieb na uzle nemôžu prekrývať.
+
+**Pod databázy padá.** Pozri `kubectl logs deployment/db` — najčastejšie chýba heslo alebo je preklep v mene premennej.
+
+## Rozšírenia VS Code
+
+Na písanie manifestov odporúča lektor tieto rozšírenia:
+
+- **YAML** (Red Hat) — podpora YAML so zabudovanou podporou syntaxe Kubernetes,
+- **Better YAML Formatter** — formátovanie YAML,
+- **Kubernetes** (Microsoft) — vývoj, nasadzovanie a ladenie aplikácií v Kubernetes; po prejdení myšou ukáže dokumentáciu kľúča.
+
+Rozšírenie Kubernetes začne hneď hlásiť: *One or more containers do not have resources — this can cause noisy neighbor issues*. Kontajner bez obmedzení môže zjesť všetky zdroje uzla a na „susedov“ nič neostane. To je téma ďalšej kapitoly — [Requesty a limity](/devops-notes/kubernetes/requesty-a-limity/). `Alt+Enter` → *Fix* doplní odhadnuté hodnoty `resources`.
+
+## Otestuj sa
+
+<Question q="Na ktorých troch miestach deploymentu sú štítky a na čo slúži každé?">
+`metadata.labels` označuje deployment, `spec.template.metadata.labels` dostanú pody, `spec.selector.matchLabels` určuje, ktoré pody deployment považuje za svoje (musí sedieť so šablónou).
+</Question>
+
+<Question q="Prečo je `WORDPRESS_DB_HOST` nastavený na `db` a nie na IP adresu?">
+`db` je meno služby. IP adresy podov sa menia, meno služby ostáva a služba robí load balancing.
+</Question>
+
+<Question q="Služba `app` má `port: 8000` a `targetPort: 80`. Kde počúva WordPress?">
+V kontajneri na porte 80; zvonku je dostupný cez load balancer na 8000.
+</Question>
+
+<Question q="Prečo pri 4 replikách WordPressu pomáha `sessionAffinity: ClientIP`?">
+Požiadavky z jednej IP idú vždy na ten istý pod, takže sa neodhlasuješ, keď ťa load balancer pošle na inú repliku.
+</Question>
+
+<Question q="Čo znamená chyba *unknown field spec.template.labels*?">
+`labels` sú zle odsadené — patria pod `spec.template.metadata`.
+</Question>
+
+## Cvičenia
+
+### 9.1 · WordPress od piky
+
+Bez pozerania do riešenia napíš `database.yaml`, `application.yaml` a `adminer.yaml` podľa zadania. Spoj ich do `manifest.yaml`, aplikuj, nainštaluj WordPress a v Admineri over, že v databáze `wordpress` pribudli tabuľky.
+
+<p class="practises">Precvičíš: Deployment + Service v YAML, štítky, typy služieb, ladenie.</p>
+
+<Solution>
+Riešenie je v sekcii [Riešenie](#riešenie) vyššie. Overenie:
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl get all -n wordpress --show-labels
+kubectl describe svc app -n wordpress        # Endpoints: 4 IP adresy
+# http://<IP>:8000 — inštalácia WordPressu
+# http://<IP>:31500 — Adminer, server db, wpuser / end321 → databáza wordpress, tabuľky wp_*
+```
+</Solution>

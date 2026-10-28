@@ -1,0 +1,275 @@
+---
+title: Services, labels, and selectors
+description: The Service object and kubectl expose, a service as a load balancer for pods, labels and selectors, port vs. targetPort, the ClusterIP, NodePort, and LoadBalancer service types, and object short names.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Services
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **Service** exposes an application running in one or more pods under **one name and IP address** and acts as a **load balancer** for those pods. It's created with `kubectl expose deployment weather --port 8000`.
+- The service and the deployment are **independent**. What ties a service to pods is a **selector** — it looks for pods with **labels** `key=value`, e.g. `app=weather`. `describe` lists the pods in the `Endpoints` line.
+- **port** = the service's port, **targetPort** = the application's port in the pod. Without `--target-port` they're the same.
+- Types: **ClusterIP** (default, inside the cluster only), **NodePort** (a port 30000–32767 on every node), **LoadBalancer** (an external IP, for production). Each type includes the previous one.
+- Labels are a filter for any command: `--selector app=weather` (`-l`), `--show-labels`.
+</KeyPoints>
+
+## Why a service
+
+After the [Deploy Rambo exercise](/devops-notes/en/kubernetes/deploymenty/#41--deploy-rambo) two problems remained:
+
+1. how to expose the application **without `port-forward`**,
+2. how to spread requests **across all pods** — `port-forward` sends everything to one.
+
+In Docker we had `--publish` for this. In Kubernetes it's about ports too — but completely different :-)
+
+> A Service is a method for exposing a network application that is running as one or more Pods in your cluster.
+
+A service is an object that **exposes** a network application running in pods. It's created with the `expose` command:
+
+```bash
+kubectl expose deployment weather --port 8000
+kubectl get services
+# NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+# kubernetes   ClusterIP   10.43.0.1       <none>        443/TCP    83d
+# weather      ClusterIP   10.43.119.192   <none>        8000/TCP   68s
+```
+
+The service got its own IP address from the cluster range (`10.43.x.x` in K3s) and listens on port 8000.
+
+## describe and Endpoints
+
+```bash
+kubectl describe service weather
+# Selector:    app=weather
+# IP:          10.43.119.192
+# Port:        <unset>  8000/TCP
+# TargetPort:  8000/TCP
+# Endpoints:   10.42.0.38:8000
+```
+
+- `IP` — the service's address in the cluster,
+- `Port` / `TargetPort` — the service's port and the application's port in the pod,
+- `Endpoints` — the **pods' IP addresses** the service sends requests to.
+
+```bash
+http 10.43.119.192:8000      # from a cluster node — the application responds
+```
+
+When you scale the deployment to 3, `Endpoints` immediately shows three addresses — even though there was one pod when the service was created. When you delete the deployment, the service stays, only `Endpoints` is empty. When you create it again, the pods join the service on their own. **The service and the deployment are independent** — so how does the service know?
+
+## Labels and selectors
+
+The answer is **labels** — your own `key=value` pairs in an object's metadata. When you create objects from the command line, they're added automatically: the `weather` deployment gives its pods the label `app=weather`, and `expose` gives the service the **selector** `app=weather`.
+
+```bash
+kubectl get pods --show-labels
+# NAME                       …   LABELS
+# weather-74dffd977d-xgr9d   …   app=weather,pod-template-hash=74dffd977d
+```
+
+Think of a selector as SQL's `WHERE`: the service keeps asking "give me all pods where `app = weather`". That's why its list of endpoints is always current.
+
+Labels can also be structured with a prefix, e.g. `app.kubernetes.io/name: wordpress` — `prefix/name: value`. None of it is mandatory; it's a team convention.
+
+A selector is a **filter for any command**:
+
+```bash
+kubectl get all --selector app=weather
+kubectl get pods -l app=rambo
+kubectl delete pods --selector app=weather                  # only the weather pods, Rambo stays
+kubectl delete deployments,services --selector environment=dev
+kubectl label pods weather org=shmu                         # adding a label
+```
+
+## port and targetPort
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ports.png" alt="Worker Node: a Service with port 7500 and NodePort 30005 sends requests to the pod's Target Port 8080." width="782" height="384" loading="lazy" />
+  <figcaption>NodePort on the node → the service's port → the pod's targetPort. Image from the instructor's slides.</figcaption>
+</figure>
+
+From the service's point of view:
+
+- **port** — the port the **service** listens on,
+- **targetPort** — the port of the **application in the container** (in the pod).
+
+They're usually the same, and `expose` without `--target-port` uses `--port` for both. When you want the service on a different port than the application:
+
+```bash
+kubectl expose deployment weather --port 8080 --target-port 8000
+http 10.43.x.x:8080          # → the pod on 8000
+```
+
+## Service types
+
+The `TYPE` column shows `ClusterIP` by default. You change the type with `--type`. Each type builds on the previous one.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/service-types.svg" alt="A client goes to a load balancer with an external IP, which sends to a NodePort on each cluster node, from there to the service with a ClusterIP, which sends to pods on targetPort 8000. Other pods in the cluster go straight to the service. Brackets on the right show that ClusterIP covers the service and the pods, NodePort adds the node ports, and LoadBalancer adds the external load balancer." width="710" height="510" loading="lazy" />
+  <figcaption>LoadBalancer includes NodePort, which includes ClusterIP. Own diagram.</figcaption>
+</figure>
+
+### ClusterIP
+
+Every service — NodePort and LoadBalancer too — gets an IP address **in the cluster**. The ClusterIP type stops there: the service is reachable **only from inside the cluster** and acts as a load balancer for the pods behind it.
+
+```bash
+kubectl expose deployment weather --name weather-cl --port 8000 --type ClusterIP
+```
+
+It suits services that should stay hidden — e.g. a **database** another service connects to. From outside you reach it only through `port-forward`.
+
+### NodePort
+
+Opens a port **on every node in the cluster** — the same one on all of them. Anyone who knows the IP address of any node can reach the service through this port.
+
+```bash
+kubectl expose deployment weather --name weather-np --port 8080 --target-port 8000 --type NodePort
+kubectl get services
+# NAME         TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+# weather-np   NodePort   10.43.12.169   <none>        8080:32281/TCP   3s
+```
+
+`8080` is the service's port in the cluster, `32281` is the port on the node. It's picked **at random from the 30000–32767 range**. You can't set a specific port from the command line, only [in a manifest](/devops-notes/en/kubernetes/manifesty/) (`nodePort`).
+
+```bash
+echo $HOST_IP                  # the lab machine's IP
+http "$HOST_IP:32281"
+kubectl get nodes -o wide       # node IP addresses
+```
+
+It's not for production — nobody wants standard services on non-standard ports ("here's the website at `<IP>:31593`").
+
+### LoadBalancer
+
+Meant for **production**. It combines everything: it opens one port on an external IP that leads to the nodes' NodePorts, from there to the ClusterIP service and the pods.
+
+```bash
+kubectl expose deployment weather --name weather-lb --port 8080 --target-port 8000 --type LoadBalancer
+kubectl get services
+# NAME         TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)          AGE
+# weather-lb   LoadBalancer   10.43.84.121   172.31.47.159   8080:31962/TCP   71s
+http "$HOST_IP:8080"
+```
+
+The load balancer belongs to the **platform** (the cloud provider), not to Kubernetes itself. The downside: each service needs its own IP address (or port), which raises the cost when there are many services.
+
+:::note[LoadBalancer in K3s]
+K3s has a simple built-in load balancer, **ServiceLB** (Klipper): for each LoadBalancer service it opens the service's port on the node's IP address. Therefore:
+
+- `EXTERNAL-IP` is the EC2 machine's internal IP address, which corresponds to its public address,
+- two LoadBalancer services can't use the **same port** — the second stays at `EXTERNAL-IP <pending>` until you delete the first,
+- ports **80 and 443** are taken by Traefik (the [Ingress Controller](/devops-notes/en/kubernetes/ingress/)).
+
+In class we guessed that Traefik does the load balancing — but Traefik is the Ingress Controller; LoadBalancer services are handled by ServiceLB. MicroK8s uses MetalLB.
+:::
+
+Requests are spread across all pods — in the Rambo app the pod's IP address and hostname change as the page refreshes. That's done by the service itself, not by the LoadBalancer type; a ClusterIP service inside the cluster balances load too.
+
+:::caution[Ingress isn't a service type]
+The slide says Ingress is "a special case of a LoadBalancer service". More precisely: **Ingress** is a separate object with HTTP(S) routing rules carried out by an **Ingress Controller**; the controller itself is usually exposed through a LoadBalancer service. Today the **Gateway API** is recommended instead of Ingress. More in [Ingress](/devops-notes/en/kubernetes/ingress/).
+:::
+
+## Object short names
+
+| Object | Short name |
+| --- | --- |
+| `pods` | `po` |
+| `services` | `svc` |
+| `deployments` | `deploy` |
+| `replicasets` | `rs` |
+| `namespaces` | `ns` |
+| `configmaps` | `cm` |
+
+```bash
+kubectl get svc
+kubectl delete pod,svc,deploy --all
+```
+
+`kubectl api-resources` lists all short names (the `SHORTNAMES` column).
+
+## Test yourself
+
+<Question q="How does a service know which pods to send requests to?">
+By its selector — it looks for pods with matching labels (e.g. `app=weather`). The list is in `describe` in the `Endpoints` line and is kept up to date.
+</Question>
+
+<Question q="What happens to a service when you delete the deployment?">
+It stays, it just has no endpoints. When you recreate the deployment with the same labels, the pods join it on their own.
+</Question>
+
+<Question q="A service has `--port 8080 --target-port 8000`. What does that mean?">
+The service listens on 8080 and sends requests to the application in the pod on 8000.
+</Question>
+
+<Question q="Which service type do you use for a database only an application in the cluster connects to?">
+ClusterIP — it's reachable only inside the cluster.
+</Question>
+
+<Question q="What range is a NodePort from, and can you set it from the command line?">
+30000–32767. From the command line it's picked at random; a specific port can only be set in a manifest (`nodePort`).
+</Question>
+
+<Question q="Why can a LoadBalancer in K3s stay `<pending>`?">
+Another LoadBalancer service already uses the same port on the node (e.g. 8080), or it's port 80/443, which Traefik holds.
+</Question>
+
+<Question q="How do you delete only the weather app's pods?">
+`kubectl delete pods --selector app=weather` (`-l app=weather`).
+</Question>
+
+## Exercises
+
+### 5.1 · Make Rambo Online
+
+Create three services from the `rambo` deployment. The app listens on port 8000 in the container.
+
+- `rambo-cl` of type ClusterIP, reachable in the cluster on port 8080,
+- `rambo-np` of type NodePort, also on port 8080 in the cluster,
+- `rambo-lb` of type LoadBalancer, reachable from outside on port 8080.
+
+Check them with a browser, `curl`/`http`, or `port-forward`. Afterwards delete everything.
+
+<p class="practises">Practises: `expose`, `--type`, `--target-port`, reaching each type.</p>
+
+<Solution>
+```bash
+kubectl expose deployment rambo --name rambo-cl --type ClusterIP \
+  --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-np --type NodePort \
+  --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-lb --type LoadBalancer \
+  --port 8080 --target-port 8000
+
+kubectl get svc
+kubectl port-forward --address 0.0.0.0 svc/rambo-cl 8081:8080   # ClusterIP
+http "$HOST_IP:<NodePort>"                                         # NodePort from get svc
+http "$HOST_IP:8080"                                               # LoadBalancer
+
+kubectl delete svc rambo-cl rambo-np rambo-lb
+```
+
+If `rambo-lb` hangs at `<pending>`, port 8080 is held by another LoadBalancer service (e.g. from the weather demo) — delete it.
+</Solution>
+
+### 5.2 · Morning: Rambo behind a load balancer
+
+From the `bletvaska/rambo:1` image, run a deployment with four replicas and a service `rambo-lb` of type LoadBalancer on port 8080 (Rambo listens on 8000). Refresh the page and watch whether the pod's hostname changes.
+
+<p class="practises">Practises: deployment + service in one go, load distribution.</p>
+
+<Solution>
+```bash
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 4
+kubectl expose deployment rambo --port 8080 --target-port 8000 \
+  --type LoadBalancer --name rambo-lb
+# http://<IP>:8080 — the pod's IP address and hostname change as you refresh
+```
+</Solution>

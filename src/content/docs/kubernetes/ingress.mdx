@@ -1,0 +1,309 @@
+---
+title: Ingress
+description: Ingress (pravidlo) a Ingress Controller (Traefik v K3s), formát URL, pravidlá HOST/PATH=SERVICE:PORT, typ Exact a Prefix, problém s cestou s prefixom a rewrite, pravidlá podľa hostiteľa cez /etc/hosts, Traefik dashboard a nástupca Gateway API.
+kind: chapter
+day: 3
+sidebar:
+  order: 13
+  label: 13 · Ingress
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- LoadBalancer = jeden port na službu. **Ingress** smeruje HTTP(S) požiadavky na porte **80/443** na rôzne služby podľa **hostiteľa** a **cesty** v URL.
+- **Ingress** je K8s objekt s pravidlami, **Ingress Controller** je program, ktorý ich vykonáva — reverzné proxy a load balancer. V K3s je to **Traefik**.
+- Pravidlo z príkazového riadku: `HOST/PATH=SERVICE:PORT`, napr. `--rule /*=weather:8000`. Bez `*` je typ **Exact** (iba presná cesta), s `*` **Prefix**.
+- Aplikácia za cestou s prefixom (`/rambo/2`) nevie, čo s ním — treba **rewrite**, ktorý nie je súčasťou Ingressu, ale konkrétneho controllera. Alternatíva: pravidlá podľa **hostiteľa** (`1.rambo.sk`).
+- Ingress je **zmrazený** — nástupcom je **Gateway API**.
+</KeyPoints>
+
+## Prečo Ingress
+
+S LoadBalancer službami má každá aplikácia vlastný port — weather na 8000, Rambo na 8080, RustFS na 9000/9001. Často však chceš na **jednej adrese** viac HTTP služieb, rozlíšených doménou alebo cestou, bez portov.
+
+> Ingress exposes HTTP and HTTPS routes from outside the cluster to services within the cluster. Traffic routing is controlled by rules defined on the Ingress resource.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ingress.png" alt="Klient ide cez load balancer spravovaný Ingressom do klastra, Ingress podľa pravidla smeruje na službu a tá na pody." width="1400" height="542" loading="lazy" />
+  <figcaption>Klient → Ingress → pravidlo smerovania → služba → pody. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+Treba rozlišovať:
+
+- **Ingress** — K8s objekt, **pravidlo** smerovania. V Kubernetes definujeme práve tieto pravidlá,
+- **Ingress Controller** — **program**, ktorý pravidlá vykonáva: reverzné proxy a load balancer, ktorý prijíma prevádzku zvonku a posiela ju do podov.
+
+Ako controller sa dá použiť kopec riešení — Nginx, Apache, Traefik… V **K3s je to [Traefik](https://traefik.io/)** a počúva na portoch **80 a 443** (preto ich nemôžu použiť iné služby). Traefik poznáš z [kurzu Docker](/devops-notes/docker/register-a-automatizacia/).
+
+## URL a pravidlo
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/url.png" alt="URL http://api.site.com/v1/users?offset=50 rozdelená na schému, hostiteľa (api.site.com), cestu (/v1/users) a dopyt (offset=50)." width="729" height="214" loading="lazy" />
+  <figcaption>Pravidlá Ingressu sa pozerajú iba na hostiteľa a cestu. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+```text
+HOST/PATH=SERVICE_NAME:SERVICE_PORT
+```
+
+- **host** je voliteľný. Bez neho platí pravidlo pre všetku HTTP komunikáciu na IP adresu; s ním iba pre danú doménu,
+- **cesty** (*paths*) — každá má **backend**: službu a jej port,
+- požiadavka musí sedieť na hostiteľa **aj** cestu, až potom ide na službu.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ingress-rules.svg" alt="Klient ide na Ingress Controller (Traefik v K3s, porty 80 a 443), ktorý číta pravidlá z objektu Ingress: /* smeruje na službu weather:8000, 1.rambo.sk/* na rambo-1:8000 a 2.rambo.sk/* na rambo-2:8000." width="720" height="290" loading="lazy" />
+  <figcaption>Jeden controller na porte 80, pravidlá podľa cesty a hostiteľa. Vlastný obrázok.</figcaption>
+</figure>
+
+## Pravidlo podľa cesty
+
+Weather na hlavnej stránke `http://<IP>/`:
+
+```bash
+kubectl create ingress weather --rule /=weather:8000
+kubectl get ingresses
+# NAME      CLASS     HOSTS   ADDRESS         PORTS   AGE
+# weather   traefik   *       172.31.47.159   80      5s
+```
+
+| Stĺpec | Význam |
+| --- | --- |
+| `CLASS` | ktorý Ingress Controller ho spracúva (`spec.ingressClassName`); `<none>` = predvolený |
+| `HOSTS` | domény z pravidiel; `*` = akýkoľvek hostiteľ |
+| `ADDRESS` | IP adresa, na ktorej je Ingress dostupný — vyplní ju controller |
+| `PORTS` | 80, s TLS 80 a 443 |
+
+```bash
+kubectl describe ingress weather
+# Ingress Class:  traefik
+# Rules:
+#   Host  Path  Backends
+#   ----  ----  --------
+#   *     /     weather:8000 (10.42.0.14:8000)
+```
+
+Pri diagnostike over, že pri pravidle je **IP adresa a port podov** — inak služba nemá endpointy.
+
+### Exact vs. Prefix
+
+Stránka sa zobrazí, ale bez štýlov a obrázkov. Rozdiel ukáže hlavička `Server`:
+
+```bash
+http --headers http://localhost/
+# HTTP/1.1 200 OK
+# Server: uvicorn                     ← odpovedala aplikácia (Uvicorn, Python web server)
+
+http --headers http://localhost/static/css/style.css
+# HTTP/1.1 404 Not Found              ← bez Server: uvicorn — odpovedal Traefik
+```
+
+Pravidlo `/` je typu **Exact** — prejde iba presne `/`. Na všetko ostatné (CSS, obrázky) odpovedá sám Ingress Controller chybou 404 a požiadavka sa do aplikácie nedostane.
+
+| Typ | Z príkazového riadku | Čo prejde |
+| --- | --- | --- |
+| **Exact** | `/foo` | iba `/foo` — nie `/foo/` ani `/bar` |
+| **Prefix** | `/foo*` | `/foo`, `/foo/`, `/foo/bar` — všetko pod `/foo` (po celých častiach cesty) |
+
+```bash
+kubectl delete ingress weather
+kubectl create ingress weather --rule '/*=weather:8000'
+http --headers http://localhost/hello/world
+# HTTP/1.1 404 Not Found
+# Server: uvicorn                      ← teraz odpovedá aplikácia
+```
+
+V manifeste:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: weather
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: weather
+            port:
+              number: 8000
+```
+
+### Cesta s prefixom
+
+Pravidlo `/weather/*` pošle požiadavku do aplikácie, ale s celou cestou `/weather/…`. Aplikácia pozná `/static/css/style.css`, nie `/weather/static/css/style.css` — ako keby hľadala neexistujúci priečinok, takže vráti 404.
+
+Riešenia:
+
+- **rewrite** (prepisovacie pravidlo) — pred odoslaním do služby odstrániť prefix `/weather`. To ale **nie je súčasť Ingressu**: Nginx Ingress Controller to rieši **anotáciami**, Traefik objektom **Middleware** (napr. *StripPrefix*). V Traefik dashboarde vidno middleware pri každom routeri,
+- **konfigurácia aplikácie** cez *path prefix* (*base URL*) — ak to aplikácia umožňuje.
+
+## Pravidlo podľa hostiteľa
+
+Niektoré aplikácie s cestou s prefixom nevedia pracovať vôbec (lektor spomína InfluxDB). Vtedy pomôžu pravidlá podľa **hostiteľa** — aplikácia bude na `www.weather.sk`.
+
+Nemáme vlastné DNS záznamy, preto použijeme lokálny súbor `hosts` na **svojom** počítači — funguje ako lokálne DNS s prednosťou pred DNS serverom:
+
+- Linux/macOS: `/etc/hosts`,
+- Windows: `C:\Windows\System32\drivers\etc\hosts` (treba administrátorské práva).
+
+```text title="/etc/hosts"
+<IP>   www.weather.sk
+```
+
+```bash
+kubectl delete ingress weather
+kubectl create ingress weather --rule 'www.weather.sk/*=weather:8000'
+kubectl get ingress
+# NAME      CLASS     HOSTS            ADDRESS         PORTS   AGE
+# weather   traefik   www.weather.sk   172.31.47.159   80      3s
+```
+
+Prehliadač na `http://www.weather.sk` teraz otvorí aplikáciu na tvojom laboratórnom stroji (ping na doménu ukáže tvoju IP).
+
+## Traefik dashboard
+
+Traefik má dashboard, ktorý graficky ukazuje vstupné body (*entry points*), routery, middleware a služby — dobré na rýchle overenie konfigurácie. Kvôli bezpečnosti nie je voľne dostupný, treba presmerovať port:
+
+```bash
+kubectl port-forward --namespace kube-system --address 0.0.0.0 deploy/traefik 8080:8080
+# http://<IP>:8080/dashboard/        ← aj s lomkou na konci
+```
+
+Staršie verzie Traefiku mali dashboard na porte 9000 — materiály z kurzu ešte presmerúvajú `9000:9000` na pod nájdený cez `grep`, čo s novou verziou nefungovalo. Pri `grep` cez `kubectl get pods` navyše prekáža `kubecolor` (farebné kódy na začiatku riadku) — treba volať `/usr/local/bin/kubectl`.
+
+## Gateway API
+
+V dokumentácii Kubernetes je pri Ingresse poznámka: **Ingress je zmrazený** — nebude dostávať nové funkcie, nanajvýš opravy chýb. Projekt odporúča **Gateway API**.
+
+Problémy Ingressu:
+
+- **obmedzený model** — iba HTTP(S), žiadne TCP/UDP, žiadne pokročilé smerovanie,
+- **anotácie konkrétneho controllera** — funkcie navyše (rewrite…) sa pridávali anotáciami, ktoré sú v Nginx iné ako v Traefiku. Konfigurácia nie je prenositeľná — kolegovi s iným controllerom tvoj Ingress nepôjde,
+- **ťažká rozšíriteľnosť** — chýba štandardný spôsob, ako oddeliť zodpovednosti (infra tím spravuje bránu, aplikačný tím si definuje routy).
+
+Gateway API z týchto skúseností vychádza: rieši smerovanie zvonku do klastra (*north-south*) aj medzi službami (*east-west*), protokoly od L4 (TCP/UDP) po L7 (HTTP), je flexibilnejšie a prenositeľné. Podpora je od Kubernetes 1.24. Ingress sa však v praxi stále hojne používa.
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi Ingressom a Ingress Controllerom?">
+Ingress je K8s objekt s pravidlami smerovania. Ingress Controller (v K3s Traefik) je program — reverzné proxy —, ktorý pravidlá vykonáva.
+</Question>
+
+<Question q="Prečo sa pri pravidle `/=weather:8000` nenačítajú štýly?">
+Pravidlo bez `*` je typu Exact a prejde iba presne `/`. Požiadavky na CSS a obrázky odmietne Traefik chybou 404.
+</Question>
+
+<Question q="Ako zistíš, či na požiadavku odpovedala aplikácia alebo Ingress Controller?">
+Z hlavičiek odpovede — aplikácia weather posiela `Server: uvicorn`, Traefik nie.
+</Question>
+
+<Question q="Prečo Rambo na `/rambo/2` nezobrazí obrázky?">
+Aplikácia dostane cestu s prefixom `/rambo/2`, ktorú nepozná. Treba rewrite (vec konkrétneho controllera) alebo pravidlá podľa hostiteľa.
+</Question>
+
+<Question q="Ako vyskúšaš pravidlo podľa hostiteľa bez vlastného DNS?">
+Pridaj do `/etc/hosts` (Windows: `C:\Windows\System32\drivers\etc\hosts`) riadok `<IP> www.weather.sk`.
+</Question>
+
+<Question q="Prečo je Ingress zmrazený a čo ho nahrádza?">
+Podporuje iba HTTP(S), rozšírenia závisia od anotácií konkrétneho controllera (neprenositeľné) a ťažko sa delia zodpovednosti. Nahrádza ho Gateway API.
+</Question>
+
+## Cvičenia
+
+### 13.1 · Rambo s Ingressom
+
+Vytvor Ingress pre celú sériu Rambo: `/rambo/1` → Rambo 1 až `/rambo/5` → Rambo 5. Každý diel je samostatný deployment a služba v mennom priestore `rambo`. Stačí jednotka a dvojka — ostatné sú rovnaké.
+
+Po spustení pravdepodobne namiesto vysmiateho Ramba uvidíš len text — aplikácia nevie pracovať s prefixom. Ak máš možnosť, uprav úlohu na pravidlá podľa hostiteľa: `1.rambo.sk/` až `5.rambo.sk/`.
+
+<p class="practises">Precvičíš: generovanie manifestu, Ingress s viacerými pravidlami, cesta vs. hostiteľ.</p>
+
+<Solution>
+```bash
+kubectl create namespace rambo --dry-run=client -o yaml > manifest.yaml
+echo "---" >> manifest.yaml
+kubectl create deployment rambo-1 --image bletvaska/rambo:1 --namespace rambo \
+  --dry-run=client -o yaml >> manifest.yaml
+echo "---" >> manifest.yaml
+kubectl expose deployment rambo-1 --name rambo-1 --port 8000 --namespace rambo \
+  --dry-run=client -o yaml >> manifest.yaml
+# … rovnako rambo-2 až rambo-5 (expose s --dry-run potrebuje existujúci deployment,
+#   inak službu dopíš podľa vzoru ručne)
+echo "---" >> manifest.yaml
+kubectl create ingress rambo --namespace rambo \
+  --rule '/rambo/1*=rambo-1:8000' \
+  --rule '/rambo/2*=rambo-2:8000' \
+  --dry-run=client -o yaml >> manifest.yaml
+```
+
+Verzia s hostiteľmi (`/etc/hosts`: `<IP> 1.rambo.sk 2.rambo.sk`):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rambo
+  namespace: rambo
+spec:
+  rules:
+  - host: 1.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-1
+            port:
+              number: 8000
+  - host: 2.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-2
+            port:
+              number: 8000
+```
+
+Služby `rambo-1` a `rambo-2` sú typu ClusterIP — von ide všetko cez Ingress na porte 80. `host` je na úrovni `- host:`, nad `http:`.
+</Solution>
+
+### 13.2 · RustFS cez Ingress
+
+*Ranný labák 4. dňa.* Rozšír RustFS z [predchádzajúcej kapitoly](/devops-notes/kubernetes/configmapy-a-secrety/#121--rustfs-s-configmapou-a-secretom) tak, aby bola konzola dostupná cez Ingress na `/`. Službu zmeň na ClusterIP.
+
+<p class="practises">Precvičíš: Ingress v manifeste, ClusterIP za Ingressom.</p>
+
+<Solution>
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rustfs
+            port:
+              number: 9001
+```
+
+V službe `rustfs` nastav `type: ClusterIP`. Konzola je potom na `http://<IP>/` (port 80). Backend je port **9001** — konzola, nie S3 API.
+</Solution>

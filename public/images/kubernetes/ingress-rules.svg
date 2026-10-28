@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 290" font-family="Inter, Helvetica, Arial, sans-serif" fill="#1f2430">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#545a66"/></marker>
+    <style>
+      .ln{stroke:#545a66;stroke-width:1.6;fill:none}
+      .t{font-size:14px;font-weight:600;text-anchor:middle}
+      .s{font-size:12px;text-anchor:middle;fill:#3d4350}
+      .ic{fill:#efe6fb;stroke:#7b4bc4;stroke-width:1.5}
+      .sv{fill:#e2e9fb;stroke:#2c56c0;stroke-width:1.5}
+      .pl{fill:#fff;stroke:#c9ccd3}
+    </style>
+  </defs>
+  <rect x="160" y="14" width="170" height="44" rx="7" fill="#fff" stroke="#7b4bc4" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="245" y="34" class="t">Ingress</text><text x="245" y="50" class="s">object with the rules</text>
+  <path d="M245 58V96" class="ln" stroke-dasharray="4 3" marker-end="url(#a)"/>
+  <rect x="15" y="148" width="110" height="44" rx="22" fill="#f3f4f6" stroke="#8a8f9c" stroke-width="1.5"/>
+  <text x="70" y="175" class="t">Client</text>
+  <path d="M125 170H158" class="ln" marker-end="url(#a)"/>
+  <rect x="160" y="98" width="170" height="144" rx="10" class="ic"/>
+  <text x="245" y="150" class="t">Ingress controller</text>
+  <text x="245" y="170" class="s">Traefik in K3s</text>
+  <text x="245" y="194" class="s">ports 80 / 443</text>
+  <path d="M330 170L518 70" class="ln" marker-end="url(#a)"/><path d="M330 170H518" class="ln" marker-end="url(#a)"/><path d="M330 170L518 270" class="ln" marker-end="url(#a)"/>
+  <rect x="520" y="48" width="185" height="44" rx="7" class="sv"/><text x="612" y="75" class="t">Service weather:8000</text>
+  <rect x="520" y="148" width="185" height="44" rx="7" class="sv"/><text x="612" y="175" class="t">Service rambo-1:8000</text>
+  <rect x="520" y="248" width="185" height="40" rx="7" class="sv"/><text x="612" y="273" class="t">Service rambo-2:8000</text>
+  <rect x="368" y="119" width="74" height="22" rx="11" class="pl"/><text x="405" y="135" class="s">/*</text>
+  <rect x="356" y="159" width="98" height="22" rx="11" class="pl"/><text x="405" y="175" class="s">1.rambo.sk/*</text>
+  <rect x="356" y="199" width="98" height="22" rx="11" class="pl"/><text x="405" y="215" class="s">2.rambo.sk/*</text>
+</svg>

@@ -66,11 +66,11 @@ export const courses: Course[] = [
   {
     id: 'kubernetes',
     abbr: 'K8s',
-    status: 'planned',
+    status: 'active',
     label: { sk: 'Kubernetes', en: 'Kubernetes' },
     summary: {
-      sk: 'Pody, deploymenty, služby, konfigurácia a prevádzka kontajnerových aplikácií.',
-      en: 'Pods, deployments, services, configuration, and running containerised apps.',
+      sk: 'Architektúra klastra, pody, deploymenty a služby, menné priestory, manifesty, limity a autoškálovanie, ConfigMapy a Secrety, Ingress a perzistentné úložisko.',
+      en: 'Cluster architecture, pods, deployments and services, namespaces, manifests, limits and autoscaling, ConfigMaps and Secrets, Ingress, and persistent storage.',
     },
   },
   {

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 250" font-family="Inter, Helvetica, Arial, sans-serif" fill="#1f2430">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#545a66"/></marker>
+    <symbol id="o" viewBox="0 0 32 28"><rect x="1" y="1" width="30" height="26" rx="5" fill="#e3f6ec" stroke="#2f9e66" stroke-width="1.5"/><text x="16" y="19" font-size="12" text-anchor="middle" font-weight="600">1</text></symbol>
+    <symbol id="n" viewBox="0 0 32 28"><rect x="1" y="1" width="30" height="26" rx="5" fill="#e2e9fb" stroke="#2c56c0" stroke-width="1.5"/><text x="16" y="19" font-size="12" text-anchor="middle" font-weight="600">2</text></symbol>
+  </defs>
+  <text x="20" y="96" font-size="14" font-weight="600">ReplicaSet</text>
+  <text x="20" y="114" font-size="13" fill="#3d4350">rambo:1</text>
+  <text x="20" y="176" font-size="14" font-weight="600">ReplicaSet</text>
+  <text x="20" y="194" font-size="13" fill="#3d4350">rambo:2</text>
+  <path d="M150 34H700" stroke="#545a66" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="700" y="24" font-size="13" text-anchor="end" fill="#545a66">time</text>
+  <g fill="none" stroke="#c9ccd3" stroke-dasharray="4 4"><path d="M285 50V220M420 50V220M555 50V220"/></g>
+  <use href="#o" x="160" y="88" width="32" height="28"/><use href="#o" x="198" y="88" width="32" height="28"/><use href="#o" x="236" y="88" width="32" height="28"/>
+  <use href="#o" x="295" y="88" width="32" height="28"/><use href="#o" x="333" y="88" width="32" height="28"/>
+  <use href="#n" x="295" y="168" width="32" height="28"/>
+  <use href="#o" x="430" y="88" width="32" height="28"/>
+  <use href="#n" x="430" y="168" width="32" height="28"/><use href="#n" x="468" y="168" width="32" height="28"/>
+  <use href="#n" x="565" y="168" width="32" height="28"/><use href="#n" x="603" y="168" width="32" height="28"/><use href="#n" x="641" y="168" width="32" height="28"/>
+  <text x="215" y="236" font-size="13" text-anchor="middle" fill="#3d4350">3 + 0</text>
+  <text x="350" y="236" font-size="13" text-anchor="middle" fill="#3d4350">2 + 1</text>
+  <text x="485" y="236" font-size="13" text-anchor="middle" fill="#3d4350">1 + 2</text>
+  <text x="620" y="236" font-size="13" text-anchor="middle" fill="#3d4350">0 + 3</text>
+</svg>

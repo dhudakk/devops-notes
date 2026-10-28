@@ -1,0 +1,221 @@
+---
+title: Pods
+description: The pod as the smallest deployable unit, pod vs. container, kubectl run, get, logs, exec, describe, the two ways to name resources, port-forward with --address, and deleting pods.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Pods
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **pod** is the smallest unit you can deploy in Kubernetes. **A pod is not a container** — it can run several containers that share one IP address.
+- The rule: **one service = one container = one pod**. Scaling is per pod, so WordPress, a database, and Adminer in one pod couldn't be scaled separately. The exception: a helper *sidecar* (monitoring, metrics).
+- `kubectl run weather --image bletvaska/weather` creates a pod. `get pods` — the **READY 1/1** column = running / all containers in the pod.
+- `logs`, `exec -it … -- sh`, `describe` (instead of Docker's `inspect`). A resource is written `pod/weather` or `pod weather` — `logs` wants the slash form or just the name.
+- `port-forward pod/weather 8081:8000` (host on the left, pod on the right). Without `--address 0.0.0.0` it only accepts connections from localhost.
+- A standalone pod is **not restored** by anyone when deleted — that's what deployments are for.
+</KeyPoints>
+
+## What is a pod
+
+The definition from the Kubernetes documentation:
+
+> The smallest deployable unit of computing that can be created and managed.
+
+You often hear that a pod is a container. **It isn't.** A pod is a space in which several containers can run — a bit like a Docker composition.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/pod-vs-containers.png" alt="Photo of a disassembled 9V battery: the casing labelled POD, inside several smaller cells labelled CONTAINERS." width="612" height="500" loading="lazy" />
+  <figcaption>The pod is the casing, the containers are the cells inside. Image from the instructor's slides.</figcaption>
+</figure>
+
+- one pod can run **several containers**,
+- but the rule is: **run each service (container) in exactly one pod**.
+
+Why? Kubernetes scales **pods**. If you had WordPress, MySQL, and Adminer in one pod, you couldn't increase the number of WordPresses without also increasing the number of databases. A common exception is a **sidecar** — a helper container next to the application that collects metrics or does monitoring.
+
+What a pod with two containers looks like is shown in [Manifests](/devops-notes/en/kubernetes/manifesty/#more-containers-in-one-pod).
+
+## Creating a pod
+
+```bash
+kubectl run weather --image bletvaska/weather
+# pod/weather created
+```
+
+This creates the pod `weather` with one container from the `bletvaska/weather` image. Images are pulled from Docker Hub by default; the full name is `docker.io/bletvaska/weather`.
+
+A pod must have at least one container — `run` doesn't work without an image.
+
+## Listing pods
+
+```bash
+kubectl get pods
+# NAME      READY   STATUS    RESTARTS   AGE
+# weather   1/1     Running   0          53s
+```
+
+| Column | Meaning |
+| --- | --- |
+| `NAME` | the pod's name |
+| `READY` | how many containers in the pod are running / how many it has — this tells you how many containers a pod has |
+| `STATUS` | the pod's state (`Running`, `Pending`, `ContainerCreating`, `Error`…) |
+| `RESTARTS` | how many times it has restarted |
+| `AGE` | how long it has been running |
+
+`get all` also shows other objects in the current namespace:
+
+```bash
+kubectl get all
+# NAME          READY   STATUS    RESTARTS   AGE
+# pod/weather   1/1     Running   0          6m1s
+#
+# NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+# service/kubernetes   ClusterIP   10.43.0.1    <none>        443/TCP   9h
+```
+
+`service/kubernetes` is the **API server** that `kubectl` talks to — another pod that can be scaled. If you delete it, Kubernetes recreates it straight away.
+
+:::note[`get all` isn't everything]
+Despite its name, `get all` doesn't list every object type — ConfigMaps, Secrets, Ingresses, and PersistentVolumes are missing, for example. List them separately (`kubectl get configmaps`…).
+:::
+
+## Logs
+
+```bash
+kubectl logs pod/weather
+kubectl logs pod/weather --follow --tail 2     # the last 2 lines, then wait for more
+```
+
+The weather app fetches the weather every minute and writes it to the log. `--follow` (`-f`) and `--tail` work as in Docker.
+
+## A command in the pod
+
+```bash
+kubectl exec weather -- hostname
+kubectl exec -it weather -- sh        # interactive shell
+```
+
+- The command is separated from `kubectl`'s options by **two dashes** `--`. Older versions didn't require it; today you get a warning.
+- `-it` = `-i` (send my input to the container) + `-t` (allocate a terminal). Without them the shell exits immediately.
+- With `exec` you needn't give the resource type — commands can only run in pods.
+
+## describe instead of inspect
+
+```bash
+kubectl describe pod/weather
+```
+
+The output resembles Docker's `inspect`, but it isn't JSON (or YAML) — it's formatted for humans. You'll find:
+
+- metadata (name, namespace, node, labels, annotations),
+- the pod's **IP address** in the cluster (in K3s from the `10.42.x.x` range),
+- the list of containers with images (`Image`, `Image ID` — where the image came from),
+- environment variables, mounted volumes,
+- at the end, an **Events** table — pulling the image, creating and starting the container. It's the first place to look when troubleshooting.
+
+## Two ways to name a resource
+
+`kubectl` identifies a resource by type and name, in two ways:
+
+```bash
+kubectl describe pods weather     # type space name
+kubectl describe pod/weather      # type/name
+```
+
+Some commands want one particular form. `logs` takes its argument as a pod name, so `kubectl logs pod weather` doesn't work — the right form is `kubectl logs pod/weather` or `kubectl logs weather`. Tab completion also behaves differently in different commands.
+
+## Reaching the application
+
+The weather app has a web interface on port **8000**. From a node that's part of the cluster you can go straight to the pod's IP:
+
+```bash
+kubectl describe pod/weather | grep IP      # e.g. 10.42.0.14
+http 10.42.0.14:8000
+```
+
+You can't rely on that — `kubectl` may be on your laptop outside the cluster, and the pod's IP changes with every new pod. For testing there's **port forwarding** (like `--publish` in Docker):
+
+```bash
+kubectl port-forward pod/weather 8081:8000
+#                                └─┬┘ └─┬┘
+#                        host port ┘   └ port in the pod
+```
+
+```bash
+http localhost:8081
+```
+
+By default `port-forward` only accepts connections from **localhost**. To connect from another device (a phone, your computer to the lab machine's IP), add `--address`:
+
+```bash
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+```
+
+`0.0.0.0` means "from anywhere". Without it, a browser on `http://<IP>:8081` fails and `port-forward` prints *connection reset by peer*.
+
+:::note[Busy ports in K3s]
+Port **80** (and 443) in K3s is used by the Ingress Controller, so nothing else can run there. If VS Code is connected over SSH and the port on your local computer is busy, VS Code forwards it to the nearest free one (8080 → 8081) — check the *Ports* tab.
+:::
+
+## Deleting
+
+```bash
+kubectl delete pod/weather
+# pod "weather" deleted from default namespace
+kubectl delete pods --all
+```
+
+A deleted pod is **not restored**. A pod on its own has no control mechanism to start it again after a crash. That makes a standalone pod similar to a container in Docker — orchestration only starts with [deployments](/devops-notes/en/kubernetes/deploymenty/).
+
+## Test yourself
+
+<Question q="Is a pod the same as a container?">
+No. A pod is a wrapper in which several containers can run with a shared IP address. Usually, though, one pod = one container with the application.
+</Question>
+
+<Question q="Why not put WordPress, the database, and Adminer in one pod?">
+Kubernetes scales whole pods. You couldn't increase the number of WordPresses without also increasing the databases and Adminers.
+</Question>
+
+<Question q="What does `READY 1/1` mean?">
+The pod has one container and it's running. With two containers it would be `2/2`.
+</Question>
+
+<Question q="Why doesn't `kubectl logs pod weather` work?">
+`logs` expects a pod name (and optionally a container), so it takes `pod` as the name. Correct: `kubectl logs pod/weather` or `kubectl logs weather`.
+</Question>
+
+<Question q="Why can't you reach the app through port-forward from another computer?">
+By default it only accepts connections from localhost. Add `--address 0.0.0.0`.
+</Question>
+
+<Question q="What happens to a deleted pod created with `kubectl run`?">
+Nothing — it's gone and nobody restores it. Restoring needs a deployment (ReplicaSet).
+</Question>
+
+## Exercises
+
+### 3.1 · Weather in a pod
+
+Run a pod `weather` from the `bletvaska/weather` image. Print the last two log lines and follow new ones. Find the hostname in the container, the pod's IP address, and which registry the image came from. Expose the app on port 8081 so it works from your computer, then delete the pod.
+
+<p class="practises">Practises: `run`, `logs`, `exec`, `describe`, `port-forward`, `delete`.</p>
+
+<Solution>
+```bash
+kubectl run weather --image bletvaska/weather
+kubectl get pods
+kubectl logs pod/weather --follow --tail 2      # Ctrl+C to stop
+kubectl exec weather -- hostname                # weather
+kubectl describe pod/weather                    # IP: 10.42.…, Image ID: docker.io/bletvaska/weather@sha256:…
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+# browser: http://<IP>:8081
+kubectl delete pod/weather
+```
+</Solution>

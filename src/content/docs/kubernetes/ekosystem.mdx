@@ -1,0 +1,121 @@
+---
+title: Ďalšie objekty a ekosystém
+description: Job a CronJob, DaemonSet a StatefulSet v skratke, distribúcie Kubernetes na učenie (MicroK8s, minikube, K3s, K3d, kubeadm) a grafické nástroje na správu klastra (Rancher, OpenLens/Freelens, Headlamp, k9s).
+kind: chapter
+day: 4
+sidebar:
+  order: 15
+  label: 15 · Ekosystém
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+
+<KeyPoints>
+- Na kurze sme prešli asi 10 typov objektov z vyše 100. Ďalšie, o ktorých padla reč: **Job** (spustí príkaz v kontajneri a skončí), **CronJob** (Job podľa plánu), **DaemonSet** (pod na **každom** uzle — monitoring, logy), **StatefulSet** (deployment pre stavové aplikácie s vlastným PVC pre každý pod).
+- Na učenie doma: **minikube** (od projektu Kubernetes), **MicroK8s** (Canonical), **K3s** (Rancher/SUSE), **K3d** (K3s v Docker kontajneroch — viac uzlov na jednom stroji). Vo všetkých fungujú rovnaké príkazy `kubectl`.
+- Grafické nástroje: **Rancher** (web), **OpenLens/Freelens**, **Headlamp** (desktop), **k9s** (terminál), Portainer.
+- Ďalší krok: **Helm** — balíčkovací systém nad Kubernetes (balík ≈ sada manifestov).
+</KeyPoints>
+
+## Ďalšie objekty
+
+Keď si na začiatku 2. dňa vypísal `kubectl api-resources`, bolo ich vyše 100. Na kurze sme prešli Pod, Deployment, ReplicaSet, Service, Namespace, Ingress, ConfigMap, Secret, HorizontalPodAutoscaler, PersistentVolume, PersistentVolumeClaim a StorageClass. To je dobrý základ — na ostatné stačí pár slov.
+
+### Job a CronJob
+
+**Job** spustí v kontajneri príkaz a **skončí**. Po dokončení ostane v zozname, aby si si overil výsledok.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello
+spec:
+  template:
+    spec:
+      containers:
+      - name: hello
+        image: busybox
+        command: ["sh", "-c", "echo Hello from the job"]
+      restartPolicy: Never
+```
+
+Využitie: úlohy z orchestrátora ako [Airflow](/devops-notes/python-advanced/) — existujú orchestrátory úloh postavené priamo na Kubernetes, kde je každá úloha Job. Alebo testovanie študentských zadaní: izolované prostredie, spusti testy, vygeneruj report, hotovo.
+
+**CronJob** je Job s plánom (`schedule` v syntaxi cronu).
+
+### DaemonSet
+
+DaemonSet zabezpečí, že sa pod spustí na **každom uzle práve raz**. Nepoužíva sa na bežné aplikácie, ale na monitoring a zber logov a metrík z uzlov — tam má zmysel aj [hostPath](/devops-notes/kubernetes/perzistencia/#hostpath). Na single-node klastri sa to ukázať nedá.
+
+### StatefulSet
+
+StatefulSet je ako deployment pre **stavové** aplikácie (databázy, úložiská):
+
+- každý pod má **stálu identitu** (meno `minio-0`, `minio-1`…), ktorú si zachová aj po reštarte,
+- každý pod môže mať **vlastný PVC** (`volumeClaimTemplates`), ktorý sa pri zmazaní podu nezmaže,
+- pody sa vytvárajú, škálujú a rušia **postupne** v poradí 0 → 1 → 2,
+- často sa používa s *headless* službou (`clusterIP: None`), aby sa pody našli cez stabilné DNS mená.
+
+Aplikácia však musí vedieť bežať distribuovane — inak viac replík nepomôže (pozri [múdrosti o databázach](/devops-notes/kubernetes/mudrosti/prax/#databáza-v-desiatich-replikách)).
+
+## Distribúcie na učenie
+
+Kubernetes je ako Linux: jadro je jedno, distribúcií veľa. `kubectl` je samostatná binárka a jeho príkazy fungujú všade rovnako — mení sa inštalácia a doplnky.
+
+| Distribúcia | Kto | Poznámka |
+| --- | --- | --- |
+| **minikube** | projekt Kubernetes | najznámejšia na učenie; doplnky cez *addons* (ingress, dashboard…); beží aj na Windows |
+| **MicroK8s** | Canonical | meta príkaz `microk8s enable dashboard`, DNS, registry, Istio…; inštalátor aj pre Windows; load balancer MetalLB |
+| **K3s** | Rancher/SUSE | používame na kurze; jedna binárka, namiesto etcd môže použiť SQLite; aj na produkciu |
+| **K3d** | — | K3s v Docker kontajneroch — tvári sa ako klaster s viacerými uzlami na jednom stroji; sieť a porty vyžadujú prácu navyše (napr. port 8080 je obsadený load balancerom) |
+| **kubeadm** | projekt Kubernetes | nástroj na postavenie „ozajstného“ klastra; balíky sú v distribúciách (`dnf search kubernetes`) |
+
+Pri K3d je každý uzol kontajner, takže sa dá ukázať DaemonSet či rozhadzovanie podov po uzloch. Nový klaster aj kontext:
+
+```bash
+k3d cluster create metropolis
+kubectl config get-contexts          # pribudne k3d-metropolis
+kubectl config use-context k3d-metropolis
+```
+
+V produkcii sú dnes časté **spravované** klastre (AWS EKS, Google GKE, Azure AKS), do ktorých tím už len nasadzuje aplikácie.
+
+## Grafické nástroje
+
+| Nástroj | Typ | Poznámka |
+| --- | --- | --- |
+| **[Rancher](https://www.rancher.com/)** | web | od SUSE; jeden `docker container run` spustí Rancher aj K3s klaster pod ním; potrebuje aspoň 4 GB RAM; má aj terminál priamo v prehliadači |
+| **OpenLens / Freelens** | desktop | Lens bol zadarmo, potom sa uzavrel — vznikol OpenLens a jeho pokračovanie Freelens |
+| **Headlamp** | web/desktop | odporúčal účastník, ktorý ho používa na AWS EKS |
+| **[k9s](https://k9scli.io/)** | terminál | pozri [Requesty a limity](/devops-notes/kubernetes/requesty-a-limity/#k9s) |
+| **Portainer** | web | zvláda Docker aj Kubernetes |
+
+Grafický nástroj potrebuje prístup na API server klastra. Pri spravovaných klastroch môže byť port zvonku zablokovaný — vtedy používaš nástroje poskytovateľa.
+
+:::tip[Prečo príkazový riadok]
+S grafickým rozhraním už neklikáš „pod prstom“. Kto pozná koncepty z príkazového riadku (pody, deploymenty, služby, menné priestory), v ktoromkoľvek GUI sa zorientuje — veľa vecí v ňom zrazu dáva zmysel.
+:::
+
+## Čo ďalej
+
+Ďalší kurz je **Helm** — balíčkovací systém nad Kubernetes. Balík (*chart*) je zjednodušene sada manifestov zozipovaná dokopy. `kubectl` ostane na overovanie, inštalovať sa budú rovno celé aplikácie. Na skladanie manifestov zo šablón existuje aj **Kustomize** (je priamo v `kubectl`).
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi Jobom a Deploymentom?">
+Job spustí príkaz a skončí. Deployment udržiava pody bežiace stále v požadovanom počte.
+</Question>
+
+<Question q="Na čo je DaemonSet?">
+Spustí pod na každom uzle práve raz — typicky monitoring alebo zber logov.
+</Question>
+
+<Question q="Čím sa StatefulSet líši od Deploymentu?">
+Pody majú stálu identitu (meno s poradovým číslom), vlastný PVC a vytvárajú sa a rušia postupne.
+</Question>
+
+<Question q="Platia v minikube rovnaké príkazy ako v K3s?">
+Áno — `kubectl` hovorí s API Kubernetes rovnako. Distribúcie sa líšia inštaláciou a doplnkami (ingress controller, load balancer, StorageClass).
+</Question>

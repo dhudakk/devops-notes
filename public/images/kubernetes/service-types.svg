@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 710 510" font-family="Inter, Helvetica, Arial, sans-serif" fill="#1f2430">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#545a66"/></marker>
+    <style>
+      .ln{stroke:#545a66;stroke-width:1.6;fill:none}
+      .t{font-size:15px;font-weight:600;text-anchor:middle}
+      .s{font-size:13px;text-anchor:middle;fill:#3d4350}
+      .lb{fill:#efe6fb;stroke:#7b4bc4;stroke-width:1.5}
+      .np{fill:#fff1dc;stroke:#d98a1c;stroke-width:1.5}
+      .ci{fill:#e2e9fb;stroke:#2c56c0;stroke-width:1.5}
+      .po{fill:#e3f6ec;stroke:#2f9e66;stroke-width:1.5}
+      .br{stroke-width:2.5;fill:none}
+      .bt{font-size:15px;font-weight:700}
+    </style>
+  </defs>
+  <rect x="230" y="12" width="140" height="38" rx="19" fill="#f3f4f6" stroke="#8a8f9c" stroke-width="1.5"/>
+  <text x="300" y="36" class="t">Client</text>
+  <path d="M300 50V82" class="ln" marker-end="url(#a)"/>
+  <rect x="150" y="84" width="300" height="48" rx="8" class="lb"/>
+  <text x="300" y="104" class="t">Load balancer</text>
+  <text x="300" y="123" class="s">EXTERNAL-IP:8080</text>
+  <rect x="40" y="150" width="520" height="350" rx="14" fill="none" stroke="#8a8f9c" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="56" y="170" font-size="13" fill="#545a66">Cluster</text>
+  <path d="M255 132L175 178" class="ln" marker-end="url(#a)"/><path d="M345 132L425 178" class="ln" marker-end="url(#a)"/>
+  <rect x="70" y="180" width="200" height="48" rx="8" class="np"/>
+  <text x="170" y="200" class="t">Node 1</text>
+  <text x="170" y="219" class="s">node-IP:31234</text>
+  <rect x="330" y="180" width="200" height="48" rx="8" class="np"/>
+  <text x="430" y="200" class="t">Node 2</text>
+  <text x="430" y="219" class="s">node-IP:31234</text>
+  <path d="M175 228L255 274" class="ln" marker-end="url(#a)"/><path d="M425 228L345 274" class="ln" marker-end="url(#a)"/>
+  <rect x="150" y="276" width="300" height="52" rx="8" class="ci"/>
+  <text x="300" y="297" class="t">Service</text>
+  <text x="300" y="317" class="s">CLUSTER-IP:8080 (port)</text>
+  <text x="92" y="306" class="s">other Pods</text>
+  <path d="M126 302H148" class="ln" marker-end="url(#a)"/>
+  <path d="M265 328L160 378" class="ln" marker-end="url(#a)"/><path d="M300 328V378" class="ln" marker-end="url(#a)"/><path d="M335 328L440 378" class="ln" marker-end="url(#a)"/>
+  <rect x="85" y="380" width="130" height="46" rx="8" class="po"/>
+  <text x="150" y="399" class="t">Pod</text>
+  <text x="150" y="417" class="s">:8000 targetPort</text>
+  <rect x="235" y="380" width="130" height="46" rx="8" class="po"/>
+  <text x="300" y="399" class="t">Pod</text>
+  <text x="300" y="417" class="s">:8000 targetPort</text>
+  <rect x="385" y="380" width="130" height="46" rx="8" class="po"/>
+  <text x="450" y="399" class="t">Pod</text>
+  <text x="450" y="417" class="s">:8000 targetPort</text>
+  <text x="300" y="462" class="s">selector app=weather → the Pods become the Service's endpoints</text>
+  <path d="M584 276H592V426H584" class="br" stroke="#2c56c0"/>
+  <text transform="translate(610 351) rotate(-90)" text-anchor="middle" class="bt" fill="#2c56c0">ClusterIP</text>
+  <path d="M624 180H632V426H624" class="br" stroke="#d98a1c"/>
+  <text transform="translate(650 303) rotate(-90)" text-anchor="middle" class="bt" fill="#b06e10">NodePort</text>
+  <path d="M664 84H672V426H664" class="br" stroke="#7b4bc4"/>
+  <text transform="translate(690 255) rotate(-90)" text-anchor="middle" class="bt" fill="#7b4bc4">LoadBalancer</text>
+</svg>

@@ -1,0 +1,227 @@
+---
+title: Autoškálovanie
+description: Horizontal Pod Autoscaler, Vertical Pod Autoscaler a Cluster Autoscaler, kubectl autoscale, sledovanie HPA, umelá záťaž nekonečnou slučkou a nástrojom wrk, päťminútové okno pred znížením počtu podov a hysterézia.
+kind: chapter
+day: 3
+sidebar:
+  order: 11
+  label: 11 · Autoškálovanie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- `kubectl scale` musí zadať človek. **Autoškálovanie** mení počet (alebo veľkosť) podov samo podľa záťaže.
+- **HPA** (*Horizontal Pod Autoscaler*) pridáva a uberá pody — je súčasťou Kubernetes. **VPA** (*Vertical*) mení requesty a limity podov. **Cluster Autoscaler** pridá **uzol**, keď pody visia v `Pending` pre nedostatok zdrojov. VPA ani Cluster Autoscaler nie sú v základnej inštalácii.
+- `kubectl autoscale deployment weather --min 2 --max 5 --cpu 50` vytvorí objekt **HorizontalPodAutoscaler** (`hpa`). Percentá sa počítajú z **requestu** CPU — bez `resources` HPA nefunguje.
+- Počet podov HPA **znižuje až po 5 minútach** pod hranicou, aby počet nekmital (hysterézia). Dá sa nastaviť v manifeste HPA.
+- Záťaž vyrobíš nekonečnou slučkou v pode alebo nástrojom **wrk** na HTTP.
+</KeyPoints>
+
+## Autobusy automaticky
+
+Na začiatku kurzu sme riešili [autobusovú linku](/devops-notes/kubernetes/orchestracia/#autobusová-zastávka) — viac cestujúcich, ako autobus unesie. `kubectl scale` vie pridať pody, ale príkaz musí zadať admin. Potrebovali by sme, aby sa to dialo **automagicky** podľa určených podmienok — pred Vianocami, v noci pri zálohovaní — bez zaplateného Jana, ktorý práve čerpá dovolenku.
+
+> Autoscaling is a method of automatically scaling K8s workloads up or down based on historical resource usage.
+
+| Metóda | Čo robí | V základnej inštalácii |
+| --- | --- | --- |
+| **HPA** — Horizontal Pod Autoscaler | pridá/uberie **pody** (ďalší autobus) | áno |
+| **VPA** — Vertical Pod Autoscaler | zvýši/zníži **requesty a limity** podov (väčší autobus) | nie |
+| **Cluster Autoscaler** | pridá do infraštruktúry **uzol**, keď pody ostávajú v `Pending` | nie |
+
+Cluster Autoscaler nastupuje, keď HPA pridáva pody, ale scheduler pre ne nenájde uzol s voľnými zdrojmi — pody čakajú v `Pending`. Pridá nový uzol (z pripravených strojov, typicky v cloude) a čakajúce pody sa naň presunú.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/hpa-scaling.png" alt="Uzol pred škálovaním HPA s jedným podom a po škálovaní s tromi podmi." width="963" height="421" loading="lazy" />
+  <figcaption>HPA pridá na uzol ďalšie pody. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+## Ako HPA pracuje
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/hpa-flow.png" alt="HPA sa pýta Metrics Servera na metriky, vypočíta počet replík, aktualizuje počet replík v Deploymente a ReplicaSet naškáluje pody POD 1 až POD N." width="1400" height="996" loading="lazy" />
+  <figcaption>1. dopyt na metriky, 2. výpočet počtu replík, 3. zmena počtu v deploymente, 4. ReplicaSet naškáluje pody. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+1. HPA sa pýta **Metrics Servera** na spotrebu podov,
+2. vypočíta potrebný počet replík,
+3. zmení počet replík v **deploymente**,
+4. ReplicaSet pody pridá alebo ubere.
+
+Je to ďalšia riadiaca slučka — v reálnom čase porovnáva spotrebu s cieľom.
+
+## Ukážka
+
+Deployment musí mať nastavené **`resources`** — inak sa nestane nič:
+
+```yaml title="weather.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather
+  labels:
+    app: weather
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weather
+  template:
+    metadata:
+      labels:
+        app: weather
+    spec:
+      containers:
+      - image: bletvaska/weather:latest
+        name: weather
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather
+  labels:
+    app: weather
+spec:
+  type: LoadBalancer
+  selector:
+    app: weather
+  ports:
+  - name: www
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+```
+
+```bash
+kubectl apply -f weather.yaml
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch                     # v druhom okne
+# NAME      REFERENCE            TARGETS        MINPODS   MAXPODS   REPLICAS
+# weather   Deployment/weather   cpu: 2%/50%    2         5         2
+```
+
+- `--min 2 --max 5` — počet podov sa bude držať medzi 2 a 5. Hneď po vytvorení pribudne druhý pod, lebo minimum je 2.
+- `--cpu 50` — cieľ je **50 % CPU**. Percentá sa rátajú z **requestu**: pri requeste `100m` je to 50m na pod. (Staršie verzie `kubectl` mali voľbu `--cpu-percent 50`.)
+- `kubectl autoscale` vytvoril samostatný objekt **HorizontalPodAutoscaler** — vidno ho v `kubectl get all`.
+
+Záťaž — nekonečná slučka v jednom z podov:
+
+```bash
+kubectl exec -it deployment/weather -- bash
+while true; do date; done
+```
+
+`TARGETS` stúpne nad 50 % a `REPLICAS` rastie — 3, 4, až 5 (maximum). Po zastavení slučky (`Ctrl+C`) spotreba klesne, ale pody ostanú ešte **5 minút**.
+
+### Prečo 5 minút
+
+HPA začne znižovať počet podov, až keď je spotreba **5 minút** pod cieľom. Keby reagoval okamžite, pri spotrebe kolísajúcej okolo 50 % (51, 49, 52…) by pody neustále pridával a uberal — **hysterézia**. Ako pri súmrakovom spínači svetla: keď slnko zájde za mrak a vykukne, svetlo by blikalo; preto má spínač pásmo (vypni pod 50, zapni až nad 60).
+
+Interval sa dá zmeniť v manifeste HPA (`spec.behavior.scaleDown.stabilizationWindowSeconds`, predvolene 300 s). Vo výpise `kubectl get hpa weather -o yaml` ho nenájdeš, kým ho nenastavíš.
+
+```bash
+kubectl get hpa weather -o yaml
+# spec:
+#   maxReplicas: 5
+#   minReplicas: 2
+#   metrics:
+#   - resource:
+#       name: cpu
+#       target:
+#         averageUtilization: 50
+#         type: Utilization
+#     type: Resource
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: weather
+```
+
+:::note[minReplicas a maxReplicas]
+Na kurze padla otázka, či `min replicas` a `max replicas` patria do deploymentu. Nie — sú v objekte **HorizontalPodAutoscaler** (`minReplicas`, `maxReplicas`). Deployment má iba `replicas`, ktoré potom HPA prepisuje.
+:::
+
+### wrk
+
+Na webovú aplikáciu je vhodnejší záťažový nástroj, napr. **wrk** — opakovane a paralelne volá jednu URL:
+
+```bash
+sudo apt install wrk
+wrk http://localhost:8000/ \
+  --connections 400 \
+  --duration 2m \
+  --threads 20
+```
+
+400 súčasných spojení, 2 minúty, 20 vlákien. Požiadavky idú cez službu (load balancer), takže záťaž sa rozloží na všetky pody a HPA ich znova pridá. wrk sa hodí aj vývojárom a testerom na záťažové testy — je dobré vedieť dopredu, ako sa aplikácia pri náraze správa.
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi HPA a VPA?">
+HPA mení počet podov (horizontálne). VPA mení requesty a limity podov (vertikálne). HPA je súčasťou Kubernetes, VPA nie.
+</Question>
+
+<Question q="Kedy zasiahne Cluster Autoscaler?">
+Keď pody ostávajú v stave `Pending`, lebo žiadny uzol nemá dosť zdrojov — pridá do klastra nový uzol.
+</Question>
+
+<Question q="Prečo HPA na deploymente bez `resources` nič nerobí?">
+Cieľ je v percentách requestu CPU. Bez requestu sa nedá vypočítať využitie.
+</Question>
+
+<Question q="Request je 100m a cieľ `--cpu 50`. Pri akej spotrebe na pod HPA pridáva pody?">
+Pri priemere nad 50m CPU na pod.
+</Question>
+
+<Question q="Prečo HPA po skončení záťaže hneď neuberie pody?">
+Čaká 5 minút pod cieľom, aby počet podov nekmital, keď spotreba kolíše okolo hranice (hysterézia).
+</Question>
+
+<Question q="Kde sú `minReplicas` a `maxReplicas`?">
+V objekte HorizontalPodAutoscaler, nie v deploymente.
+</Question>
+
+## Cvičenia
+
+### 11.1 · Škálovaný weather
+
+Nasaď weather z ukážky (requesty a limity, služba LoadBalancer na 8000). Vytvor HPA s minimom 2, maximom 5 a cieľom 50 % CPU. Vyrob záťaž nekonečnou slučkou a sleduj HPA; potom ju zastav a zmeraj, kedy sa počet podov vráti na 2.
+
+<p class="practises">Precvičíš: `autoscale`, `get hpa --watch`, správanie pri poklese.</p>
+
+<Solution>
+```bash
+kubectl apply -f weather.yaml
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch                                  # okno 1
+kubectl exec -it deployment/weather -- bash -c 'while true; do date; done'   # okno 2
+# REPLICAS 2 → 3 → 4 → 5; Ctrl+C
+# približne po 5 minútach REPLICAS klesne na 2
+```
+</Solution>
+
+### 11.2 · Záťaž cez wrk
+
+Vyrob záťaž na službu weather nástrojom wrk (400 spojení, 2 minúty, 20 vlákien) a sleduj, ako HPA pridá pody.
+
+<p class="practises">Precvičíš: záťažový test HTTP.</p>
+
+<Solution>
+```bash
+sudo apt install wrk
+wrk http://localhost:8000/ --connections 400 --duration 2m --threads 20
+kubectl get hpa --watch
+```
+
+Na konci wrk vypíše počet požiadaviek za sekundu a latencie.
+</Solution>

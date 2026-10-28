@@ -1,0 +1,275 @@
+---
+title: Služby, štítky a selektory
+description: Objekt Service a kubectl expose, služba ako load balancer pre pody, štítky a selektory, port vs. targetPort, typy služieb ClusterIP, NodePort a LoadBalancer a skratky objektov.
+kind: chapter
+day: 1
+sidebar:
+  order: 5
+  label: 05 · Služby
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Service** sprístupní aplikáciu bežiacu v jednom alebo viacerých podoch pod **jedným menom a IP adresou** a funguje ako **load balancer** pre tieto pody. Vytvára sa cez `kubectl expose deployment weather --port 8000`.
+- Služba a deployment sú **nezávislé**. Službu s podmi spája **selektor** — hľadá pody so **štítkami** (*labels*) `kľúč=hodnota`, napr. `app=weather`. Zoznam podov ukáže `describe` v riadku `Endpoints`.
+- **port** = port služby, **targetPort** = port aplikácie v pode. Bez `--target-port` sú rovnaké.
+- Typy: **ClusterIP** (predvolený, iba vnútri klastra), **NodePort** (port 30000–32767 na každom uzle), **LoadBalancer** (externá IP, pre produkciu). Každý typ obsahuje predchádzajúci.
+- Štítky sú filter pre ľubovoľný príkaz: `--selector app=weather` (`-l`), `--show-labels`.
+</KeyPoints>
+
+## Prečo služba
+
+Po [cvičení Deploy Rambo](/devops-notes/kubernetes/deploymenty/#41--deploy-rambo) ostali dva problémy:
+
+1. ako sprístupniť aplikáciu navonok **bez `port-forward`**,
+2. ako rozhadzovať požiadavky **na všetky pody** — `port-forward` posiela všetko na jeden.
+
+V Dockeri sme na to mali `--publish`. V Kubernetes je to tiež o portoch — ale úplne inak :-)
+
+> A Service is a method for exposing a network application that is running as one or more Pods in your cluster.
+
+Služba je objekt, ktorý **sprístupní** sieťovú aplikáciu bežiacu v podoch. Vytvára sa príkazom `expose`:
+
+```bash
+kubectl expose deployment weather --port 8000
+kubectl get services
+# NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+# kubernetes   ClusterIP   10.43.0.1       <none>        443/TCP    83d
+# weather      ClusterIP   10.43.119.192   <none>        8000/TCP   68s
+```
+
+Služba dostala vlastnú IP adresu z rozsahu klastra (v K3s `10.43.x.x`) a počúva na porte 8000.
+
+## describe a Endpoints
+
+```bash
+kubectl describe service weather
+# Selector:    app=weather
+# IP:          10.43.119.192
+# Port:        <unset>  8000/TCP
+# TargetPort:  8000/TCP
+# Endpoints:   10.42.0.38:8000
+```
+
+- `IP` — adresa služby v klastri,
+- `Port` / `TargetPort` — port služby a port aplikácie v pode,
+- `Endpoints` — **IP adresy podov**, na ktoré služba posiela požiadavky.
+
+```bash
+http 10.43.119.192:8000      # z uzla klastra — odpovie aplikácia
+```
+
+Keď deployment naškáluješ na 3, v `Endpoints` budú hneď tri adresy — hoci pri vytvorení služby bol pod jeden. Keď deployment zmažeš, služba ostane, iba `Endpoints` budú prázdne. Keď ho vytvoríš znova, pody sa k službe samy pripoja. **Služba a deployment sú nezávislé** — ako to teda služba vie?
+
+## Štítky a selektory
+
+Odpoveďou sú **štítky** (*labels*) — vlastné dvojice `kľúč=hodnota` v metadátach objektu. Pri vytváraní z príkazového riadku vzniknú automaticky: deployment `weather` dá podom štítok `app=weather` a `expose` dá službe **selektor** `app=weather`.
+
+```bash
+kubectl get pods --show-labels
+# NAME                       …   LABELS
+# weather-74dffd977d-xgr9d   …   app=weather,pod-template-hash=74dffd977d
+```
+
+Selektor sa dá predstaviť ako `WHERE` v SQL: služba sa neustále pýta „daj mi všetky pody, kde `app = weather`“. Preto má vždy aktuálny zoznam endpointov.
+
+Štítky môžu mať aj štruktúru s prefixom, napr. `app.kubernetes.io/name: wordpress` — `prefix/meno: hodnota`. Nič z toho nie je povinné, je to dohoda v tíme.
+
+Selektor je **filter pre ľubovoľný príkaz**:
+
+```bash
+kubectl get all --selector app=weather
+kubectl get pods -l app=rambo
+kubectl delete pods --selector app=weather                  # iba pody weather, Rambo ostane
+kubectl delete deployments,services --selector environment=dev
+kubectl label pods weather org=shmu                         # pridanie štítku
+```
+
+## port a targetPort
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/ports.png" alt="Worker Node: služba (Service) s portom 7500 a NodePortom 30005 posiela požiadavky na Target Port 8080 podu." width="782" height="384" loading="lazy" />
+  <figcaption>NodePort na uzle → port služby → targetPort podu. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+Z pohľadu služby:
+
+- **port** — port, na ktorom počúva **služba**,
+- **targetPort** — port **aplikácie v kontajneri** (v pode).
+
+Zvyčajne sú rovnaké a `expose` bez `--target-port` použije pre oba hodnotu `--port`. Keď chceš službu na inom porte, než na akom beží aplikácia:
+
+```bash
+kubectl expose deployment weather --port 8080 --target-port 8000
+http 10.43.x.x:8080          # → pod na 8000
+```
+
+## Typy služieb
+
+V stĺpci `TYPE` je predvolene `ClusterIP`. Typ sa mení voľbou `--type`. Každý typ stavia na predchádzajúcom.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/service-types.svg" alt="Klient ide na load balancer s externou IP, ten posiela na NodePort na každom uzle klastra, odtiaľ na službu s ClusterIP a tá na pody na targetPorte 8000. Ostatné pody v klastri idú priamo na službu. Zátvorky vpravo ukazujú, že ClusterIP pokrýva službu a pody, NodePort navyše porty uzlov a LoadBalancer navyše externý load balancer." width="710" height="510" loading="lazy" />
+  <figcaption>LoadBalancer obsahuje NodePort, ten obsahuje ClusterIP. Vlastný obrázok.</figcaption>
+</figure>
+
+### ClusterIP
+
+Každá služba — aj NodePort a LoadBalancer — dostane IP adresu **v klastri**. Typ ClusterIP pri nej ostane: služba je dostupná **len zvnútra klastra** a funguje ako load balancer pre pody za ňou.
+
+```bash
+kubectl expose deployment weather --name weather-cl --port 8000 --type ClusterIP
+```
+
+Hodí sa pre služby, ktoré majú ostať skryté — napr. **databázu**, na ktorú sa pripája iná služba. Zvonku sa k nej dostaneš iba cez `port-forward`.
+
+### NodePort
+
+Otvorí port **na každom uzle klastra** — rovnaký na všetkých. Kto pozná IP adresu ľubovoľného uzla, dostane sa cez tento port ku službe.
+
+```bash
+kubectl expose deployment weather --name weather-np --port 8080 --target-port 8000 --type NodePort
+kubectl get services
+# NAME         TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+# weather-np   NodePort   10.43.12.169   <none>        8080:32281/TCP   3s
+```
+
+`8080` je port služby v klastri, `32281` je port na uzle. Vyberá sa **náhodne z rozsahu 30000–32767**. Konkrétny port sa z príkazového riadku zadať nedá, iba [v manifeste](/devops-notes/kubernetes/manifesty/) (`nodePort`).
+
+```bash
+echo $HOST_IP                  # IP laboratórneho stroja
+http "$HOST_IP:32281"
+kubectl get nodes -o wide       # IP adresy uzlov
+```
+
+Na produkciu sa nehodí — štandardné služby na neštandardných portoch („tu máš web na `<IP>:31593`“) nikto nechce.
+
+### LoadBalancer
+
+Určený na **produkciu**. Kombinuje všetko: na externej IP otvorí jeden port, ktorý smeruje na NodePorty uzlov, odtiaľ na ClusterIP službu a na pody.
+
+```bash
+kubectl expose deployment weather --name weather-lb --port 8080 --target-port 8000 --type LoadBalancer
+kubectl get services
+# NAME         TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)          AGE
+# weather-lb   LoadBalancer   10.43.84.121   172.31.47.159   8080:31962/TCP   71s
+http "$HOST_IP:8080"
+```
+
+Load balancer je vec **platformy** (cloudového poskytovateľa), nie Kubernetes samotného. Nevýhoda: každá služba potrebuje vlastnú IP adresu (alebo port), čo pri veľa službách zvyšuje cenu.
+
+:::note[LoadBalancer v K3s]
+K3s má vstavaný jednoduchý load balancer **ServiceLB** (Klipper): pre každú službu typu LoadBalancer otvorí jej port na IP adrese uzla. Preto:
+
+- `EXTERNAL-IP` je vnútorná IP adresa EC2 stroja, ktorá zodpovedá jeho verejnej adrese,
+- dve LoadBalancer služby nemôžu mať **rovnaký port** — druhá ostane v `EXTERNAL-IP <pending>`, kým prvú nezmažeš,
+- porty **80 a 443** sú obsadené Traefikom ([Ingress Controller](/devops-notes/kubernetes/ingress/)).
+
+Na kurze sme hádali, že load balancing robí Traefik — ten je však Ingress Controller; LoadBalancer služby obsluhuje ServiceLB. MicroK8s používa MetalLB.
+:::
+
+Požiadavky sa rozhadzujú na všetky pody — v aplikácii Rambo sa pri obnovovaní mení IP adresa a hostname podu. O to sa stará samotná služba, nie typ LoadBalancer; aj ClusterIP služba vo vnútri klastra rozkladá záťaž.
+
+:::caution[Ingress nie je typ služby]
+Slajd hovorí, že Ingress je „špeciálny prípad služby typu LoadBalancer“. Presnejšie: **Ingress** je samostatný objekt s pravidlami smerovania HTTP(S), ktoré vykonáva **Ingress Controller**; ten sám býva sprístupnený cez službu typu LoadBalancer. Dnes sa namiesto Ingressu odporúča **Gateway API**. Viac v kapitole [Ingress](/devops-notes/kubernetes/ingress/).
+:::
+
+## Skratky objektov
+
+| Objekt | Skratka |
+| --- | --- |
+| `pods` | `po` |
+| `services` | `svc` |
+| `deployments` | `deploy` |
+| `replicasets` | `rs` |
+| `namespaces` | `ns` |
+| `configmaps` | `cm` |
+
+```bash
+kubectl get svc
+kubectl delete pod,svc,deploy --all
+```
+
+Úplný zoznam skratiek vypíše `kubectl api-resources` (stĺpec `SHORTNAMES`).
+
+## Otestuj sa
+
+<Question q="Ako služba vie, na ktoré pody má posielať požiadavky?">
+Podľa selektora — hľadá pody so zhodnými štítkami (napr. `app=weather`). Zoznam je v `describe` v riadku `Endpoints` a priebežne sa aktualizuje.
+</Question>
+
+<Question q="Čo sa stane so službou, keď zmažeš deployment?">
+Ostane, len nemá endpointy. Keď deployment vytvoríš znova s rovnakými štítkami, pody sa k nej samy pripoja.
+</Question>
+
+<Question q="Služba má `--port 8080 --target-port 8000`. Čo to znamená?">
+Služba počúva na 8080 a požiadavky posiela aplikácii v pode na 8000.
+</Question>
+
+<Question q="Ktorý typ služby použiješ pre databázu, na ktorú sa pripája iba aplikácia v klastri?">
+ClusterIP — je dostupná iba vnútri klastra.
+</Question>
+
+<Question q="Z akého rozsahu je NodePort a dá sa zadať z príkazového riadku?">
+30000–32767. Z príkazového riadku sa vyberie náhodne; konkrétny port sa dá zadať iba v manifeste (`nodePort`).
+</Question>
+
+<Question q="Prečo môže LoadBalancer v K3s ostať v stave `<pending>`?">
+Iná LoadBalancer služba už používa rovnaký port na uzle (napr. 8080), alebo ide o port 80/443, ktorý drží Traefik.
+</Question>
+
+<Question q="Ako zmažeš iba pody aplikácie weather?">
+`kubectl delete pods --selector app=weather` (`-l app=weather`).
+</Question>
+
+## Cvičenia
+
+### 5.1 · Make Rambo Online
+
+Z deploymentu `rambo` vytvor tri služby. Aplikácia v kontajneri beží na porte 8000.
+
+- `rambo-cl` typu ClusterIP, v klastri dostupná na porte 8080,
+- `rambo-np` typu NodePort, v klastri tiež na porte 8080,
+- `rambo-lb` typu LoadBalancer, zvonku dostupná na porte 8080.
+
+Over ich prehliadačom, `curl`/`http` alebo cez `port-forward`. Po overení všetko zmaž.
+
+<p class="practises">Precvičíš: `expose`, `--type`, `--target-port`, prístup ku každému typu.</p>
+
+<Solution>
+```bash
+kubectl expose deployment rambo --name rambo-cl --type ClusterIP \
+  --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-np --type NodePort \
+  --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-lb --type LoadBalancer \
+  --port 8080 --target-port 8000
+
+kubectl get svc
+kubectl port-forward --address 0.0.0.0 svc/rambo-cl 8081:8080   # ClusterIP
+http "$HOST_IP:<NodePort>"                                         # NodePort z get svc
+http "$HOST_IP:8080"                                               # LoadBalancer
+
+kubectl delete svc rambo-cl rambo-np rambo-lb
+```
+
+Ak `rambo-lb` visí v `<pending>`, port 8080 drží iná LoadBalancer služba (napr. z ukážky s weather) — zmaž ju.
+</Solution>
+
+### 5.2 · Ráno: Rambo za load balancerom
+
+Spusti z obrazu `bletvaska/rambo:1` deployment v štyroch replikách a službu `rambo-lb` typu LoadBalancer na porte 8080 (Rambo počúva na 8000). Obnovuj stránku a sleduj, či sa mení hostname podu.
+
+<p class="practises">Precvičíš: deployment + služba jedným dychom, rozhadzovanie záťaže.</p>
+
+<Solution>
+```bash
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 4
+kubectl expose deployment rambo --port 8080 --target-port 8000 \
+  --type LoadBalancer --name rambo-lb
+# http://<IP>:8080 — IP adresa a hostname podu sa pri obnovovaní striedajú
+```
+</Solution>

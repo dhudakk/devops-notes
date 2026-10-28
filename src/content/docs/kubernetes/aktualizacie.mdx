@@ -1,0 +1,243 @@
+---
+title: Rolling update a selektívne aktualizácie
+description: Aktualizácia bez výpadku príkazom set image, nový ReplicaSet pre každú šablónu, návrat na starú verziu, aplikácia, ktorá padá, a postupné aktualizácie podľa štítkov (krajina, región, mesto).
+kind: chapter
+day: 1
+sidebar:
+  order: 6
+  label: 06 · Aktualizácie
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Zmazať deployment a vytvoriť nový = výpadok. **Rolling update** vymieňa pody postupne, takže služba stále odpovedá (*zero downtime*).
+- `kubectl set image deployment/rambo rambo=bletvaska/rambo:2` — `rambo=` je **meno kontajnera** v šablóne podu (pri `create deployment` = meno obrazu bez registra a tagu).
+- Každá zmena šablóny podu vytvorí **nový ReplicaSet**; starý sa naškáluje na 0, ale ostane. Návrat na predošlý obraz znova použije starý ReplicaSet.
+- `rambo:3` po ~10 s spadne — Kubernetes ho reštartuje (`RESTARTS` rastie, stav `Error` / `CrashLoopBackOff`).
+- **Selektívne aktualizácie**: `set image deployments … --selector country=sk,region=east` aktualizuje iba deploymenty so zhodnými štítkami — chyba sa prejaví len na časti služby.
+</KeyPoints>
+
+## Problém
+
+Aplikácia Rambo beží v piatich replikách a chceme ju povýšiť z verzie 1 na verziu 2. S doterajšími znalosťami by sme deployment zmazali a vytvorili nový — počas toho by bola služba nedostupná. Štát si môže dovoliť víkendovú odstávku, biznis nie. Cieľom je čo najkratší výpadok, ideálne žiadny (**zero downtime**).
+
+## set image
+
+Najprv sa pozri, čo beží a z akého obrazu:
+
+```bash
+kubectl get deployments
+kubectl get pods --selector app=rambo
+kubectl describe pods --selector app=rambo | grep Image:
+#     Image:          bletvaska/rambo:1
+```
+
+Obraz v deploymente zmeníš príkazom `set image`:
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+```
+
+- `deployment/rambo` — ktorý deployment,
+- `rambo=` — **meno kontajnera** v šablóne podu. `create deployment` ho odvodí z obrazu (`bletvaska/rambo:1` → `rambo`). Overíš ho cez `describe deployment/rambo` (sekcia *Containers*),
+- `bletvaska/rambo:2` — nový obraz.
+
+`set` vie nastaviť aj iné časti šablóny, napr. premenné prostredia (`kubectl set env`).
+
+Najlepšie je to sledovať v niekoľkých oknách prehliadača s Rambom a v termináli:
+
+```bash
+kubectl get pods --watch
+```
+
+Kubernetes zapína nové pody a vypína staré **postupne**. Krátky „výpadok“ v prehliadači je len chvíľa, keď sa stránka obnovila práve počas výmeny — z pohľadu používateľa zanedbateľný.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/rolling-update.svg" alt="Rolling update v čase: ReplicaSet rambo:1 má postupne 3, 2, 1 a 0 podov, ReplicaSet rambo:2 postupne 0, 1, 2 a 3 pody." width="720" height="250" loading="lazy" />
+  <figcaption>Rolling update zjednodušene: starý ReplicaSet ubúda, nový pribúda, služba posiela požiadavky na všetky pripravené pody. Vlastný obrázok.</figcaption>
+</figure>
+
+## Nový ReplicaSet
+
+```bash
+kubectl get replicasets --selector app=rambo
+# NAME               DESIRED   CURRENT   READY   AGE
+# rambo-6d4c9b7f8    0         0         0       25m      ← rambo:1
+# rambo-5b8f6c9d4    5         5         5       40s      ← rambo:2
+```
+
+Zmenou obrazu sa zmenila **šablóna**, z ktorej ReplicaSet vytvára pody. ReplicaSet zodpovedá za jednu konkrétnu šablónu, preto deployment vytvoril **nový** a starý naškáloval na 0. Služba sa ničoho nedotkne — pody hľadá podľa štítku `app=rambo`, ktorý majú staré aj nové.
+
+Keď sa vrátiš na predošlý obraz, deployment znova použije **starý ReplicaSet** (šablóna je rovnaká ako predtým), nevytvorí ďalší:
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2   # rambo:3 → späť na 2
+kubectl get rs --selector app=rambo                          # ožije ReplicaSet z rambo:2
+```
+
+:::tip[História a návrat]
+Staré ReplicaSety sú história nasadení (predvolene sa ich drží 10). Na návrat o krok späť existuje aj `kubectl rollout undo deployment/rambo` a priebeh sleduje `kubectl rollout status deployment/rambo` — na kurze sme sa vracali cez `set image`.
+:::
+
+## Keď nová verzia padá
+
+`bletvaska/rambo:3` má vlastnosť (nie chybu): po ~10 sekundách behu spadne.
+
+```bash
+kubectl set image deployment/rambo rambo=bletvaska/rambo:3
+kubectl get pods --watch
+# rambo-7c…   0/1   Error              2   40s
+# rambo-7c…   0/1   CrashLoopBackOff   2   45s
+# rambo-7c…   1/1   Running            3   60s
+```
+
+Kubernetes padnutý kontajner reštartuje, `RESTARTS` rastie. Pri opakovaných pádoch čaká pred ďalším pokusom čoraz dlhšie (`CrashLoopBackOff`).
+
+## Selektívne aktualizácie
+
+*Doplnené z dňa 3.* Aby zlá aktualizácia nepostihla celú službu, je dobré aktualizovať **postupne** — napr. len jednu ulicu, obec, mesto, krajinu, kontinent. Ak je aktualizácia chybná, prejaví sa iba na časti podov. Rovnako to robia OTA aktualizácie IoT zariadení. Ďalší dôvod: v rôznych krajinách môžu platiť iné zákony a licenčné podmienky.
+
+V Kubernetes to umožnia **štítky** a **selektor**. Ranný labák 3. dňa: infraštruktúra podľa diagramu.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/morning-exercise.png" alt="Diagram: služba rambo:8000 smeruje na štyri deploymenty. Nemecko, testovacie prostredie: city=mu, 2 repliky. Slovensko, produkcia: región east s city=ke (3 repliky) a city=po (2 repliky), región west s city=ba (4 repliky). Všetky pody z obrazu bletvaska/rambo:1." width="1171" height="1416" loading="lazy" />
+  <figcaption>Ranný labák 3. dňa: jedna služba, štyri deploymenty so štítkami krajiny, prostredia, regiónu a mesta. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+Každý deployment má štítok `app: rambo` a k tomu svoje štítky. Jedna služba so selektorom `app: rambo` rozhadzuje požiadavky na všetkých 11 podov.
+
+```yaml title="rambo-ke (jeden zo štyroch deploymentov)"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rambo-ke
+  labels:
+    app: rambo
+    country: sk
+    env: prod
+    region: east
+    city: ke
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rambo
+      city: ke
+  template:
+    metadata:
+      labels:
+        app: rambo
+        country: sk
+        env: prod
+        region: east
+        city: ke
+    spec:
+      containers:
+      - image: bletvaska/rambo:1
+        name: rambo
+```
+
+:::caution[Neprekrývajúce sa selektory]
+V riešení z materiálov majú všetky štyri deploymenty selektor iba `app: rambo` — prekrývajú sa. Kubernetes to nezakáže, ale dokumentácia varuje, že kontroléry s prekrývajúcimi sa selektormi sa môžu biť o rovnaké pody. Bezpečnejšie je do `selector.matchLabels` pridať aj štítok, ktorý deployment odlišuje (tu `city`), ako v ukážke vyššie. Službe stačí `app: rambo`.
+
+Ukážka tiež nazýva kontajner vo všetkých deploymentoch rovnako (`rambo`), aby jeden príkaz `set image … rambo=…` sedel na všetky. V materiáloch sa kontajnery volajú `rambo-mu`, `rambo-ke`…, s takými mená by `rambo=` nenašiel.
+:::
+
+Aktualizácia podľa selektora — príkaz nemenuje konkrétny deployment, ale vyberie ich štítkami (alebo `--all` všetky):
+
+```bash
+# na východe Slovenska Rambo 2
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+# na západe Slovenska Rambo 3
+kubectl set image deployments rambo=bletvaska/rambo:3 --selector country=sk,region=west
+# v Nemecku Rambo 4
+kubectl set image deployments rambo=bletvaska/rambo:4 --selector country=de
+# všade späť na 1
+kubectl set image deployments rambo=bletvaska/rambo:1 --all
+```
+
+Viac štítkov v selektore oddelených čiarkou znamená **a zároveň** — ako `WHERE country = 'sk' AND region = 'east'`.
+
+## Otestuj sa
+
+<Question q="Prečo nezmazať deployment a nevytvoriť nový s novou verziou?">
+Kým nový nenabehne, služba je nedostupná. Rolling update vymieňa pody postupne bez výpadku.
+</Question>
+
+<Question q="Čo znamená `rambo=` v príkaze `kubectl set image deployment/rambo rambo=bletvaska/rambo:2`?">
+Meno kontajnera v šablóne podu, ktorému sa mení obraz. Pri `create deployment` sa odvodí z mena obrazu.
+</Question>
+
+<Question q="Prečo po `set image` pribudol ReplicaSet?">
+Zmenila sa šablóna podu a ReplicaSet patrí jednej konkrétnej šablóne. Nový sa naškáluje nahor, starý na 0 a ostane ako história.
+</Question>
+
+<Question q="Čo sa stane pri návrate na predošlý obraz?">
+Deployment znova použije starý ReplicaSet s rovnakou šablónou, nový nevytvára.
+</Question>
+
+<Question q="Ako aktualizuješ iba deploymenty na východe Slovenska?">
+`kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east`.
+</Question>
+
+<Question q="Prečo aktualizovať postupne podľa regiónov?">
+Chybná aktualizácia postihne iba časť služby, nie všetkých používateľov. Navyše môžu v rôznych krajinách platiť rôzne pravidlá.
+</Question>
+
+## Cvičenia
+
+### 6.1 · Rambo 1 → 2 → 3 → 2
+
+Deployment `rambo` (5 replík, `bletvaska/rambo:1`) povýš na verziu 2, potom na 3 a vráť sa na 2. Pri každom kroku sleduj pody a ReplicaSety.
+
+<p class="practises">Precvičíš: `set image`, `get --watch`, ReplicaSety ako história.</p>
+
+<Solution>
+```bash
+kubectl get pods --watch                                      # v druhom okne
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl get rs -l app=rambo                                   # 2 ReplicaSety
+kubectl set image deployment/rambo rambo=bletvaska/rambo:3    # pody padajú, RESTARTS rastie
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl get rs -l app=rambo                                   # 3 ReplicaSety, aktívny je ten z rambo:2
+```
+</Solution>
+
+### 6.2 · Selektívne aktualizácie
+
+Vytvor infraštruktúru z diagramu (štyri deploymenty, jedna služba `rambo` typu LoadBalancer na porte 8000). Potom na východe Slovenska spusti Ramba 2, na západe Ramba 3 a v Nemecku Ramba 4 — **príkazmi**, nie úpravou manifestu.
+
+<p class="practises">Precvičíš: štítky, `set image` so selektorom.</p>
+
+<Solution>
+Manifest so štyrmi deploymentmi podľa ukážky (`rambo-mu` s `country: de`, `env: test`, `city: mu`, 2 repliky; `rambo-ke` a `rambo-po` s `region: east`; `rambo-ba` s `region: west`, 4 repliky) a službou:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rambo
+  labels:
+    app: rambo
+spec:
+  type: LoadBalancer
+  selector:
+    app: rambo
+  ports:
+  - name: www
+    port: 8000
+    targetPort: 8000
+```
+
+```bash
+kubectl apply -f rambo.yaml
+kubectl get pods --show-labels
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+kubectl set image deployments rambo=bletvaska/rambo:3 --selector country=sk,region=west
+kubectl set image deployments rambo=bletvaska/rambo:4 --selector country=de
+kubectl get deployments -o wide          # stĺpec IMAGES
+```
+</Solution>

@@ -1,0 +1,113 @@
+---
+title: Prečo orchestrácia
+description: Čo Docker nevyrieši, horizontálne a vertikálne škálovanie na príklade autobusov, orchestrácia ako skupinové riadenie, výhody (dostupnosť, škálovateľnosť, obnova), Kubernetes, CNCF a alternatívy.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Prečo orchestrácia
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+
+<KeyPoints>
+- Docker zabalí aplikáciu do obrazu a spustí ju ako izolovaný kontajner koľkokrát chceš. Nerieši ale, čo robiť, keď kontajnerov sú stovky, záťaž kolíše, treba aktualizovať alebo niečo spadne.
+- Dva spôsoby škálovania: **vertikálne** (*scale up*, väčšia krabica) a **horizontálne** (*scale out*, viac krabíc). Vertikálne je na začiatku lacnejšie, ale má fyzikálny strop a je *single point of failure*. Horizontálne je dlhodobo výhodnejšie a pri výpadku jedného stroja ostáva n − 1 ďalších.
+- **Orchestrácia** = skupinové riadenie kontajnerov. Prináša vysokú dostupnosť (žiadne výpadky), škálovateľnosť a *disaster recovery*.
+- **Kubernetes (K8s)** je open source systém na automatizované nasadzovanie, škálovanie a správu kontajnerových aplikácií. Stal sa štandardom; stará sa oň CNCF. Alternatívy: Docker Swarm, Apache Mesos.
+</KeyPoints>
+
+## Čo Docker nerieši
+
+Docker nám umožnil zabaliť aplikáciu do **obrazu** a spustiť ju na rozličných miestach ako izolovaný **kontajner** — a nie raz, ale toľkokrát, koľko potrebujeme. Výhody poznáme z [kurzu Docker](/devops-notes/docker/): jednoduchá správa a aktualizácia, izolácia, distribúcia cez register, prenositeľnosť a dáta oddelené od kontajnerov.
+
+Problém nastane, keď aplikácia **prestane stíhať záťaž**. Nemusí to byť natrvalo — e-shop má cez rok miernu návštevnosť a pred Vianocami nával, nočné zálohovanie potrebuje veľa výkonu len pár hodín. Otázky, ktoré prídu:
+
+- čo ak počet bežiacich kontajnerov porastie na desiatky, stovky, tisícky?
+- čo ak záťaž nebude každý deň rovnaká?
+- čo ak treba aplikáciu bežiacu v tisícke kontajnerov **aktualizovať**?
+- čo ak jeden kontajner zlyhá? A čo ak všetky? Čo ak zlyhá **server**, na ktorom bežia?
+
+Na veľa z toho by sa dala napísať sada skriptov v Bashi s cronom. Dlhodobo to ale nie je udržateľné a na kopec súvisiacich vecí zabudneš.
+
+## Autobusová zastávka
+
+Na zastávke stojí viac ľudí, ako sa zmestí do autobusu. Riešenia sú dve:
+
+1. **pošleme ďalší autobus** — horizontálne škálovanie (*scale out*),
+2. **pošleme väčší autobus** (kĺbový, dvojposchodový) — vertikálne škálovanie (*scale up*).
+
+V IT je to rovnaké: buď **pridáme do infraštruktúry nový stroj**, alebo **navýšime hardvér** existujúceho (RAM, disk, procesor).
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/scale-out-vs-up.png" alt="Vertikálne škálovanie: krabice A a B sa zväčšia. Horizontálne škálovanie: pribudnú krabice C až N." width="1400" height="802" loading="lazy" />
+  <figcaption>Vertikálne škálovanie robí krabice väčšie, horizontálne pridáva ďalšie krabice. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+| | Vertikálne (*scale up*) | Horizontálne (*scale out*) |
+| --- | --- | --- |
+| ako | väčší stroj | viac strojov (nemusia byť rovnako veľké) |
+| začiatok | jednoduché a lacnejšie — dokúpiš hardvér | vyššie počiatočné náklady |
+| strop | fyzikálne limity: koľko RAM doska unesie, aký procesor podporuje | teoreticky neobmedzené |
+| výpadok | jedna nadupaná krabica = **single point of failure**, dostupnosť padne na nulu | ostáva **n − 1** strojov, služba odpovedá, možno pomalšie |
+
+Pri autobusoch aj pri strojoch prídeš na **bod zlomu**: na začiatku je lacnejšie kúpiť väčší autobus (ušetríš druhého šoféra), od istej veľkosti sa už oplatí pridávať ďalšie menšie.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/scaling-cost.png" alt="Graf ceny za jednotku kapacity: vertikálne škálovanie je na začiatku lacnejšie, ale od istého bodu cena prudko rastie; horizontálne je na začiatku drahšie a potom výrazne efektívnejšie." width="617" height="600" loading="lazy" />
+  <figcaption>Cena vertikálneho škálovania od istého bodu prudko rastie, horizontálne sa začne oplácať. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+:::note
+Nie každý problém sa dá paralelizovať — horizontálne škálovanie pomôže len vtedy, keď sa práca dá rozdeliť medzi viac inštancií.
+:::
+
+## Orchestrácia
+
+Voľný preklad slova *orchestrácia* je **skupinové riadenie**, prípadne koordinácia. Lepšie to vysvetlí **orchester**: väčšie hudobné teleso, v ktorom je každý hlavný nástroj zastúpený viac ako jedným hráčom a ktoré riadi dirigent.
+
+Prenesené do IT: huslisti sú frontend, basisti databáza, violončelisti backend, ďalší monitoring. Každý rieši svoje, spolu poskytujú službu. Keď jeden huslista odbehne, skladba hrá ďalej — husle stále počuť.
+
+Výhody orchestrácie:
+
+1. **vysoká dostupnosť** (*availability*, *no downtime*) — pri výpadku jednej inštancie prevezmú jej rolu ostatné. Dostupnosť sa udáva v percentách za rok (99,9 % …),
+2. **škálovateľnosť** (*scalability*) — pridať či ubrať inštanciu nikto nezbadá,
+3. **disaster recovery** — zálohovanie a obnova po havárii.
+
+## Kubernetes
+
+> Kubernetes, also known as K8s, is an open source system for automating deployment, scaling, and management of containerized applications.
+
+- **K8s** je numeronym ako `i18n` (*internationalization*) — medzi K a s je 8 písmen.
+- Meno je z gréčtiny (*kybernétés*) a znamená **kormidelník**, preto je v logu lodné kormidlo.
+- Za začiatkami stál **Google**. Dnes je Kubernetes open source projekt pod záštitou **CNCF** (*Cloud Native Computing Foundation*) — neutrálneho centra pre *cloud native* projekty (aj Prometheus), ktoré sa stará o štandardizáciu.
+- Docker sa objavil v roku 2013 a už v roku 2015 vyšli verzie 1.0 prvých orchestrátorov — Kubernetes aj Docker Swarm. Viacerí si rýchlo všimli, že kontajnery sú super, ale pri väčšom počte prinášajú problém, ktorý treba riešiť.
+
+Alternatívy: **Docker Swarm**, **Apache Mesos**. Kubernetes sa ale stal *de facto* štandardom.
+
+:::tip[Na pozretie]
+Pred kurzom lektor odporúčal úvodné video [(Nie) príliš stručný úvod do K8s](https://www.youtube.com/watch?v=uvNQgsJLnvE) — prvé kroky prvého dňa zhrnuté do hodinky. O tom, ako Kubernetes vznikol a kto boli prví zákazníci, je dvojdielny dokument [Kubernetes: The Documentary](https://www.youtube.com/results?search_query=Kubernetes+The+Documentary+Honeypot) od Honeypot.
+:::
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi horizontálnym a vertikálnym škálovaním?">
+Horizontálne (*scale out*) pridá ďalšie stroje alebo inštancie. Vertikálne (*scale up*) zväčší existujúci stroj — viac RAM, výkonnejší procesor, väčší disk.
+</Question>
+
+<Question q="Prečo je jeden nadupaný server rizikový?">
+Je *single point of failure*. Keď zlyhá ktorýkoľvek dôležitý komponent (zdroj, RAM, disk, elektrina), služba nejde vôbec. Pri horizontálnom škálovaní ostáva n − 1 strojov.
+</Question>
+
+<Question q="Kedy dáva zmysel vertikálne škálovanie?">
+Na začiatku projektu — je jednoduché a lacnejšie. Od istého bodu cena prudko rastie a narazíš na fyzikálne limity hardvéru, vtedy sa oplatí horizontálne.
+</Question>
+
+<Question q="Aké tri výhody prináša orchestrácia?">
+Vysokú dostupnosť (žiadne výpadky), škálovateľnosť a *disaster recovery*.
+</Question>
+
+<Question q="Prečo sa Kubernetes skracuje na K8s?">
+Medzi písmenami K a s je 8 ďalších písmen — rovnako ako `i18n` alebo `l10n`.
+</Question>

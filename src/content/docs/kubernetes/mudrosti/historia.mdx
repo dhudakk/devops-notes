@@ -1,0 +1,55 @@
+---
+title: Príbehy a história
+description: Vlak na Orave, autobusy s vlečkou, výpadky štátnych stránok, meno Kubernetes, dokument od Honeypot a ako lektor vyberal distribúciu na kurz.
+kind: wisdom
+sidebar:
+  order: 91
+---
+
+Postrehy lektora, ktoré nie sú priamo látkou kurzu. Pri každom je deň, kedy zazneli.
+
+## Babko, nastúpte!
+
+Na strednú školu chodil lektor vlakom z Dolného Kubína do Tvrdošína — hodinu Oravkou. Na rýchlosť tej trate je vtip: sprievodca kričí „Babko, nastúpte!“ a babka odpovedá „Nie, nemôžem, synak, ponáhľam sa.“
+
+Normálne chodil rušeň a dva vagóny. Kritické bolo, keď prišiel rušeň s jedným vagónom. Raz však prišiel **iba rušeň** — všetci mali k sebe veľmi blízko. Služba bola poskytnutá, za divných podmienok — presne ako pri horizontálnom škálovaní, keď vypadne jeden autobus.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Autobusy s vlečkou
+
+Väčší autobus nie je nový nápad. Za komunizmu jazdili autobusy s krytou vlečkou zapojenou ako príves — predchodca dnešných kĺbových autobusov. Vertikálne škálovanie v praxi.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Výpadok cez víkend
+
+Štatistiky dostupnosti udávajú čísla ako 99,9 % ročne. Kontrast: štátny portál hlási odstávku na celú sobotu a aplikácia na lístky na vlak oznamuje výpadok. Presne to, čo sa stane, keď všetko beží na jednom serveri.
+
+> „Nerobíme do governmentu, robíme do biznisu. Takže my si nemôžeme dovoliť odstávky na celý deň, dva. Také trapošiny môže poskytovať iba štát.“
+
+<p class="wisdom-day">Deň 1</p>
+
+## Kormidelník
+
+Lektor si nebol istý, či Kubernetes znamená „riadiť“ alebo „lodné kormidlo“. Grécke *kybernétés* je **kormidelník** — ten, kto riadi loď. Odtiaľ kormidlo v logu aj slovo *kybernetika*.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Kubernetes: The Documentary
+
+Kto chce vedieť, ako Kubernetes vznikal, aké problémy riešili a kto boli prví zákazníci, nech si pozrie dvojdielny dokument **Kubernetes: The Documentary** od Honeypot (každá časť zhruba hodina). „Akože veľmi fajná vec, tá storka za tým je naozaj pekná.“ Kubernetes sa uchytil aj napriek tomu, aké boli začiatky.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Ako sa vyberala distribúcia
+
+Lektor začínal školenia s **MicroK8s** od Canonicalu — vtedy mal každý účastník inak nainštalované Windowsy a MicroK8s mal inštalátor aj pre ne. Neskôr skúšal **K3d** (K3s v Dockeri, viac uzlov na jednom stroji), ale sieťové porty pridávali robotu navyše. Uvažoval aj o **Rancheri**, no ten chcel aspoň 4 GB RAM. Dnes je na kurze K3s na EC2 strojoch.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Aréna do Kubernetes
+
+Systém **Arena** na univerzite (testovanie študentských zadaní v kontajneroch, pozri [múdrosti z Dockera](/devops-notes/docker/mudrosti/historia/)) sa chystá zmigrovať do Kubernetes. Testovanie zadania je ukážkový **Job**: izolované prostredie, spusti testy, vygeneruj report, skonči.
+
+<p class="wisdom-day">Deň 2 a 4</p>

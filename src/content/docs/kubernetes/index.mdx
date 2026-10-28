@@ -1,0 +1,34 @@
+---
+title: Kubernetes
+description: Štvordňový kurz Kubernetes 101 (lektor Mirek). Od toho, prečo kontajnery treba orchestrovať, cez pody, deploymenty, služby a manifesty až po limity, autoškálovanie, ConfigMapy, Secrety, Ingress a perzistentné úložisko.
+kind: overview
+sidebar:
+  order: 0
+  label: Prehľad kurzu
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../components/ChapterList.astro';
+
+## Kapitoly
+
+<ChapterList course="kubernetes" />
+
+## Na opakovanie a mimo osnovy
+
+<CardGrid>
+  <LinkCard title="Ťahák" description="Všetky príkazy a kostry manifestov z kurzu na jednej stránke, skratky objektov a pasce." href="/devops-notes/kubernetes/tahak/" />
+  <LinkCard title="Mirekove múdrosti" description="História, nástroje a rady z praxe, ktoré nie sú priamo látkou kurzu." href="/devops-notes/kubernetes/mudrosti/historia/" />
+  <LinkCard title="Zdroje" description="Slajdy z jednotlivých dní, labáky a z čoho vznikla ktorá kapitola." href="/devops-notes/kubernetes/zdroje/" />
+</CardGrid>
+
+## Priebeh kurzu
+
+1. **Deň 1** — horizontálne a vertikálne škálovanie, orchestrácia, architektúra klastra a distribúcia K3s. Pody (`run`, `logs`, `exec`, `describe`, `port-forward`), deploymenty a ReplicaSety, škálovanie. Služby typu ClusterIP, NodePort a LoadBalancer, štítky a selektory, rolling update.
+2. **Deň 2** — menné priestory a kontexty, rozšírenia cez Krew. Imperatívny a deklaratívny prístup, generovanie manifestov (`--dry-run=client -o yaml`), WordPress ako manifest, session affinity. Požiadavky a limity na CPU a pamäť, throttling a OOM kill, k9s.
+3. **Deň 3** — horizontálne autoškálovanie (HPA), selektívne aktualizácie podľa štítkov. ConfigMapy a Secrety, Ingress a Ingress Controller (Traefik), pravidlá podľa cesty a podľa hostiteľa, Gateway API.
+4. **Deň 4** — perzistencia: `emptyDir`, `hostPath`, PersistentVolume, PersistentVolumeClaim a StorageClass, CSI ovládače. Krátko o jobs, DaemonSetoch, StatefulSetoch a distribúciách Kubernetes.
+
+:::tip[Skratka `k`]
+Na laboratórnych strojoch bol pripravený alias `k` pre `kubectl`. V poznámkach je všade celé `kubectl`, aby sa príkazy dali skopírovať kamkoľvek. Ak chceš skratku aj doma: `alias k=kubectl`.
+:::

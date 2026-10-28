@@ -1,0 +1,478 @@
+---
+title: Perzistentné úložisko
+description: Stavové aplikácie a tri požiadavky na úložisko, typy zväzkov, emptyDir so sizeLimit, hostPath, PersistentVolume a PersistentVolumeClaim, reclaim policy a access modes, StorageClass s dynamickým prideľovaním, prázdny storageClassName, prístupové práva a CSI ovládače.
+kind: chapter
+day: 4
+sidebar:
+  order: 14
+  label: 14 · Perzistencia
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- Kontajnery sú bezstavové, ale aplikácie často nie (súbory, databáza, sessions). Úložisko musí **prežiť pod**, byť **dostupné zo všetkých uzlov** a ideálne **prežiť aj celý klaster**. Odporúča sa externá služba (*database as a service*).
+- Zväzok sa pripája v kontajneri cez `volumeMounts` (`name`, `mountPath`) a definuje v `spec.volumes` podu (`name` + typ).
+- **emptyDir** — prázdny priečinok, žije s podom (cache, výmena medzi kontajnermi). `sizeLimit` ho obmedzí; prekročenie → pod sa vyradí (*evicted*).
+- **hostPath** — priečinok uzla; prežije pod, ale je viazaný na **jeden uzol**. Len na vývoj a testovanie, **nikdy v produkcii**.
+- **PV** (vytvorí admin, kapacita, prístup) + **PVC** (požiadavka vývojára) → spárujú sa (*Bound*). **StorageClass** vytvorí PV automaticky; v K3s je predvolený `local-path`. `storageClassName: ""` vypne StorageClass a PVC hľadá ručne vytvorené PV.
+</KeyPoints>
+
+## Stavové aplikácie
+
+Kontajnery sú **bezstavové** — podobne ako HTTP protokol nevie, že si prihlásený ako John Rambo. Stav aplikácie sú jej **dáta**: súbory, databáza, informácia o prihlásení.
+
+Ukážka z rána 4. dňa: RustFS za [Ingressom](/devops-notes/kubernetes/ingress/#132--rustfs-cez-ingress). Vytvoríš bucket, nahráš obrázky, zmažeš a znova aplikuješ manifest — **bucket je preč**. Stačí zmazať iba pod: deployment vytvorí nový a bucket je zase preč.
+
+Požiadavky na úložisko:
+
+1. **nezávisí od životného cyklu podu** — reštart podu ho nezmaže,
+2. **je dostupné zo všetkých uzlov** — scheduler môže pod spustiť na ľubovoľnom uzle,
+3. **prežije pád celého klastra** — pody sú len procesy, dáta od používateľov sú to, na čom záleží. Ideálne je teda mimo klastra.
+
+:::note[Database as a service]
+Dlhodobo platí odporúčanie: na trvácnosť dát použi na to určenú službu (napr. *database as a service*), ktorá rieši mirroring a zálohy. Perzistencia vnútri klastra prináša veľa ďalších problémov. Niektorí tvrdia, že to už neplatí — vo firme to zvyčajne rozhodne existujúci tím.
+:::
+
+## Typy zväzkov
+
+Mechanizmus je veľmi podobný [zväzkom v Dockeri](/devops-notes/docker/zvazky/). Kubernetes vie okrem lokálneho súborového systému použiť aj externé úložiská (AWS, Azure, Google Cloud). Zoznam vstavaných typov je v [dokumentácii](https://kubernetes.io/docs/concepts/storage/volumes/) — kedysi bol dlhší, ovládače tretích strán sa presunuli do CSI pluginov (nižšie). Na našom single-node klastri si vyskúšame **emptyDir** a **hostPath**.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/volumes.svg" alt="Uzol s dvoma podmi. V prvom pode je emptyDir, ktorý sa zmaže spolu s podom. Druhý pod má pripojený hostPath /opt/www na uzle, ktorý prežije pod, ale ostáva na tomto uzle, a PVC, ktorý cez PV vedie na úložisko mimo uzla (disk, NFS, cloud, CSI ovládač), nezávislé od životného cyklu podu." width="720" height="340" loading="lazy" />
+  <figcaption>emptyDir žije s podom, hostPath s uzlom, PV/PVC nezávisle od podu. Vlastný obrázok.</figcaption>
+</figure>
+
+Ukážky robíme na Nginxe — domovská stránka je v `/usr/share/nginx/html`:
+
+```bash
+kubectl exec -it deployment/nginx -- bash
+echo "Mirek was here" > /usr/share/nginx/html/index.html
+```
+
+Pripojenie zväzku má dve časti — v kontajneri **kam** a v pode **čo**:
+
+```yaml
+    spec:
+      containers:
+      - image: nginx:latest
+        name: nginx
+        volumeMounts:
+        - name: html                      # ktorý zväzok
+          mountPath: /usr/share/nginx/html # kam v kontajneri
+      volumes:
+      - name: html                        # rovnaké meno
+        emptyDir: {}                      # typ a jeho nastavenia
+```
+
+Pripomína to pomenované zväzky v Docker Compose: v službe `volumes` s menom a cestou, na najvyššej úrovni zoznam zväzkov. `{}` znamená prázdny objekt — predvolené nastavenia.
+
+## emptyDir
+
+Ako hovorí názov, vytvorí **prázdny priečinok**. Existuje, kým existuje **pod**. Reštart kontajnera v pode ho nezmaže; zmazanie podu áno.
+
+Na čo:
+
+- **cache** a dočasné dáta počas behu aplikácie (ako `/tmp` v Linuxe, ktorý sa pri reštarte vyprázdni),
+- **výmena dát medzi kontajnermi** v jednom pode.
+
+Po pripojení na `/usr/share/nginx/html` vráti Nginx **403 Forbidden** — priečinok je prázdny, nie je tam `index.html`. Keď ho vytvoríš, stránka sa zobrazí; po zmazaní podu je zase prázdny.
+
+### sizeLimit
+
+```yaml
+      volumes:
+      - name: empty
+        emptyDir:
+          sizeLimit: 100Mi
+```
+
+Na prekročenie dohliada riadiaca slučka:
+
+```bash
+kubectl exec -it deployment/nginx -- bash
+cd /tmp
+dd if=/dev/zero of=garbage bs=1M count=200      # 200 MiB súbor
+```
+
+Chvíľu (na kurze asi minútu) sa nič nedeje, potom:
+
+```bash
+kubectl describe pod nginx-…
+# Warning  Evicted  … Usage of EmptyDir volume "empty" exceeds the limit "100Mi".
+```
+
+Pod sa zastaví a deployment spustí nový. **Pôvodný pod ostane v zozname** v stave *Error*/*Evicted* — aby si sa ako admin mohol pozrieť, čo sa stalo, a nestrácal si zdroje bez vysvetlenia (ako zastavený kontajner v Dockeri). Kde sú zväzky pripojené, ukáže `kubectl describe pod`.
+
+`sizeLimit` obmedzuje **súborový systém**, nie RAM — pamäť obmedzujú [limity](/devops-notes/kubernetes/requesty-a-limity/).
+
+## hostPath
+
+Pripojí priečinok **hostiteľského systému uzla**. Dáta prežijú pod a sú dostupné všetkým kontajnerom na **tom istom uzle**.
+
+```yaml
+      volumes:
+      - name: html
+        hostPath:
+          path: /opt/www
+          type: DirectoryOrCreate         # ak priečinok neexistuje, vytvor ho
+```
+
+Na čo:
+
+- lokálny vývoj a testovanie, keď je uzlom klastra notebook vývojára — presne náš single-node klaster,
+- pod potrebuje súbor konkrétneho uzla (napr. socket Dockera, `/var/lib/docker`) — typicky v DaemonSete pre monitoring.
+
+Priečinok vytvorí `root`, takže na zápis treba `sudo`:
+
+```bash
+sudo vim /opt/www/index.html     # na laboratórnom stroji, nie v pode
+```
+
+Stránka prežije zmazanie podu aj celého deploymentu.
+
+:::caution[hostPath nie do produkcie]
+Na klastri s viacerými uzlami má **každý uzol vlastný** priečinok. Pod na uzle 1 zapisuje inam ako pod na uzle 2 a keď pod presunie na iný uzol, dáta „zmiznú“. Okrem špeciálnych prípadov (DaemonSet) hostPath v produkcii nepoužívaj.
+:::
+
+## PersistentVolume a PersistentVolumeClaim
+
+Zväzky nie sú všetko. Kubernetes má dva ďalšie objekty: **PersistentVolume** (PV) a **PersistentVolumeClaim** (PVC). Myšlienka delí úlohy medzi dve roly:
+
+1. **administrátor** klastra vytvorí **PV** — zväzok s konkrétnou kapacitou a vlastnosťami (typ prístupu…). Kde fyzicky je (lokálny disk, NFS, cloud), vývojár riešiť nemusí,
+2. **vývojár**, ktorý potrebuje trvácne dáta, vytvorí **PVC** — *claim*, teda požiadavku/objednávku: „potrebujem aspoň 200 MiB s prístupom na zápis“,
+3. Kubernetes nájde vhodný PV a **spáruje** ich (*Bound*). Odvtedy PV nemôže použiť nikto iný,
+4. PVC sa použije namiesto zväzku v manifeste podu. Kým PVC nie je spárovaný, **pod nenabehne**.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/pv-pvc.svg" alt="Admin vytvoril PV so 100, 300 a 400 Mi. Vývojár vytvoril PVC na 300 Mi, ktorý použije pod cez claimName. PVC sa spáruje (Bound) s najmenším PV, ktorý stačí — 300 Mi. Ak PVC uvádza storageClassName, StorageClass local-path vytvorí PV pvc-… automaticky." width="720" height="300" loading="lazy" />
+  <figcaption>Admin pripraví PV, vývojár si ich objedná cez PVC, StorageClass ich vie vytvárať sám. Vlastný obrázok.</figcaption>
+</figure>
+
+```bash
+kubectl get pv
+kubectl get pvc
+```
+
+### PV
+
+```yaml title="pv-300.yaml"
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-300
+spec:
+  storageClassName: ""          # bez StorageClass (vysvetlenie nižšie)
+  capacity:                     # koľko
+    storage: 300Mi
+  accessModes:                  # ako sa dá pripojiť
+  - ReadWriteOnce
+  hostPath:                     # typ zväzku a jeho parametre
+    path: /tmp/data-300
+    type: DirectoryOrCreate
+```
+
+```bash
+kubectl apply -f pv-300.yaml
+kubectl get pv
+# NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   AGE
+# data-300   300Mi      RWO            Retain           Available                          5s
+```
+
+| Stĺpec | Význam |
+| --- | --- |
+| `CAPACITY` | kapacita zväzku |
+| `ACCESS MODES` | `RWO` = *ReadWriteOnce* (čítanie aj zápis z **jedného uzla**), `ROX` = *ReadOnlyMany*, `RWX` = *ReadWriteMany*, `RWOP` = *ReadWriteOncePod* |
+| `RECLAIM POLICY` | čo sa stane s PV po uvoľnení: `Retain` (ostane aj s dátami), `Delete` (zmaže sa) |
+| `STATUS` | `Available` (voľný), `Bound` (spárovaný), `Released`… |
+| `CLAIM` | ktorý PVC ho používa (`priestor/meno`) |
+| `STORAGECLASS` | z ktorej StorageClass vznikol |
+
+Mená objektov musia byť malými písmenami — `100Mega` neprejde, `100mega` áno.
+
+### PVC
+
+```yaml title="pvc.yaml"
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Mi
+```
+
+Použitie v pode — namiesto `emptyDir` či `hostPath`:
+
+```yaml
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: rustfs
+```
+
+Keď sú k dispozícii PV s 300 a 400 MiB, PVC na 300 MiB sa spáruje s **300** — Kubernetes vyberie najmenší, ktorý požiadavke vyhovuje.
+
+PV, ktorý je spárovaný, sa nedá hneď zmazať: `kubectl delete pv` ho prepne do `Terminating` a zmaže ho až po zmazaní PVC.
+
+## StorageClass
+
+**StorageClass** definuje spôsob **dynamického** vytvárania PV. Používateľ si požiada o úložisko bez toho, aby admin ručne vytváral PV — ľudovo: „aby admini neměli co žrát“ :-) Ďalšie dôvody: rôzne typy úložísk pre rôzne aplikácie (rýchle SSD pre databázy, lacné HDD na archív) a cloud, kde sú rôzni poskytovatelia (*provisioners*).
+
+```bash
+kubectl get storageclass
+# NAME                   PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      …
+# local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsumer
+```
+
+V K3s je jediná a **predvolená** StorageClass **`local-path`** — na pozadí vytvára hostPath zväzky. Kľúč `storageClassName` v PVC:
+
+| V PVC | Čo sa stane |
+| --- | --- |
+| kľúč **chýba** | použije sa **predvolená** StorageClass (v K3s `local-path`) |
+| `storageClassName: ""` | **žiadna** StorageClass — PVC sa spáruje iba s ručne vytvoreným PV bez triedy |
+| `storageClassName: "meno"` | daná StorageClass automaticky vytvorí potrebný PV |
+
+:::note[Prečo PVC na kurze visel v Pending]
+Na kurze sme vytvorili PV so 100 a 300 MiB a PVC na 200 MiB bez `storageClassName` — PVC ostal v `Pending`. Dôvody:
+
+- PVC bez kľúča dostal predvolenú triedu `local-path`, ale ručné PV triedu nemali — **nehodili sa k sebe**,
+- `local-path` má `WaitForFirstConsumer` — PV vytvorí, až keď PVC použije **pod**.
+
+Keď sa PVC použil v pode, `local-path` vytvoril vlastný PV `pvc-…` presne na 200 MiB (reclaim policy `Delete`) a ručné PV ostali nevyužité. Aby PVC použil ručné PV, oba musia mať `storageClassName: ""`.
+:::
+
+### Prístupové práva
+
+RustFS s PVC na ručnom PV (`hostPath` v `/tmp/data-300`) padal — kontajner beží pod používateľom s UID **10001** a priečinok vytvorený rootom mu nepatril:
+
+```bash
+sudo chown -R 10001:10001 /tmp/data-300
+kubectl delete pod -l app=rustfs --namespace prod
+```
+
+Pri `local-path` to riešil provisioner za nás.
+
+## CSI ovládače
+
+Kedysi boli ovládače úložísk tretích strán (AWS, Google Cloud…) priamo v jadre Kubernetes. Nová verzia Kubernetes potom musela čakať, kým ich všetci aktualizujú. Preto vznikol **CSI** (*Container Storage Interface*): kto chce, aby jeho súborový systém vedel Kubernetes používať, napíše si **CSI plugin** — zjednodušene implementuje čítanie a zápis. Plugin sa doinštaluje do klastra a jeho typ sa použije ako zväzok alebo cez StorageClass.
+
+Zoznam [CSI ovládačov](https://kubernetes-csi.github.io/docs/drivers.html) má okolo 150 položiek — Google, AWS, Azure, NFS… Napr. **Longhorn** (od Rancheru) je distribuované úložisko, ktoré funguje naprieč uzlami.
+
+## Otestuj sa
+
+<Question q="Aké tri požiadavky by malo spĺňať úložisko v Kubernetes?">
+Prežiť reštart podu, byť dostupné zo všetkých uzlov a prežiť pád celého klastra (ideálne byť mimo neho).
+</Question>
+
+<Question q="Ako dlho žije emptyDir a na čo sa hodí?">
+Kým existuje pod (reštart kontajnera ho nezmaže). Na cache a výmenu dát medzi kontajnermi v pode.
+</Question>
+
+<Question q="Čo sa stane, keď emptyDir prekročí `sizeLimit`?">
+Pod sa po chvíli vyradí (*evicted*), deployment spustí nový. Pôvodný pod ostane v zozname na diagnostiku.
+</Question>
+
+<Question q="Prečo nie hostPath v produkcii?">
+Priečinok je na konkrétnom uzle. Na viacuzlovom klastri má každý uzol iné dáta a pri presune podu na iný uzol dáta „zmiznú“.
+</Question>
+
+<Question q="Kto vytvára PV a kto PVC?">
+PV vytvára administrátor (alebo automaticky StorageClass), PVC vytvára vývojár ako požiadavku na úložisko.
+</Question>
+
+<Question q="Čo znamená `ReadWriteOnce`?">
+Zväzok sa dá pripojiť na čítanie aj zápis z jedného uzla.
+</Question>
+
+<Question q="Prečo PVC bez `storageClassName` nevyužije ručne vytvorený PV v K3s?">
+Dostane predvolenú triedu `local-path`, ručné PV triedu nemajú. `local-path` vytvorí vlastný PV, keď PVC použije pod.
+</Question>
+
+## Cvičenia
+
+### 14.1 · Nginx s emptyDir a hostPath
+
+Nasaď Nginx (deployment + LoadBalancer služba na 8000 → 80). Pripoj emptyDir s limitom 100Mi na `/tmp` a hostPath `/opt/www` na `/usr/share/nginx/html`. Over, že stránka prežije zmazanie podu a že prekročenie limitu emptyDir pod vyradí.
+
+<p class="practises">Precvičíš: `volumeMounts`, `volumes`, emptyDir, hostPath.</p>
+
+<Solution>
+```yaml title="nginx.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - image: nginx:latest
+        name: nginx
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: empty
+          mountPath: /tmp
+        - name: html
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: empty
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: html
+        hostPath:
+          path: /opt/www
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+  - name: www
+    port: 8000
+    targetPort: 80
+```
+
+```bash
+kubectl apply -f nginx.yaml
+http "$HOST_IP:8000"                                   # 403 — priečinok je prázdny
+echo '<h1>Hello world</h1>' | sudo tee /opt/www/index.html
+kubectl delete pod -l app=nginx                        # stránka ostane
+kubectl exec -it deployment/nginx -- dd if=/dev/zero of=/tmp/garbage bs=1M count=200
+kubectl get pods --watch                               # po chvíli Error/Evicted + nový pod
+```
+</Solution>
+
+### 14.2 · Perzistentný RustFS
+
+Rozšír RustFS za Ingressom o perzistenciu: dva ručné PV (300Mi a 400Mi, hostPath v `/tmp`) a PVC `rustfs` na 300Mi, pripojený do `/data`. Vytvor bucket, nahraj súbor, zmaž pod a over, že bucket ostal.
+
+<p class="practises">Precvičíš: PV, PVC, `storageClassName: ""`, prístupové práva.</p>
+
+<Solution>
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-300
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 300Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: /tmp/data-300
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: data-400
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 400Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: /tmp/data-400
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs
+  namespace: prod
+spec:
+  storageClassName: ""
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Mi
+```
+
+PV nemajú `namespace` — sú to objekty celého klastra. V deploymente RustFS pribudne:
+
+```yaml
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: rustfs
+```
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl get pv,pvc -n prod                  # rustfs Bound na data-300, data-400 Available
+sudo chown -R 10001:10001 /tmp/data-300     # ak RustFS padá na práva
+kubectl delete pod -l app=rustfs -n prod
+# http://<IP>/ — bucket aj súbory sú stále tam
+```
+</Solution>
+
+### 14.3 · Perzistentný WordPress
+
+Do manifestu WordPressu pridaj PVC pre databázu a pripoj ho na `/var/lib/mysql`. Raz to skús s ručným PV, raz cez predvolenú StorageClass (bez `storageClassName`).
+
+<p class="practises">Precvičíš: PVC pre databázu, StorageClass `local-path`.</p>
+
+<Solution>
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db
+  namespace: wordpress
+spec:                       # bez storageClassName → local-path vytvorí PV sám
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+```
+
+```yaml
+        volumeMounts:             # v kontajneri mariadb
+        - name: data
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: db
+```
+
+Po `kubectl delete -f manifest.yaml` (zmaže aj PVC → `local-path` s `Delete` zmaže aj dáta) by WordPress začínal od inštalácie. Po zmazaní iba podu databázy ostanú príspevky aj používatelia. Pri ručnom PV pridaj do PVC `storageClassName: ""`.
+</Solution>

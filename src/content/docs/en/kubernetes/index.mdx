@@ -1,0 +1,34 @@
+---
+title: Kubernetes
+description: Four-day Kubernetes 101 course (instructor Mirek). From why containers need orchestration, through pods, deployments, services, and manifests, to limits, autoscaling, ConfigMaps, Secrets, Ingress, and persistent storage.
+kind: overview
+sidebar:
+  order: 0
+  label: Course overview
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import ChapterList from '../../../../components/ChapterList.astro';
+
+## Chapters
+
+<ChapterList course="kubernetes" />
+
+## For revision and beyond the syllabus
+
+<CardGrid>
+  <LinkCard title="Cheat sheet" description="Every command and manifest skeleton from the course on one page, object short names, and traps." href="/devops-notes/en/kubernetes/tahak/" />
+  <LinkCard title="Mirek's wisdoms" description="History, tools, and practical advice that aren't strictly course material." href="/devops-notes/en/kubernetes/mudrosti/historia/" />
+  <LinkCard title="Sources" description="Slides for each day, the labs, and which chapter came from which material." href="/devops-notes/en/kubernetes/zdroje/" />
+</CardGrid>
+
+## Course outline
+
+1. **Day 1** — horizontal and vertical scaling, orchestration, cluster architecture, and the K3s distribution. Pods (`run`, `logs`, `exec`, `describe`, `port-forward`), deployments and ReplicaSets, scaling. ClusterIP, NodePort, and LoadBalancer services, labels and selectors, rolling updates.
+2. **Day 2** — namespaces and contexts, Krew plugins. Imperative and declarative approaches, generating manifests (`--dry-run=client -o yaml`), WordPress as a manifest, session affinity. CPU and memory requests and limits, throttling and OOM kill, k9s.
+3. **Day 3** — the Horizontal Pod Autoscaler (HPA), selective updates by label. ConfigMaps and Secrets, Ingress and the Ingress Controller (Traefik), path-based and host-based rules, the Gateway API.
+4. **Day 4** — persistence: `emptyDir`, `hostPath`, PersistentVolume, PersistentVolumeClaim, and StorageClass, CSI drivers. A brief look at jobs, DaemonSets, StatefulSets, and Kubernetes distributions.
+
+:::tip[The `k` alias]
+The lab machines had an alias `k` for `kubectl`. The notes always use the full `kubectl` so the commands can be copied anywhere. If you want the shortcut at home: `alias k=kubectl`.
+:::

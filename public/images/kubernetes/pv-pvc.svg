@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 300" font-family="Inter, Helvetica, Arial, sans-serif" fill="#1f2430">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#545a66"/></marker>
+    <style>
+      .ln{stroke:#545a66;stroke-width:1.6;fill:none}
+      .t{font-size:14px;font-weight:600;text-anchor:middle}
+      .s{font-size:12px;text-anchor:middle;fill:#3d4350}
+      .pv{fill:#fff1dc;stroke:#d98a1c;stroke-width:1.5}
+      .pc{fill:#e2e9fb;stroke:#2c56c0;stroke-width:1.5}
+      .po{fill:#e3f6ec;stroke:#2f9e66;stroke-width:1.5}
+      .sc{fill:#efe6fb;stroke:#7b4bc4;stroke-width:1.5}
+      .h{font-size:14px;font-weight:700;fill:#545a66}
+    </style>
+  </defs>
+  <text x="30" y="36" class="h">Admin</text>
+  <rect x="30" y="50" width="170" height="38" rx="7" class="pv"/><text x="115" y="74" class="t">PV · 100Mi</text>
+  <rect x="30" y="102" width="170" height="38" rx="7" class="pv" stroke-width="2.5"/><text x="115" y="126" class="t">PV · 300Mi</text>
+  <rect x="30" y="154" width="170" height="38" rx="7" class="pv"/><text x="115" y="178" class="t">PV · 400Mi</text>
+  <text x="690" y="36" class="h" text-anchor="end">Developer</text>
+  <rect x="510" y="102" width="180" height="38" rx="7" class="pc"/><text x="600" y="126" class="t">PVC · 300Mi</text>
+  <rect x="510" y="180" width="180" height="38" rx="7" class="po"/><text x="600" y="204" class="t">Pod (claimName)</text>
+  <path d="M600 178V142" class="ln" marker-end="url(#a)"/>
+  <path d="M202 121H508" class="ln" marker-start="url(#a)" marker-end="url(#a)"/>
+  <rect x="318" y="108" width="74" height="24" rx="12" fill="#fff" stroke="#2f9e66"/><text x="355" y="125" class="s" font-weight="600" fill="#2f7a52">Bound</text>
+  <text x="355" y="98" class="s">smallest PV that fits</text>
+  <rect x="250" y="236" width="220" height="48" rx="7" class="sc"/>
+  <text x="360" y="256" class="t">StorageClass</text><text x="360" y="274" class="s">local-path (default)</text>
+  <path d="M522 142L452 234" class="ln" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <text x="474" y="182" class="s" style="text-anchor:end">storageClassName</text>
+  <rect x="30" y="242" width="170" height="38" rx="7" class="pv" stroke-dasharray="5 4"/><text x="115" y="266" class="t">PV · pvc-…</text>
+  <path d="M250 261H202" class="ln" marker-end="url(#a)"/>
+  <text x="226" y="230" class="s">creates</text>
+</svg>

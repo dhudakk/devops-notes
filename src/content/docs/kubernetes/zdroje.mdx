@@ -1,0 +1,69 @@
+---
+title: Zdroje
+description: Slajdy lektora, labáky a z čoho vznikla ktorá kapitola kurzu Kubernetes.
+kind: sources
+sidebar:
+  order: 99
+---
+
+Kurz **Kubernetes 101** (štyri dni) vedie Mirek. Poznámky vznikli z prepisu záznamu všetkých štyroch dní, slajdov prvých troch dní a materiálov s labákmi a riešeniami. Sú usporiadané podľa tém, opravené a doplnené o otázky a cvičenia. Témy zo slajdov, ktoré sa na kurze nebrali (napr. vytváranie klastra cez K3d, labák s MinIO, ukážka DaemonSetu s Telegrafom), v poznámkach nie sú alebo sú len spomenuté.
+
+:::note[Čo v poznámkach zámerne chýba]
+API kľúč OpenWeatherMap zo slajdov a materiálov je nahradený zástupným textom `<API_KEY>`, IP adresy laboratórnych strojov `<IP>`. Heslo k laboratórnym strojom a mená účastníkov sú vynechané. Prihlasovacie údaje v labákoch (`secret`, `top.secret`, `wpuser`/`end321`, `janosik`/`valaska123`) sú cvičné.
+:::
+
+:::caution[Príkazy neboli spustené]
+Pri písaní poznámok nebol k dispozícii klaster Kubernetes (ani Docker), takže príkazy neboli spustené ako pri kurze Git. Správanie je overené voči dokumentácii Kubernetes, slajdom a záznamu z kurzu.
+:::
+
+## Slajdy
+
+| Deň | Materiál |
+| --- | --- |
+| pred kurzom | [(Nie) príliš stručný úvod do K8s (video) ↗](https://www.youtube.com/watch?v=uvNQgsJLnvE) |
+| 1 | [Kubernetes 101: Day 1 — The Basics (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.1.pdf) |
+| 2 | [Kubernetes 101: Day 2 — Namespaces and Manifests (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.2.pdf) |
+| 3 | [Kubernetes 101: Day 3 — ConfigMaps, Secrets and Ingress Controller (PDF) ↗](http://mirek.s.cnl.sk/download/k8s.101-day.3.pdf) |
+| 4 | bez slajdov v materiáloch — manifesty Nginx, PV a PVC a perzistentný RustFS |
+| riešenia | [github.com/bletvaska/k8s-manifests ↗](https://github.com/bletvaska/k8s-manifests/) |
+
+Obrázky so značkou „zo slajdov lektora“ pochádzajú zo slajdov; niektoré z nich lektor prevzal z iných zdrojov (The New Stack, Sysdig). Diagramy typov služieb, rolling updatu, zväzkov, PV/PVC a pravidiel Ingressu sú vlastné.
+
+## Z čoho je ktorá kapitola
+
+| Kapitola | Zdroj |
+| --- | --- |
+| [01 · Prečo orchestrácia](/devops-notes/kubernetes/orchestracia/) | deň 1 — slajdy; prepis (autobusy, orchester, dostupnosť, história K8s) |
+| [02 · Architektúra](/devops-notes/kubernetes/architektura/) | deň 1 — slajdy; prepis (master, uzol, K3s, `kubectl version`, `cluster-info`) |
+| [03 · Pody](/devops-notes/kubernetes/pody/) | deň 1 — slajdy; prepis (pod vs. kontajner, `logs`, `exec`, `describe`, `port-forward --address`) |
+| [04 · Deploymenty](/devops-notes/kubernetes/deploymenty/) | deň 1 — slajdy; prepis (deklaratívne, riadiaca slučka, šesť vrstiev, škálovanie); materiály: Lab Deploy Rambo |
+| [05 · Služby](/devops-notes/kubernetes/sluzby/) | deň 1 — slajdy; prepis (selektory, port/targetPort, typy služieb); materiály: Lab Make Rambo Online; deň 2 — ranný labák |
+| [06 · Aktualizácie](/devops-notes/kubernetes/aktualizacie/) | deň 1 — slajdy, prepis (rolling update, rambo:3); deň 3 — slajdy a materiály: Morning Exercise, Selektívne aktualizácie |
+| [07 · Menné priestory](/devops-notes/kubernetes/menne-priestory/) | deň 2 — slajdy; prepis (namespace, kontext, `~/.kube/config`, Krew); materiály: Lab Project Namespaces |
+| [08 · Manifesty](/devops-notes/kubernetes/manifesty/) | deň 2 — slajdy (tri prístupy, session affinity, manifest); prepis; materiály: MariaDB + Adminer, Generating YAML Manifest |
+| [09 · WordPress](/devops-notes/kubernetes/wordpress/) | deň 2 — slajdy; prepis (skladanie manifestu, chyby v odsadení, VS Code); materiály: Lab WordPress on K8s |
+| [10 · Requesty a limity](/devops-notes/kubernetes/requesty-a-limity/) | deň 2 — slajdy; prepis (throttling, OOM kill, k9s, resource-capacity) |
+| [11 · Autoškálovanie](/devops-notes/kubernetes/autoskalovanie/) | deň 2 — slajdy; deň 3 — prepis (HPA, wrk, 5 minút); materiály: Škálovaný weather |
+| [12 · ConfigMapy a Secrety](/devops-notes/kubernetes/configmapy-a-secrety/) | deň 3 — slajdy; prepis; materiály: config mapy, tajnosti, Lab RustFS, WordPress so Secretmi |
+| [13 · Ingress](/devops-notes/kubernetes/ingress/) | deň 3 — slajdy; prepis (Exact/Prefix, `/etc/hosts`, Gateway API); materiály: Lab Rambo with Ingress; deň 4 — prepis a materiály: RustFS cez Ingress |
+| [14 · Perzistencia](/devops-notes/kubernetes/perzistencia/) | deň 4 — prepis (emptyDir, hostPath, PV, PVC, StorageClass, CSI); materiály: Nginx Manifest, Persistent Volume (Claim), perzistentný RustFS |
+| [15 · Ekosystém](/devops-notes/kubernetes/ekosystem/) | deň 4 — prepis (Job, DaemonSet, distribúcie, GUI nástroje); deň 2 — slajdy (kontext cez K3d) |
+| [Mirekove múdrosti](/devops-notes/kubernetes/mudrosti/historia/) | prepisy všetkých dní |
+
+## Opravy
+
+- **Lektor (deň 1):** „Docker vyšiel vo verzii 1 v roku 2013“ — Docker sa objavil v roku 2013, verzia 1.0 vyšla v roku 2014. Kubernetes 1.0 a Docker Swarm 1.0 vyšli v roku 2015.
+- **Lektor (deň 1):** meno Kubernetes — grécke *kybernétés* je kormidelník.
+- **Lektor (deň 1):** nepárny počet masterov kvôli kvóru etcd (väčšina), nie kvôli „nerovnému hlasovaniu“ pri výpadku.
+- **Lektor (deň 1):** LoadBalancer služby v K3s neobsluhuje Traefik, ale vstavaný **ServiceLB** (Klipper). Traefik je Ingress Controller na portoch 80/443.
+- **Slajdy (deň 1):** „Ingress je špeciálny prípad služby typu LoadBalancer“ — Ingress je samostatný objekt s pravidlami; controller býva sprístupnený cez LoadBalancer.
+- **Slajdy (deň 2):** „request ≤ hodnota < limit“ — skutočná spotreba môže byť aj pod requestom (lektor to na kurze sám povedal).
+- **Slajdy (deň 2, obrázok):** príklad s Redisom používa `apiVersion: extensions/v1beta1`; dnes `apps/v1`.
+- **Lektor (deň 3):** cieľ HPA `--cpu 50` je 50 % **requestu** CPU, nie 50 % jadra.
+- **Lektor (deň 3):** `minReplicas` a `maxReplicas` nie sú v deploymente, ale v objekte HorizontalPodAutoscaler (lektor to na 4. deň overil).
+- **Materiály (deň 3):** v Morning Exercise majú všetky štyri deploymenty rovnaký selektor `app: rambo` — selektory sa prekrývajú. Poznámky pridávajú do selektora `city`. Kontajnery sa v riešení volajú `rambo-mu`, `rambo-ke`…, takže `set image … rambo=…` by na ne nesedel.
+- **Slajdy (deň 3, ťahák):** `kubectl delete configmap credentials` pri Secrete — správne `kubectl delete secret credentials`.
+- **Materiály (deň 3):** Traefik dashboard cez port 9000 — v novom Traefiku je na 8080 (`deploy/traefik 8080:8080`, ako na slajdoch).
+- **Lektor (deň 4):** `ReadWriteOnce` = pripojenie na zápis z **jedného uzla**, nie z jedného podu.
+- **Lektor (deň 4):** PVC ostal v `Pending`, lebo bez `storageClassName` dostal predvolenú triedu `local-path` (ktorá navyše čaká na pod — `WaitForFirstConsumer`), kým ručné PV triedu nemali. Preto riešenie používa `storageClassName: ""`.
+- **Lektor (deň 4):** `kubectl delete pv` na spárovaný PV ho nezmaže hneď — ostane `Terminating`, kým existuje PVC.

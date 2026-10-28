@@ -1,0 +1,232 @@
+---
+title: Requesty a limity
+description: Obmedzenie CPU a pamäte kontajnera — request pre plánovač a limit ako strop, millicores a Mi, stav Pending, CPU throttling a OOM kill, overenie cez describe, kubectl top, resource-capacity a k9s, ukážky s nekonečnou slučkou a skladaním reťazcov.
+kind: chapter
+day: 2
+sidebar:
+  order: 10
+  label: 10 · Requesty a limity
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **request** = minimálne garantované množstvo. Podľa neho **scheduler** hľadá uzol; keď žiadny nemá dosť voľného, pod ostane **`Pending`**.
+- **limit** = maximum, ktoré kontajner smie použiť. Na dodržanie dohliada **kubelet**.
+- Prekročenie limitu **CPU** → **throttling** (spomalenie, kontajner beží ďalej). Prekročenie limitu **pamäte** → **OOM kill** (kontajner sa zabije a reštartuje).
+- CPU v **millicores**: `1000m` = 1 jadro, `500m` = pol jadra. Pamäť v `Mi`/`Gi`.
+- Skutočná spotreba môže byť aj **pod** requestom — request je rezervácia, nie minimum spotreby.
+- Overenie: `describe pod` (Limits/Requests), `kubectl top pods`, `kubectl resource-capacity --pods --util` (Krew), **k9s**.
+</KeyPoints>
+
+## Prečo obmedzovať
+
+Bez obmedzení môže jedna aplikácia (pokojne cudzia, z tretej strany) zjesť všetky zdroje uzla a ostatné pody — susedia — zostanú bez nich. Rozšírenie Kubernetes vo VS Code na to upozorňuje ako na *noisy neighbor issues*. Rovnaká téma bola pri [limitoch v Dockeri](/devops-notes/docker/kontexty-a-limity/).
+
+Obmedzuje sa najčastejšie **CPU** a **pamäť (RAM)**, a to dvoma hodnotami.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/request-limit.png" alt="Procesor s dvoma hodnotami: CPU Request 1G (garantované) a CPU Limit 2G (maximum)." width="1170" height="585" loading="lazy" />
+  <figcaption>Request je garantované množstvo, limit je strop. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+| | request | limit |
+| --- | --- | --- |
+| význam | minimálne **garantované** množstvo, ktoré sa pre kontajner rezervuje | **maximum**, ktoré kontajner smie použiť |
+| kto ho používa | **kube-scheduler** pri výbere uzla; kubelet rezervuje zdroje | **kubelet** dohliada, aby sa neprekročil |
+| keď sa nedá splniť / prekročí | žiadny uzol nemá dosť voľného → pod **`Pending`** | CPU → **throttling**, pamäť → **OOM kill** |
+
+Slajd uvádza `request <= hodnota < limit`. V skutočnosti môže aplikácia bežať aj **pod** requestom — keď nič nerobí, berie napr. 0,1 jadra, hoci si vyžiadala jedno. Request je rezervácia, nie spodná hranica spotreby.
+
+## Jednotky
+
+- **CPU** v jadrách alebo **millicores**: `1000m` = 1 jadro, `500m` = 0,5 jadra, `100m` = 0,1 jadra,
+- **pamäť** v bajtoch s príponou: `128Mi` (mebibajty), `1Gi`.
+
+## Zápis v manifeste
+
+`resources` patrí ku **kontajneru** — v podoch, deploymentoch aj StatefulSetoch (v šablóne podu):
+
+```yaml
+    spec:
+      containers:
+      - image: bletvaska/weather:latest
+        name: weather
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+```
+
+Hodnoty, ktoré na kurze doplnilo rozšírenie VS Code cez *Fix* (request → limit): WordPress `100m`/`128Mi` → `500m`/`256Mi`, MariaDB `100m`/`256Mi` → `500m`/`512Mi`, Adminer `50m`/`64Mi` → `200m`/`128Mi`. Limit CPU je zhruba 4–5× request, pamäť 2×.
+
+:::tip[Aké hodnoty zvoliť?]
+Začni rozumným odhadom (dokumentácia, internet, AI) a sleduj skutočnú spotrebu. Pri vlastnej aplikácii na zákazku sa nič nevygoogli — najlepšie sú **metriky z prevádzky**, napr. z Promethea v čase. Ani vývojár často nevie, koľko jeho aplikácia zje.
+:::
+
+## Príklad
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/resources-example.png" alt="Uzol so 4 vCPU a 16 GB RAM a deployment s dvoma kontajnermi: redis s requestom 300Mi a 500m a limitom 600Mi a 1 CPU, busybox s requestom 100Mi a 100m a limitom 200Mi a 300m. Popisy vysvetľujú efektívny request podu, CPU shares, OOM kill a throttling." width="1170" height="828" loading="lazy" />
+  <figcaption>Pod s kontajnermi redis a busybox na uzle so 4 vCPU. Obrázok zo slajdov lektora (zdroj: Sysdig).</figcaption>
+</figure>
+
+1. Celková požiadavka podu je **400 MiB** pamäte (300 + 100) a **600 millicores** CPU (500 + 100). Na spustenie treba uzol, ktorý má toľko voľného.
+2. Kubernetes priraďuje každému jadru 1024 *shares*: redis dostane 1024 × 0,5 ≅ **512**, busybox 1024 × 0,1 ≅ **102**.
+3. Redis bude **OOM killed**, ak sa pokúsi alokovať viac ako 600 MiB — pod pravdepodobne zlyhá.
+4. Redis bude **throttlovaný**, ak použije viac ako 100 ms CPU každých 100 ms (limit 1 jadro; celý uzol so 4 jadrami má 400 ms každých 100 ms).
+5. Busybox bude OOM killed nad 200 MiB.
+6. Busybox bude throttlovaný nad 30 ms CPU každých 100 ms (limit 300m).
+
+Na obrázku je `apiVersion: extensions/v1beta1` — dnes je Deployment v `apps/v1`.
+
+## Overenie
+
+```bash
+kubectl describe pod/weather           # pri kontajneri sekcie Limits a Requests
+kubectl top pods                       # aktuálna spotreba CPU (m) a pamäte (Mi)
+```
+
+`top` potrebuje *metrics-server* (v K3s je). Hodnoty sa obnovujú s oneskorením (desiatky sekúnd), takže náhle zmeny neuvidíš hneď.
+
+Rozšírenie **resource-capacity** (*kube-capacity*) spája to najlepšie z `top` a `describe`:
+
+```bash
+kubectl krew install resource-capacity
+kubectl resource-capacity                                # podľa uzlov
+kubectl resource-capacity --pods --namespace wordpress   # requesty a limity podov
+kubectl resource-capacity --pods --namespace wordpress --util   # aj aktuálne využitie
+```
+
+### k9s
+
+**[k9s](https://k9scli.io/)** je terminálové rozhranie na Kubernetes — veľmi populárne, „každý admin vám ho spomenie“. Ovláda sa ako `dry` z [kurzu Docker](/devops-notes/docker/nastroje-na-spravu/) a syntaxou pripomína Vim:
+
+- `:pods`, `:deploy`, `:svc` — zmena zobrazeného typu objektu (dvojbodka a príkaz),
+- `Enter` na pode — kontajnery, `s` — shell v kontajneri, `l` — logy, `y` — YAML,
+- `/` — filter, `?` — klávesové skratky.
+
+V zozname podov sú stĺpce `CPU`, `MEM` a `%CPU/R`, `%CPU/L`, `%MEM/R`, `%MEM/L` — spotreba v percentách requestu a limitu.
+
+:::note[k9s na laboratórnom stroji]
+Na kurze k9s najprv skončil chybou *permission denied* — priečinok v `~/.local` vytvoril pri inštalácii `root`. Pomohlo vrátiť vlastníctvo: `sudo chown -R ubuntu:ubuntu ~/.local`.
+:::
+
+## Ukážka: throttling
+
+Na throttling stačí **nekonečný cyklus**. Kontajner sa pri prekročení limitu nezabije, iba spomalí. Jeden cyklus v shelli vyťaží najviac jedno jadro, takže limit musí byť pod 1 CPU, inak throttling nenastane.
+
+```bash
+kubectl exec -it deployment/adminer -- sh
+while true; do date; done
+```
+
+V druhom okne `kubectl top pods` (alebo k9s): spotreba vyskočí, ale zastaví sa pri limite — pri Admineri okolo **200m**. Ďalšie cykly v ďalších `exec` reláciách ju nad limit nedostanú.
+
+## Ukážka: OOM kill
+
+Pamäť vyčerpá skript, ktorý skladá reťazec po 10 MiB:
+
+```bash
+kubectl exec -it deployment/weather -- sh -c '
+i=0; s=""
+while true; do
+  i=$((i + 10))
+  s="$s$(head -c 10485760 /dev/zero | tr "\0" x)"
+  echo "allocated ~${i} MiB"
+  sleep 1
+done'
+```
+
+`head -c` vytiahne 10 MiB nulových bajtov, `tr` ich zmení na `x` (shell nuly v premennej neudrží). Pozor na doláre — bez `$` pred `s` alebo `(` sa nič nealokuje (na kurze sa to stalo).
+
+**OOM kill nastane skôr**, ako by sa zdalo — okolo **polovice** limitu. Pri skladaní je v pamäti chvíľu stará aj nová verzia reťazca (50 MiB + 60 MiB = 110 MiB).
+
+```bash
+kubectl get pods --watch
+# weather-…   0/1   OOMKilled          0   2m
+# weather-…   0/1   CrashLoopBackOff   1   2m
+# weather-…   1/1   Running            1   2m
+```
+
+Aktuálnu spotrebu pamäte kontajnera ukáže cgroup priamo v ňom — `top` sa obnovuje pomaly, toto okamžite:
+
+```bash
+kubectl exec deployment/weather -- cat /sys/fs/cgroup/memory.current
+```
+
+## Otestuj sa
+
+<Question q="Na čo slúži request a kto ho používa?">
+Je to garantované množstvo zdroja. Scheduler podľa neho vyberá uzol a kubelet ho rezervuje.
+</Question>
+
+<Question q="Čo sa stane, keď žiadny uzol nemá voľné zdroje podľa requestu?">
+Pod sa nespustí a ostane v stave `Pending`, kým sa zdroje neuvoľnia.
+</Question>
+
+<Question q="Čo sa stane pri prekročení limitu CPU a čo pri prekročení limitu pamäte?">
+CPU → throttling, kontajner sa spomalí. Pamäť → OOM kill, kontajner sa zabije a reštartuje.
+</Question>
+
+<Question q="Koľko je `250m` CPU?">
+Štvrtina jadra (1000m = 1 jadro).
+</Question>
+
+<Question q="Pod má kontajnery s requestami 300Mi/500m a 100Mi/100m. Aký uzol potrebuje?">
+Taký, ktorý má voľných aspoň 400 MiB pamäte a 600 millicores CPU.
+</Question>
+
+<Question q="Prečo pri ukážke so skladaním reťazcov nastal OOM kill okolo polovice limitu?">
+Pri skladaní je v pamäti krátko stará aj nová verzia reťazca, takže skutočná spotreba je zhruba dvojnásobná.
+</Question>
+
+## Cvičenia
+
+### 10.1 · Limity pre WordPress
+
+Doplň do manifestu WordPressu `resources` pre všetky tri kontajnery: WordPress request `100m`/`128Mi`, limit `500m`/`256Mi`; databáza request `100m`/`256Mi`, limit `500m`/`512Mi`; Adminer request `50m`/`64Mi`, limit `200m`/`128Mi`. Aplikuj a over requesty a limity dvoma spôsobmi.
+
+<p class="practises">Precvičíš: `resources`, `describe`, `resource-capacity`.</p>
+
+<Solution>
+```yaml title="WordPress (databáza a Adminer analogicky)"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+```
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl describe pod -l app=db -n wordpress | grep -A2 -E "Limits|Requests"
+kubectl resource-capacity --pods --namespace wordpress --util
+```
+</Solution>
+
+### 10.2 · Throttling a OOM kill
+
+Nasaď weather s requestom `100m`/`128Mi` a limitom `300m`/`256Mi`. V jednom okne sleduj pody a spotrebu, v druhom vyskúšaj nekonečný cyklus a potom skript na pamäť.
+
+<p class="practises">Precvičíš: `top pods`, `memory.current`, stavy `OOMKilled` a `CrashLoopBackOff`.</p>
+
+<Solution>
+```bash
+kubectl apply -f weather.yaml
+watch -n 1 kubectl top pods                       # okno 1
+
+kubectl exec -it deployment/weather -- sh -c 'while true; do date; done'
+# CPU sa zastaví okolo 300m — throttling, pod beží ďalej (Ctrl+C)
+
+kubectl exec -it deployment/weather -- sh -c '…skript z ukážky…'
+# po ~130 MiB „alokovaných“: OOMKilled, potom reštart (RESTARTS 1)
+```
+</Solution>

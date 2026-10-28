@@ -1,0 +1,408 @@
+---
+title: Imperatívne a deklaratívne, manifesty
+description: Tri prístupy k správe objektov, labák MariaDB + Adminer príkazmi, session affinity, generovanie manifestov cez --dry-run=client -o yaml, štyri časti manifestu, api-resources, explain, viac kontajnerov v pode, kubectl apply a viac dokumentov v jednom súbore.
+kind: chapter
+day: 2
+sidebar:
+  order: 8
+  label: 08 · Manifesty
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Imperatívne** = príkazy, *ako* to urobiť (recept). **Deklaratívne** = opis, *čo* chcem dostať (objednávka v reštaurácii). Kubernetes nevnucuje ani jeden; deklaratívny je lepší na automatizáciu a *Infrastructure as Code*.
+- Tri prístupy: **imperatívne príkazy** → **imperatívne objekty** (YAML z každého príkazu) → **deklaratívne objekty**. Pravidlo: **nemiešať ich**.
+- **Manifest** = YAML s kľúčmi `apiVersion`, `kind`, `metadata`, `spec` (+ `status` pri bežiacom objekte). Vygeneruješ ho `--dry-run=client --output yaml` alebo `kubectl get … -o yaml`.
+- `kubectl explain pod.spec.containers.env` = dokumentácia priamo v termináli. `api-resources` = aké objekty klaster pozná, `api-versions` = aké verzie API.
+- `kubectl apply -f súbor.yaml` vytvorí aj aktualizuje. Viac objektov v jednom súbore oddeľuje `---`. `apply -f priečinok/` spracuje súbory v **abecednom** poradí.
+</KeyPoints>
+
+## Dva prístupy
+
+| | Imperatívny | Deklaratívny |
+| --- | --- | --- |
+| zameranie | **ako** veci fungujú, postup | **čo** má byť výsledkom |
+| programovanie | Python — kroky zhora nadol | SQL — opíšeš výsledok, engine zvolí postup (index…) |
+| varenie | **recept** praženice — poradie krokov je dôležité | **menu v reštaurácii** — objednáš, čašník prinesie |
+| v K8s | príkazy `kubectl` | konfiguračné súbory YAML (manifesty) |
+| výhoda | jednoduchý na začiatok, okamžitá spätná väzba | automatizácia, verzovanie v Gite, veľké infraštruktúry |
+
+Kubernetes ti nepredpisuje, ktorý prístup máš použiť. Imperatívny je skvelý na učenie — príkaz napíšeš a hneď vidíš výsledok, ako pri Dockeri pred Compose. Na automatizáciu je však ťažkopádny. Deklaratívny je *Infrastructure as Code*: zdroje sú v súboroch, v Gite, s pomocou **generátorov** — „more DevOps style“, GitOps.
+
+Prejdeme si tri prístupy na jednom labáku:
+
+1. **imperatívne príkazy**,
+2. **imperatívne objekty** — z každého príkazu YAML súbor,
+3. **deklaratívne objekty** — manifesty.
+
+:::caution
+Dôležité pravidlo: tieto tri prístupy **navzájom nemiešaj**.
+:::
+
+## 1. Imperatívne príkazy
+
+Jednoduché, používajú sa vo výučbe, vývoji a súkromných projektoch. Ľahko sa učia a skúšajú, horšie sa udržiavajú v čase.
+
+### Labák: MariaDB + Adminer príkazmi
+
+Kompozícia databázy MariaDB a webového rozhrania Adminer, všetko v mennom priestore `prod`:
+
+- **MariaDB:** obraz `mariadb`, heslo pre `root` je `secret`, služba `db` v klastri na porte obrazu,
+- **Adminer:** obraz `adminer`, 3 repliky; služba `adminer-cl` v klastri na porte 8000, `adminer-np` ako NodePort, `adminer-lb` ako LoadBalancer na porte 8080.
+
+```bash
+kubectl config set-context --current --namespace prod
+
+kubectl create deployment db --image mariadb
+kubectl set env deployment/db MARIADB_ROOT_PASSWORD=secret
+kubectl expose deployment db --port 3306
+
+kubectl create deployment adminer --image adminer --replicas 3
+kubectl expose deployment adminer --name adminer-cl --port 8000 --target-port 8080
+kubectl expose deployment adminer --name adminer-np --port 8080 --type NodePort
+kubectl expose deployment adminer --name adminer-lb --port 8080 --type LoadBalancer
+```
+
+Prihlásenie v Admineri (`http://<IP>:8080`): server `db`, používateľ `root`, heslo `secret`.
+
+**Úskalia:**
+
+- **Heslo.** Pod databázy hneď padá a reštartuje sa. `kubectl logs deployment/db` povie prečo: *Database is uninitialized and password option is not specified*. MariaDB bez hesla pre `root` nenabehne. `create deployment` nevie nastaviť premennú prostredia, preto druhý príkaz `set env`. Ten zmení šablónu podu → nový ReplicaSet → pod s heslom nabehne.
+- **Prečo služba pre databázu.** Adminer sa pripája na **meno služby** `db`, nie na IP podu (tá sa mení). Služba je zároveň load balancer pre všetky pody za ňou. Stačí ClusterIP — databáza má byť skrytá, navonok ide iba Adminer.
+- **`adminer-lb` v `<pending>`.** Port 8080 drží LoadBalancer z iného priestoru (`default`). V K3s sa porty na uzle nemôžu prekrývať — zmaž starú službu alebo zvoľ iný port.
+
+### Session affinity
+
+Keď sa v Admineri prihlásiš, väčšinou to neprejde — *Session expired, please login again*. Občas to vyjde. Prečo?
+
+Adminer drží prihlásenie v **PHP session**, uloženej v súbore **vo vnútri konkrétneho podu**. Ostatné repliky o nej nevedia. Load balancer posiela každú požiadavku na náhodný pod — prihlásiš sa na pod A, ďalšia požiadavka príde na pod B, ktorý ťa nepozná. Typický problém **stavovej aplikácie za load balancerom**. Na kurze to dočasne vyriešilo `kubectl scale deployment adminer --replicas 1`.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/session-no-affinity.png" alt="Tri klienti s rôznymi IP adresami, služba rozhadzuje ich požiadavky na pody A, B a C — každá požiadavka môže skončiť na inom pode." width="680" height="420" loading="lazy" />
+  <figcaption>Bez session affinity môže každá požiadavka skončiť na inom pode. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+Riešenia:
+
+1. **Session affinity na úrovni služby** (*sticky sessions*) — služba posiela všetky požiadavky z rovnakej IP adresy na ten istý pod:
+
+   ```bash
+   kubectl expose deployment adminer --name adminer-lb --port 8080 \
+     --type LoadBalancer --session-affinity ClientIP
+   ```
+
+   V manifeste je to `sessionAffinity: ClientIP` v `spec` služby (hodnoty `ClientIP` alebo `None`). Keď pod vypadne, klient skončí na inom a musí sa prihlásiť znova — dáta v databáze však ostanú.
+
+   <figure class="slide-figure">
+     <img src="/devops-notes/images/kubernetes/session-affinity.png" alt="Session affinity: služba posiela požiadavky každého klienta vždy na ten istý pod podľa zdrojovej IP adresy." width="680" height="420" loading="lazy" />
+     <figcaption>Session affinity podľa zdrojovej IP: klient ostáva na jednom pode. Obrázok zo slajdov lektora.</figcaption>
+   </figure>
+
+2. **Sticky cookie na Ingresse** — Ingress Controller pridá cookie, podľa ktorej smeruje klienta stále na rovnaký pod. Nezávisí od IP, takže funguje aj za NAT-om. [Ingress](/devops-notes/kubernetes/ingress/) je však zmrazený, náhradou je Gateway API.
+3. **Zdieľané úložisko sessions** — **správne riešenie**. Keď všetky repliky ukladajú sessions na jedno miesto (databáza, Redis…), aplikácia sa stane bezstavovou.
+
+### Labák: automatizácia
+
+Na automatizáciu by bolo treba dva skripty — `adminer.up.sh` (spustí Adminer aj databázu) a `adminer.down.sh` (zruší ich). Príkazy musia ísť presne v správnom poradí a pri zmene, napr. menného priestoru, treba upraviť každý riadok. Čím viac volieb, tým väčšia sranda.
+
+## 2. Imperatívne objekty
+
+Z každého príkazu vieš vytvoriť YAML špecifikáciu objektu — **manifest**. Stačia dve voľby:
+
+- `--dry-run=client` — príkaz sa **nevykoná**, iba sa overí, či by sa vykonať dal,
+- `--output yaml` (`-o yaml`) — výsledok vypíše ako YAML.
+
+```bash
+kubectl run nginx \
+  --image nginx \
+  --labels app=nginx \
+  --port 80 \
+  --namespace dev \
+  --dry-run=client \
+  --output yaml > pod.yaml
+```
+
+```yaml title="pod.yaml (po upratovaní)"
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+  namespace: dev
+spec:
+  containers:
+  - image: nginx
+    name: nginx
+    ports:
+    - containerPort: 80
+```
+
+Prázdne položky (`creationTimestamp: null`, `resources: {}`, `status: {}`) a predvolené hodnoty (`dnsPolicy`, `restartPolicy`) môžeš zmazať.
+
+Za tým sú **generátory**: každý K8s zdroj má špecifikáciu a generátor je šablóna s predvolenými hodnotami, do ktorej príkaz doplní, čo si zadal (obraz, port, štítok).
+
+Manifest vieš vytiahnuť aj z **bežiaceho objektu**:
+
+```bash
+kubectl get pod nginx --output yaml
+kubectl get service db --output yaml > db.service.yaml
+```
+
+Takýto výpis obsahuje aj `status`, `uid`, `resourceVersion`, `creationTimestamp` — veci konkrétnej inštancie, ktoré pred ďalším použitím zmaž.
+
+:::caution[kubecolor a presmerovanie]
+Na laboratórnych strojoch je `kubectl` alias cez `kubecolor`, ktorý do výstupu pridáva farebné escape kódy aj pri presmerovaní do súboru — YAML sa potom nedá použiť a `grep` nenájde, čo hľadá. Pri generovaní manifestov volaj priamo binárku: `/usr/local/bin/kubectl … -o yaml > súbor.yaml`.
+:::
+
+### Labák: MariaDB + Adminer ako imperatívne objekty
+
+Z každého príkazu predchádzajúceho labáku sprav samostatný YAML súbor. Keď ich potom aplikuješ v správnom poradí, kompozícia vznikne znova.
+
+```bash
+kubectl create namespace the-project --dry-run=client -o yaml > step.00.yaml
+kubectl create deployment db --image mariadb --namespace the-project \
+  --dry-run=client -o yaml > step.01.yaml
+kubectl set env deployment db MARIADB_ROOT_PASSWORD=secret --namespace the-project \
+  --dry-run=client -o yaml > step.02.yaml
+kubectl expose deployment db --port 3306 --namespace the-project \
+  --dry-run=client -o yaml > step.03.yaml
+kubectl create deployment adminer --image adminer --replicas 2 --namespace the-project \
+  --dry-run=client -o yaml > step.04.yaml
+kubectl expose deployment adminer --name adminer-cl --port 8000 --target-port 8080 \
+  --namespace the-project --dry-run=client -o yaml > step.05.yaml
+kubectl expose deployment adminer --name adminer-np --port 8080 --type NodePort \
+  --namespace the-project --dry-run=client -o yaml > step.06.yaml
+kubectl expose deployment adminer --name adminer-lb --port 8080 --type LoadBalancer \
+  --namespace the-project --dry-run=client -o yaml > step.07.yaml
+
+# zmazanie v opačnom poradí, vytvorenie v správnom
+for file in $(ls -r step.0*); do kubectl delete -f "$file"; done
+for file in $(ls step.0*); do kubectl apply -f "$file"; done
+```
+
+`set env` a `expose` s `--dry-run` potrebujú, aby deployment **existoval** — bez neho skončia chybou *not found*. Ak už deployment s heslom beží, `set env` nevráti nič; vtedy treba nastaviť iné heslo alebo vytiahnuť `kubectl get deploy/db -o yaml`. Jednoduchšie je premennú dopísať do manifestu deploymentu ručne:
+
+```yaml
+    spec:
+      containers:
+      - image: mariadb
+        name: mariadb
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: secret
+```
+
+## Anatómia manifestu
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/manifest.png" alt="The Manifest File so štyrmi časťami: API version (z akej skupiny a verzie API objekt je), kind (čo vytváraš — Pod, Service…), metadata (čo objekt jednoznačne identifikuje) a spec (aký má byť stav objektu, obraz, konfigurácia)." width="1024" height="768" loading="lazy" />
+  <figcaption>Štyri časti manifestu. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+| Kľúč | Význam |
+| --- | --- |
+| `apiVersion` | verzia API objektu — musí ju klaster podporovať. Od nej závisí, čo sa dá napísať do `spec` (nová verzia nemusí byť spätne kompatibilná). Pod a Service sú `v1`, Deployment `apps/v1`, Ingress `networking.k8s.io/v1`. |
+| `kind` | typ objektu — `Pod`, `Deployment`, `Service`, `Namespace`… |
+| `metadata` | čo objekt jednoznačne identifikuje. Povinné je iba `name`; voliteľné `namespace`, `labels`, `annotations`. Bez `namespace` sa objekt vytvorí v aktuálnom priestore — manifest je prenositeľnejší. |
+| `spec` | požadovaný stav — pri pode kontajnery, obrazy, premenné prostredia; pri službe porty a typ |
+| `status` | aktuálny stav bežiaceho objektu, dopĺňa Kubernetes — do manifestu ho nepíšeš |
+
+Mená objektov musia byť **malými písmenami** (`100mega`, nie `100Mega`), inak *Invalid value… must consist of lower case*.
+
+```bash
+kubectl api-versions                 # podporované verzie API (apps/v1, autoscaling/v2, …)
+kubectl api-resources                # všetky typy objektov: NAME, SHORTNAMES, APIVERSION, NAMESPACED, KIND
+kubectl api-resources | wc -l        # na kurze 109 riadkov
+```
+
+Typov objektov je vyše 100 a dajú sa pridávať vlastné — napr. `traefik.io` prináša objekty Traefiku. Kubernetes je naozaj kolos.
+
+### explain
+
+Čo všetko sa dá napísať do `spec`, ukáže dokumentácia priamo v termináli — cesta sa skladá cez bodky:
+
+```bash
+kubectl explain pod                      # kľúče najvyššej úrovne
+kubectl explain pod.spec                 # containers je required
+kubectl explain pod.spec.containers      # [] = zoznam; command, env, image, ports, resources…
+kubectl explain pod.spec.containers.env  # name, value, valueFrom
+kubectl explain service.spec
+```
+
+Online je to [Kubernetes API reference](https://kubernetes.io/docs/reference/).
+
+## Viac kontajnerov v jednom pode
+
+V `spec.containers` je **zoznam** — pridaním ďalšej položky pribudne kontajner:
+
+```yaml title="adminer-a-db.yaml"
+apiVersion: v1
+kind: Pod
+metadata:
+  name: adminer
+spec:
+  containers:
+  - image: adminer
+    name: adminer
+  - image: mariadb
+    name: mariadb
+    env:
+    - name: MARIADB_ROOT_PASSWORD
+      value: secret
+```
+
+```bash
+kubectl apply -f adminer-a-db.yaml
+kubectl get pods
+# NAME      READY   STATUS    RESTARTS   AGE
+# adminer   2/2     Running   0          20s
+```
+
+`READY 2/2` — dva kontajnery z dvoch. Oba **zdieľajú jednu IP adresu** podu a navzájom sa vidia: v Admineri na IP podu a porte 8080 sa prihlásiš ako `root`/`secret` na server `127.0.0.1`.
+
+Nevýhoda: reštartuje sa vždy **celý pod**, nie jeden kontajner. A väčšinu vlastností bežiaceho podu (napr. premenné prostredia) nezmeníš — `apply` skončí chybou *The Pod is invalid*; pod treba zmazať a vytvoriť znova.
+
+## 3. Deklaratívne objekty
+
+Manifest sa aplikuje príkazom **`apply`**:
+
+```bash
+kubectl apply -f manifest.yaml
+kubectl delete -f manifest.yaml        # zmaže všetko, čo je v manifeste
+```
+
+`apply` objekt **vytvorí**, ak neexistuje, a **aktualizuje**, ak sa manifest zmenil (`configured`); bez zmeny vypíše `unchanged`. Preto `apply` a nie `create`.
+
+Ako manifesty organizovať, je na tebe:
+
+- **samostatný súbor pre každý objekt** — a aplikuješ celý priečinok:
+
+  ```bash
+  kubectl apply -f .
+  kubectl apply -f lab/
+  ```
+
+  Súbory sa spracujú v **abecednom poradí**. Na kurze sa `namespace.yaml` aplikoval ako posledný, takže všetko pred ním skončilo chybou *namespaces "prod" not found*. Druhé spustenie prešlo. Riešenie: číselné predpony `00-namespace.yaml`, `01-…`.
+
+- **všetko v jednom súbore** — YAML dovoľuje viac **dokumentov** v jednom súbore oddelených `---`. Je to ako JSON pole s viacerými objektmi, len oddeľovač nie je čiarka:
+
+  ```yaml title="manifest.yaml"
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: prod
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: db
+    namespace: prod
+  # …
+  ---
+  apiVersion: v1
+  kind: Service
+  # …
+  ```
+
+  Súbory spojíš napr. takto:
+
+  ```bash
+  sed --separate '$a---' step.*.yaml > manifest.yaml
+  ```
+
+V jednom súbore ide všetko zhora nadol, takže `Namespace` daj na začiatok. Služba a deployment na sebe nezávisia — služba bez podov má len prázdne endpointy, preto na ich vzájomnom poradí nezáleží.
+
+Výhoda: konfigurák ide do **Gitu**, ktokoľvek ho kedykoľvek upraví a aplikuje. Napríklad konkrétny NodePort, ktorý sa z príkazového riadku zadať nedá:
+
+```yaml
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 32222
+```
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi imperatívnym a deklaratívnym prístupom?">
+Imperatívny hovorí, ako postupovať (príkazy v poradí). Deklaratívny opisuje požadovaný výsledok (manifest) a Kubernetes sa postará o postup.
+</Question>
+
+<Question q="Ako vygeneruješ manifest bez toho, aby sa objekt vytvoril?">
+Pridaj k príkazu `--dry-run=client --output yaml` a výstup presmeruj do súboru.
+</Question>
+
+<Question q="Aké štyri kľúče má každý manifest a ktorý údaj v metadátach je povinný?">
+`apiVersion`, `kind`, `metadata`, `spec`. V metadátach je povinné iba `name`.
+</Question>
+
+<Question q="Ako zistíš, čo sa dá zapísať do premenných prostredia kontajnera?">
+`kubectl explain pod.spec.containers.env` (alebo online API reference).
+</Question>
+
+<Question q="Prečo sa v Admineri s 3 replikami nedá prihlásiť?">
+Session je uložená v súbore v jednom pode, ďalšia požiadavka ide na iný pod. Rieši to session affinity, sticky cookie alebo — správne — zdieľané úložisko sessions.
+</Question>
+
+<Question q="Čo znamená `READY 2/2`?">
+Pod má dva kontajnery a oba bežia.
+</Question>
+
+<Question q="`kubectl apply -f lab/` skončil chybou *namespace not found*, druhý pokus prešiel. Prečo?">
+Súbory sa spracúvajú abecedne a `namespace.yaml` prišiel na rad až po ostatných. Pomôžu číselné predpony alebo jeden súbor s Namespace na začiatku.
+</Question>
+
+<Question q="Aký je rozdiel medzi `create -f` a `apply -f`?">
+`create` iba vytvára (existujúci objekt je chyba). `apply` vytvorí alebo aktualizuje podľa zmien v manifeste.
+</Question>
+
+## Cvičenia
+
+### 8.1 · Kompozícia v jednom manifeste
+
+Zo súborov `step.00.yaml` až `step.07.yaml` sprav jeden `manifest.yaml`. Zmaž kompozíciu a vytvor ju jedným príkazom. Potom v manifeste nastav službe `adminer-np` NodePort `32222` a aplikuj zmenu.
+
+<p class="practises">Precvičíš: viac dokumentov v YAML, `apply`, `delete -f`, `nodePort`.</p>
+
+<Solution>
+```bash
+sed --separate '$a---' step.0*.yaml > manifest.yaml
+for file in $(ls -r step.0*); do kubectl delete -f "$file"; done
+kubectl apply -f manifest.yaml
+```
+
+```yaml title="manifest.yaml (služba adminer-np)"
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+    nodePort: 32222
+```
+
+```bash
+kubectl apply -f manifest.yaml       # service/adminer-np configured, ostatné unchanged
+kubectl get svc adminer-np           # 8080:32222/TCP
+```
+</Solution>
+
+### 8.2 · Session affinity
+
+Uprav službu `adminer-lb` tak, aby každý klient ostal na jednom pode, a over prihlásenie s tromi replikami Admineru.
+
+<p class="practises">Precvičíš: `sessionAffinity`, `get -o yaml`.</p>
+
+<Solution>
+```bash
+kubectl expose deployment adminer --name adminer-lb --port 8080 \
+  --type LoadBalancer --session-affinity ClientIP --dry-run=client -o yaml
+```
+
+Do `spec` služby pribudne `sessionAffinity: ClientIP`. Doplň ho do manifestu a aplikuj (`kubectl apply -f manifest.yaml`). Prvé prihlásenie môže ešte zlyhať; potom už ostávaš na jednom pode.
+</Solution>

@@ -1,0 +1,217 @@
+---
+title: Deploymenty a škálovanie
+description: Deklaratívny prístup a riadiaca slučka, kubectl create deployment, hierarchia Deployment → ReplicaSet → Pod a pomenovanie, samoobnova podov, scale, škálovanie na 0 a logy z deploymentu.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Deploymenty
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Deployment** opisuje **požadovaný stav** (deklaratívne) — napr. „5 replík z obrazu X“. Kontrolér v **riadiacej slučke** porovnáva aktuálny stav s požadovaným a dorovnáva ho.
+- `kubectl create deployment weather --image bletvaska/weather --replicas 3` vytvorí **Deployment → ReplicaSet → Pody**. Mená: `weather`, `weather-<hash>`, `weather-<hash>-<id>`. Kto koho riadi, ukáže `describe` v riadku `Controlled By`.
+- Zmazaný pod ReplicaSet hneď nahradí. Pody zmažeš natrvalo iba zmazaním **deploymentu**.
+- `kubectl scale deployment weather --replicas 2` mení počet replík; `--replicas 0` je ako vypnutie služby bez mazania deploymentu.
+- Logy generuje **aplikácia**, nie deployment. `logs deployment/weather` ukáže logy len **jedného** z podov.
+</KeyPoints>
+
+## Deklaratívne
+
+Zatiaľ vieme vytvoriť pod, čo je porovnateľné so spusteným kontajnerom. Orchestrácia ale sľubovala, že keď pod spadne, niekto ho nahodí. Na to slúži **Deployment**:
+
+> A Deployment provides declarative updates for Pods and ReplicaSets.
+
+**Imperatívne** (ako v Pythone) hovoríš *ako* niečo urobiť, krok za krokom. **Deklaratívne** (ako v SQL) opíšeš *výsledok* a o postup sa postará niekto iný: „vráť študentov starších ako 20 rokov“ — neriešiš, či sa použije index. S deploymentom povieš „chcem 5 replík tohto obrazu“ a Kubernetes sa o to stará. Je to ako konfigurák, podľa ktorého sa udržiava stav.
+
+### Riadiaca slučka
+
+Každý kontrolér v Kubernetes funguje rovnako: **sleduje** aktuálny stav, **porovná** ho s požadovaným a **urobí** všetko potrebné, aby sa zhodovali. Keď beží menej podov, než má, vytvorí nové; keď viac, zruší ich. Tento mechanizmus sa volá **riadiaca slučka** (*control loop*) — slučka so spätnou väzbou.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/control-loop.png" alt="Riadiaca slučka: Desired State a Actual State, medzi nimi cyklus Observe, Analyze, Act." width="1400" height="788" loading="lazy" />
+  <figcaption>Riadiaca slučka: pozoruj, analyzuj, konaj — kým sa aktuálny stav nezhoduje s požadovaným. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+## Vytvorenie deploymentu
+
+```bash
+kubectl create deployment weather --image bletvaska/weather
+# deployment.apps/weather created
+
+kubectl get all
+# NAME                           READY   STATUS    RESTARTS   AGE
+# pod/weather-74dffd977d-xgr9d   1/1     Running   0          7s
+#
+# NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+# deployment.apps/weather   1/1     1            1           7s
+#
+# NAME                                 DESIRED   CURRENT   READY   AGE
+# replicaset.apps/weather-74dffd977d   1         1         1       7s
+```
+
+Pod sa nevytvára príkazom `run`, ale `create deployment`. Bez `--replicas` je replika jedna.
+
+## Deployment → ReplicaSet → Pod
+
+Spolu s deploymentom vznikol **ReplicaSet** a **Pod**. Deployment vytvoril ReplicaSet, ten vytvoril pod a v ňom beží kontajner z obrazu.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/six-layers.png" alt="Šesť vrstiev abstrakcie zhora nadol: Deployment, ReplicaSet, Pods, Node Cluster, Node Processes, Docker Container." width="367" height="611" loading="lazy" />
+  <figcaption>Šesť vrstiev abstrakcie v Kubernetes. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+> Deployments create and manage ReplicaSets, which create and manage Pods, which run on Nodes, which have a container runtime, which run the app code you put in your Docker image.
+
+Vzťah vidno cez `describe` v riadku **`Controlled By`**:
+
+```bash
+kubectl describe pod/weather-74dffd977d-xgr9d | grep "Controlled By"
+# Controlled By:  ReplicaSet/weather-74dffd977d
+kubectl describe replicaset/weather-74dffd977d | grep "Controlled By"
+# Controlled By:  Deployment/weather
+kubectl describe deployment/weather | grep "Controlled By"
+# (nič — deployment je na vrchole)
+```
+
+Všimni si aj **pomenovanie**: deployment má meno, ktoré si zadal; ReplicaSet dostane prípon (hash šablóny podu); pod má prípon ReplicaSetu a vlastný identifikátor. Hneď vidno, kam pod patrí.
+
+## Samoobnova
+
+```bash
+kubectl delete pod/weather-74dffd977d-xgr9d
+kubectl get pods
+# NAME                       READY   STATUS    RESTARTS   AGE
+# weather-74dffd977d-h8gpd   1/1     Running   0          3s
+```
+
+Zmazali sme pod a hneď je tu nový (iné meno, nový `AGE`). ReplicaSet porovnal stĺpce:
+
+| Stĺpec | Význam |
+| --- | --- |
+| `DESIRED` | koľko podov si želáme |
+| `CURRENT` | koľko ich aktuálne existuje |
+| `READY` | koľko z nich je pripravených |
+
+Ak `CURRENT` < `DESIRED`, vytvorí nový.
+
+Zmeny je dobré sledovať naživo. Na jeden typ zdroja stačí `--watch` (`-w`), na `get all` treba príkaz `watch` (napr. v druhom okne `tmux`):
+
+```bash
+kubectl get pods --watch
+watch --interval 1 kubectl get all
+```
+
+Pod zmažeš natrvalo iba tak, že zmažeš **deployment** — s ním zmizne ReplicaSet aj všetky pody:
+
+```bash
+kubectl delete deployment/weather
+```
+
+:::note[Čo keď zmažeš ReplicaSet?]
+Deployment si ho hneď vytvorí znova (s novými podmi). ReplicaSet sa stará o pody, deployment o ReplicaSet. Škáluje a maže sa preto **deployment**.
+:::
+
+## Škálovanie
+
+```bash
+kubectl create deployment weather --image bletvaska/weather
+kubectl scale deployment/weather --replicas 2
+```
+
+Zmení sa `DESIRED` v ReplicaSete, potom `CURRENT`, `READY` a pribudne druhý pod (najprv `ContainerCreating`, potom `Running`). Deployment ukáže `READY 2/2`.
+
+Počet replík zadáš rovno pri vytvorení:
+
+```bash
+kubectl create deployment weather --image bletvaska/weather --replicas 5
+kubectl delete pods --all       # pody sa postupne vypnú a nabehnú nové
+```
+
+### Škálovanie na 0
+
+```bash
+kubectl scale deployment/weather --replicas 0
+kubectl scale deployment/weather --replicas 2
+```
+
+Pri nule nebeží žiadny pod, ale deployment aj ReplicaSet ostanú. Je to ako vypnutie a zapnutie služby — napr. pri údržbe alebo reštarte — bez mazania deploymentu.
+
+## Logy z deploymentu
+
+```bash
+kubectl logs deployment/weather --follow
+# Found 4 pods, using pod/weather-74dffd977d-x89j9
+```
+
+Logy **generujú aplikácie**, nie objekty Kubernetes. Deployment ani ReplicaSet nemajú vlastné logy (o ich udalostiach hovorí `describe`). `kubectl` si preto vyberie jeden z podov a ukáže logy z neho. Rovnako `logs replicaset/…`.
+
+Pody v deploymente sú **rovnocenné** — je to ten istý kontajner spustený viackrát, žiadny „hlavný“. Logy zo všetkých podov naraz sa v praxi zbierajú nástrojmi tretích strán, napr. [Stern](https://github.com/stern/stern).
+
+## Otestuj sa
+
+<Question q="Čo je riadiaca slučka?">
+Mechanizmus každého kontroléra: sleduje aktuálny stav, porovná ho s požadovaným a urobí kroky, aby sa zhodovali (napr. dotvorí chýbajúci pod).
+</Question>
+
+<Question q="Aké objekty vzniknú príkazom `kubectl create deployment`?">
+Deployment, ReplicaSet a pody (podľa počtu replík). Deployment riadi ReplicaSet, ReplicaSet riadi pody.
+</Question>
+
+<Question q="Ako z mena podu zistíš, ku ktorému ReplicaSetu patrí?">
+Pod `weather-74dffd977d-xgr9d` patrí ReplicaSetu `weather-74dffd977d` (jeho meno je začiatok mena podu). Spoľahlivo to ukáže `describe` v riadku `Controlled By`.
+</Question>
+
+<Question q="Zmazal si pod deploymentu a je tam znova. Ako sa ho zbavíš?">
+Zmaž deployment (`kubectl delete deployment/weather`) alebo ho naškáluj na 0.
+</Question>
+
+<Question q="Na čo je `--replicas 0`?">
+Vypne všetky pody, ale deployment a ReplicaSet ostanú. Službu potom znova zapneš škálovaním nahor.
+</Question>
+
+<Question q="Prečo `kubectl logs deployment/weather` neukáže logy všetkých replík?">
+Logy generujú aplikácie v kontajneroch. `kubectl` vyberie jeden pod a vypíše logy z neho.
+</Question>
+
+## Cvičenia
+
+### 4.1 · Deploy Rambo
+
+Nasaď aplikáciu z obrazu `bletvaska/rambo`: deployment sa bude volať `rambo`, obraz `bletvaska/rambo:1`, päť replík. Over, že funguje, presmerovaním portov (aplikácia v kontajneri beží na porte 8000).
+
+<p class="practises">Precvičíš: `create deployment`, `--replicas`, `port-forward` na deployment.</p>
+
+<Solution>
+```bash
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 5
+kubectl get all
+kubectl port-forward --address 0.0.0.0 deployment/rambo 8000:8000
+# prehliadač: http://<IP>:8000
+```
+
+Stránka sa sama obnovuje každú sekundu a ukazuje IP adresu a hostname podu. Hostname sa ale nemení — `port-forward` posiela všetko iba na **jeden** pod, aj keď ich beží päť. Rovnomerné rozhadzovanie a prístup bez `port-forward` vyrieši [služba](/devops-notes/kubernetes/sluzby/).
+</Solution>
+
+### 4.2 · Samoobnova naživo
+
+V jednom okne sleduj pody deploymentu `rambo`. V druhom zmaž všetky pody, potom deployment naškáluj na 0 a späť na 3.
+
+<p class="practises">Precvičíš: `get --watch`, `delete pods --all`, `scale`.</p>
+
+<Solution>
+```bash
+# okno 1
+kubectl get pods --watch
+
+# okno 2
+kubectl delete pods --all                     # staré Terminating, nové ContainerCreating → Running
+kubectl scale deployment/rambo --replicas 0   # všetky pody zmiznú
+kubectl get deployment,replicaset             # deployment 0/0, ReplicaSet ostal
+kubectl scale deployment/rambo --replicas 3
+```
+</Solution>

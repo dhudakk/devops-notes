@@ -1,0 +1,217 @@
+---
+title: Deployments and scaling
+description: The declarative approach and the control loop, kubectl create deployment, the Deployment → ReplicaSet → Pod hierarchy and naming, self-healing pods, scale, scaling to 0, and logs from a deployment.
+kind: chapter
+day: 1
+sidebar:
+  order: 4
+  label: 04 · Deployments
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- A **Deployment** describes the **desired state** (declaratively) — e.g. "5 replicas of image X". A controller in a **control loop** compares the actual state with the desired one and reconciles them.
+- `kubectl create deployment weather --image bletvaska/weather --replicas 3` creates **Deployment → ReplicaSet → Pods**. Names: `weather`, `weather-<hash>`, `weather-<hash>-<id>`. Who controls whom is shown by `describe` in the `Controlled By` line.
+- The ReplicaSet replaces a deleted pod immediately. You get rid of the pods for good only by deleting the **deployment**.
+- `kubectl scale deployment weather --replicas 2` changes the number of replicas; `--replicas 0` is like switching the service off without deleting the deployment.
+- Logs are produced by the **application**, not the deployment. `logs deployment/weather` shows the logs of only **one** of the pods.
+</KeyPoints>
+
+## Declaratively
+
+So far we can create a pod, which is comparable to a running container. But orchestration promised that when a pod crashes, someone brings it back. That's what a **Deployment** is for:
+
+> A Deployment provides declarative updates for Pods and ReplicaSets.
+
+**Imperative** (like Python) says *how* to do something, step by step. **Declarative** (like SQL) describes the *result* and someone else takes care of the steps: "give me students older than 20" — you don't care whether an index is used. With a deployment you say "I want 5 replicas of this image" and Kubernetes takes care of it. It's like a config file the state is kept according to.
+
+### The control loop
+
+Every controller in Kubernetes works the same way: it **observes** the actual state, **compares** it with the desired one, and **does** whatever it takes to make them match. When fewer pods are running than should be, it creates new ones; when there are more, it removes some. This mechanism is called the **control loop** — a feedback loop.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/control-loop.png" alt="Control loop: Desired State and Actual State with an Observe, Analyze, Act cycle between them." width="1400" height="788" loading="lazy" />
+  <figcaption>The control loop: observe, analyse, act — until the actual state matches the desired one. Image from the instructor's slides.</figcaption>
+</figure>
+
+## Creating a deployment
+
+```bash
+kubectl create deployment weather --image bletvaska/weather
+# deployment.apps/weather created
+
+kubectl get all
+# NAME                           READY   STATUS    RESTARTS   AGE
+# pod/weather-74dffd977d-xgr9d   1/1     Running   0          7s
+#
+# NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+# deployment.apps/weather   1/1     1            1           7s
+#
+# NAME                                 DESIRED   CURRENT   READY   AGE
+# replicaset.apps/weather-74dffd977d   1         1         1       7s
+```
+
+The pod isn't created with `run` but with `create deployment`. Without `--replicas` there's one replica.
+
+## Deployment → ReplicaSet → Pod
+
+Along with the deployment, a **ReplicaSet** and a **Pod** were created. The deployment created the ReplicaSet, which created the pod, which runs a container from the image.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/six-layers.png" alt="Six layers of abstraction from top to bottom: Deployment, ReplicaSet, Pods, Node Cluster, Node Processes, Docker Container." width="367" height="611" loading="lazy" />
+  <figcaption>The six layers of abstraction in Kubernetes. Image from the instructor's slides.</figcaption>
+</figure>
+
+> Deployments create and manage ReplicaSets, which create and manage Pods, which run on Nodes, which have a container runtime, which run the app code you put in your Docker image.
+
+You can see the relationship with `describe` in the **`Controlled By`** line:
+
+```bash
+kubectl describe pod/weather-74dffd977d-xgr9d | grep "Controlled By"
+# Controlled By:  ReplicaSet/weather-74dffd977d
+kubectl describe replicaset/weather-74dffd977d | grep "Controlled By"
+# Controlled By:  Deployment/weather
+kubectl describe deployment/weather | grep "Controlled By"
+# (nothing — the deployment is at the top)
+```
+
+Notice the **naming** too: the deployment has the name you gave it; the ReplicaSet gets a suffix (the hash of the pod template); the pod has the ReplicaSet's suffix plus its own identifier. You can tell at once where a pod belongs.
+
+## Self-healing
+
+```bash
+kubectl delete pod/weather-74dffd977d-xgr9d
+kubectl get pods
+# NAME                       READY   STATUS    RESTARTS   AGE
+# weather-74dffd977d-h8gpd   1/1     Running   0          3s
+```
+
+We deleted the pod and a new one is here straight away (different name, new `AGE`). The ReplicaSet compared its columns:
+
+| Column | Meaning |
+| --- | --- |
+| `DESIRED` | how many pods we want |
+| `CURRENT` | how many currently exist |
+| `READY` | how many of them are ready |
+
+If `CURRENT` < `DESIRED`, it creates a new one.
+
+It's good to watch changes live. For one resource type `--watch` (`-w`) is enough; for `get all` use the `watch` command (e.g. in a second `tmux` pane):
+
+```bash
+kubectl get pods --watch
+watch --interval 1 kubectl get all
+```
+
+You get rid of a pod for good only by deleting the **deployment** — the ReplicaSet and all pods go with it:
+
+```bash
+kubectl delete deployment/weather
+```
+
+:::note[What if you delete the ReplicaSet?]
+The deployment recreates it straight away (with new pods). The ReplicaSet looks after the pods, the deployment after the ReplicaSet. That's why you scale and delete the **deployment**.
+:::
+
+## Scaling
+
+```bash
+kubectl create deployment weather --image bletvaska/weather
+kubectl scale deployment/weather --replicas 2
+```
+
+`DESIRED` in the ReplicaSet changes, then `CURRENT` and `READY`, and a second pod appears (first `ContainerCreating`, then `Running`). The deployment shows `READY 2/2`.
+
+You can give the number of replicas right when creating it:
+
+```bash
+kubectl create deployment weather --image bletvaska/weather --replicas 5
+kubectl delete pods --all       # the pods shut down one by one and new ones start
+```
+
+### Scaling to 0
+
+```bash
+kubectl scale deployment/weather --replicas 0
+kubectl scale deployment/weather --replicas 2
+```
+
+At zero no pod runs, but the deployment and ReplicaSet remain. It's like switching the service off and on — e.g. for maintenance or a restart — without deleting the deployment.
+
+## Logs from a deployment
+
+```bash
+kubectl logs deployment/weather --follow
+# Found 4 pods, using pod/weather-74dffd977d-x89j9
+```
+
+Logs are **produced by applications**, not by Kubernetes objects. Neither the deployment nor the ReplicaSet has logs of its own (`describe` shows their events). `kubectl` therefore picks one of the pods and shows its logs. The same goes for `logs replicaset/…`.
+
+Pods in a deployment are **equal** — the same container run several times, no "main" one. In practice, logs from all pods are collected by third-party tools, e.g. [Stern](https://github.com/stern/stern).
+
+## Test yourself
+
+<Question q="What is the control loop?">
+The mechanism of every controller: it observes the actual state, compares it with the desired one, and takes steps to make them match (e.g. creates a missing pod).
+</Question>
+
+<Question q="Which objects does `kubectl create deployment` create?">
+A Deployment, a ReplicaSet, and pods (according to the number of replicas). The deployment controls the ReplicaSet, the ReplicaSet controls the pods.
+</Question>
+
+<Question q="How can you tell from a pod's name which ReplicaSet it belongs to?">
+The pod `weather-74dffd977d-xgr9d` belongs to the ReplicaSet `weather-74dffd977d` (its name is the start of the pod's name). `describe` shows it reliably in the `Controlled By` line.
+</Question>
+
+<Question q="You deleted a deployment's pod and it's back. How do you get rid of it?">
+Delete the deployment (`kubectl delete deployment/weather`) or scale it to 0.
+</Question>
+
+<Question q="What is `--replicas 0` for?">
+It stops all pods, but the deployment and ReplicaSet remain. You switch the service back on by scaling up.
+</Question>
+
+<Question q="Why doesn't `kubectl logs deployment/weather` show the logs of all replicas?">
+Logs are produced by the applications in containers. `kubectl` picks one pod and prints its logs.
+</Question>
+
+## Exercises
+
+### 4.1 · Deploy Rambo
+
+Deploy the application from the `bletvaska/rambo` image: the deployment is called `rambo`, the image is `bletvaska/rambo:1`, five replicas. Check that it works with port forwarding (the app listens on port 8000 in the container).
+
+<p class="practises">Practises: `create deployment`, `--replicas`, `port-forward` to a deployment.</p>
+
+<Solution>
+```bash
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 5
+kubectl get all
+kubectl port-forward --address 0.0.0.0 deployment/rambo 8000:8000
+# browser: http://<IP>:8000
+```
+
+The page refreshes itself every second and shows the pod's IP address and hostname. The hostname doesn't change, though — `port-forward` sends everything to just **one** pod even though five are running. Even distribution and access without `port-forward` come with a [service](/devops-notes/en/kubernetes/sluzby/).
+</Solution>
+
+### 4.2 · Self-healing live
+
+In one pane, watch the pods of the `rambo` deployment. In another, delete all the pods, then scale the deployment to 0 and back to 3.
+
+<p class="practises">Practises: `get --watch`, `delete pods --all`, `scale`.</p>
+
+<Solution>
+```bash
+# pane 1
+kubectl get pods --watch
+
+# pane 2
+kubectl delete pods --all                     # old ones Terminating, new ones ContainerCreating → Running
+kubectl scale deployment/rambo --replicas 0   # all pods disappear
+kubectl get deployment,replicaset             # deployment 0/0, the ReplicaSet remains
+kubectl scale deployment/rambo --replicas 3
+```
+</Solution>

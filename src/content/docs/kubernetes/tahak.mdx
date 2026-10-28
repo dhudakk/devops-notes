@@ -1,0 +1,293 @@
+---
+title: Ťahák
+description: Všetky príkazy a kostry manifestov z kurzu Kubernetes na jednej stránke, skratky objektov a pasce.
+kind: cheatsheet
+sidebar:
+  order: 90
+---
+
+## Pody, deploymenty, služby
+
+<div class="sheet-grid">
+
+```bash title="Pody" wrap
+kubectl version / cluster-info
+kubectl run weather --image bletvaska/weather
+kubectl get pods / get all / get all -A
+kubectl get pods --watch
+kubectl logs pod/weather -f --tail 2
+kubectl exec -it weather -- sh
+kubectl describe pod/weather          # Events na konci
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+kubectl delete pod/weather / delete pods --all
+```
+
+```bash title="Deploymenty" wrap
+kubectl create deployment rambo --image bletvaska/rambo:1 --replicas 5
+kubectl scale deployment/rambo --replicas 2
+kubectl scale deployment/rambo --replicas 0     # „vypnutie“
+kubectl logs deployment/rambo                   # iba jeden pod
+kubectl set image deployment/rambo rambo=bletvaska/rambo:2
+kubectl set image deployments rambo=bletvaska/rambo:2 --selector country=sk,region=east
+kubectl set env deployment/db MARIADB_ROOT_PASSWORD=secret
+kubectl get rs -l app=rambo                     # ReplicaSety = história
+kubectl delete deployment/rambo
+```
+
+```bash title="Služby a štítky" wrap
+kubectl expose deployment rambo --name rambo-cl --port 8080 --target-port 8000
+kubectl expose deployment rambo --name rambo-np --port 8080 --target-port 8000 --type NodePort
+kubectl expose deployment rambo --name rambo-lb --port 8080 --target-port 8000 --type LoadBalancer
+kubectl expose deployment adminer --port 8080 --type LoadBalancer --session-affinity ClientIP
+kubectl describe svc rambo-lb          # Endpoints
+kubectl get pods --show-labels
+kubectl get all --selector app=rambo   # -l
+kubectl delete pods -l app=weather
+kubectl label pods weather org=shmu
+```
+
+</div>
+
+## Menné priestory, kontexty, manifesty
+
+<div class="sheet-grid">
+
+```bash title="Menné priestory a kontexty" wrap
+kubectl get ns
+kubectl create namespace dev
+kubectl get all --namespace dev        # -n dev
+kubectl --namespace dev get pods <Tab>
+kubectl delete namespace dev           # zmaže všetko, bez otázky!
+kubectl config get-contexts / current-context
+kubectl config use-context staging
+kubectl config set-context --current --namespace dev
+# ~/.kube/config
+kubectl krew install ns ctx resource-capacity
+kubectl ns dev / kubectl ctx
+alias kns='kubectl config set-context --current --namespace'
+```
+
+```bash title="Manifesty" wrap
+kubectl create deployment db --image mariadb --dry-run=client -o yaml > db.yaml
+kubectl get svc db -o yaml             # z bežiaceho objektu
+kubectl apply -f manifest.yaml         # vytvor alebo aktualizuj
+kubectl apply -f lab/                  # abecedne!
+kubectl delete -f manifest.yaml
+kubectl api-resources / api-versions
+kubectl explain pod.spec.containers.env
+sed --separate '$a---' *.yaml > manifest.yaml
+/usr/local/bin/kubectl …               # bez kubecolor pri presmerovaní
+```
+
+```yaml title="Deployment + Service" wrap
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels: { app: app }
+spec:
+  replicas: 4
+  selector:
+    matchLabels: { app: app }
+  template:
+    metadata:
+      labels: { app: app }
+    spec:
+      containers:
+      - name: wordpress
+        image: wordpress:latest
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: db:3306
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+spec:
+  type: LoadBalancer        # ClusterIP | NodePort
+  sessionAffinity: ClientIP
+  selector: { app: app }
+  ports:
+  - port: 8000
+    targetPort: 80
+    nodePort: 31000         # 30000–32767
+```
+
+</div>
+
+## Zdroje, autoškálovanie, konfigurácia
+
+<div class="sheet-grid">
+
+```bash title="Requesty, limity, HPA" wrap
+kubectl top pods
+kubectl resource-capacity --pods --util -n wordpress
+kubectl exec -it deployment/adminer -- sh -c 'while true; do date; done'
+kubectl exec deployment/weather -- cat /sys/fs/cgroup/memory.current
+kubectl autoscale deployment weather --min 2 --max 5 --cpu 50
+kubectl get hpa --watch
+wrk http://localhost:8000/ --connections 400 --duration 2m --threads 20
+k9s
+```
+
+```bash title="ConfigMapy a Secrety" wrap
+kubectl create configmap weather --from-literal WEATHER_QUERY=poprad,sk
+kubectl create cm weather --from-env-file weather.env
+kubectl create secret generic weather --from-literal WEATHER_TOKEN=<API_KEY>
+kubectl create secret generic creds --from-env-file credentials.env
+kubectl get cm / get secrets
+kubectl describe cm weather / describe secret weather
+kubectl delete configmap weather / delete secret weather
+echo -n 'janosik' | base64 / base64 --decode
+kubectl exec deployment/weather -- printenv
+```
+
+```yaml title="env a envFrom" wrap
+env:
+- name: WEATHER_QUERY
+  valueFrom:
+    configMapKeyRef: { name: weather, key: WEATHER_QUERY }
+- name: WEATHER_TOKEN
+  valueFrom:
+    secretKeyRef: { name: weather, key: WEATHER_TOKEN }
+envFrom:
+- configMapRef: { name: weather }
+- secretRef: { name: weather }
+```
+
+</div>
+
+## Ingress a úložisko
+
+<div class="sheet-grid">
+
+```bash title="Ingress" wrap
+kubectl create ingress weather --rule '/*=weather:8000'            # Prefix
+kubectl create ingress weather --rule /=weather:8000               # Exact
+kubectl create ingress weather --rule 'www.weather.sk/*=weather:8000'
+kubectl get ingress / describe ingress weather
+http --headers http://localhost/   # Server: uvicorn = aplikácia
+# /etc/hosts: <IP> www.weather.sk
+kubectl port-forward -n kube-system --address 0.0.0.0 deploy/traefik 8080:8080
+# http://<IP>:8080/dashboard/
+```
+
+```yaml title="Ingress podľa hostiteľa" wrap
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rambo
+spec:
+  rules:
+  - host: 1.rambo.sk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rambo-1
+            port: { number: 8000 }
+```
+
+```yaml title="Zväzky, PV, PVC" wrap
+# kontajner
+volumeMounts:
+- { name: data, mountPath: /data }
+# pod
+volumes:
+- name: tmp
+  emptyDir: { sizeLimit: 100Mi }
+- name: html
+  hostPath: { path: /opt/www, type: DirectoryOrCreate }
+- name: data
+  persistentVolumeClaim: { claimName: rustfs }
+---
+kind: PersistentVolume
+spec:
+  storageClassName: ""
+  capacity: { storage: 300Mi }
+  accessModes: [ReadWriteOnce]
+  hostPath: { path: /tmp/data-300, type: DirectoryOrCreate }
+---
+kind: PersistentVolumeClaim
+spec:
+  storageClassName: ""      # bez kľúča = local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 300Mi }
+```
+
+```bash title="Úložisko" wrap
+kubectl get pv / get pvc / get storageclass
+sudo chown -R 10001:10001 /tmp/data-300   # RustFS
+```
+
+</div>
+
+## Skratky objektov
+
+| Objekt | Skratka | Objekt | Skratka |
+| --- | --- | --- | --- |
+| pods | `po` | configmaps | `cm` |
+| deployments | `deploy` | persistentvolumes | `pv` |
+| replicasets | `rs` | persistentvolumeclaims | `pvc` |
+| services | `svc` | horizontalpodautoscalers | `hpa` |
+| namespaces | `ns` | ingresses | `ing` |
+
+## Pojmy
+
+| Pojem | Význam |
+| --- | --- |
+| klaster | master(y) + worker uzly |
+| control plane | API server, scheduler, controller manager, etcd |
+| kubelet / kube-proxy | agent uzla / sieť a load balancing na uzle |
+| pod | najmenšia nasaditeľná jednotka, jeden alebo viac kontajnerov s jednou IP |
+| ReplicaSet | udržiava počet podov jednej šablóny |
+| Deployment | deklaratívne riadi ReplicaSety, rolling update |
+| Service | stabilné meno a IP + load balancer pre pody podľa selektora |
+| label / selector | štítok `kľúč=hodnota` / filter na štítky |
+| manifest | YAML opis objektu: apiVersion, kind, metadata, spec |
+| request / limit | garantované minimum pre plánovač / strop (throttling, OOM kill) |
+| HPA | automatické škálovanie počtu podov |
+| Ingress / Ingress Controller | pravidlá HTTP smerovania / program, ktorý ich vykonáva (Traefik) |
+| PV / PVC / StorageClass | zväzok / požiadavka naň / automatické vytváranie PV |
+
+## Pasce na skúšku
+
+| Pasca | Správne |
+| --- | --- |
+| pod = kontajner | pod môže mať viac kontajnerov; zvyčajne 1 pod = 1 aplikácia |
+| scheduler spúšťa pody | iba plánuje uzol; spúšťa kubelet a runtime |
+| uzol potrebuje Docker | ľubovoľný CRI runtime (K3s: containerd) |
+| `kubectl logs pod weather` | `kubectl logs pod/weather` |
+| port-forward ide aj z iného PC | iba s `--address 0.0.0.0` |
+| zmazaný pod deploymentu je preč | ReplicaSet ho nahradí; zmaž deployment |
+| `logs deployment/x` = logy všetkých podov | iba jedného |
+| služba je naviazaná na deployment | na pody cez selektor; sú nezávislé |
+| `--port` = port aplikácie | port služby; aplikácia je `--target-port` |
+| NodePort zadáš v `expose` | iba v manifeste (`nodePort`) |
+| LoadBalancer v K3s robí Traefik | ServiceLB; Traefik je Ingress Controller na 80/443 |
+| dve LB služby na rovnakom porte | druhá ostane `<pending>` |
+| `get all` bez `-n` vidí všetko | iba aktuálny menný priestor |
+| `delete namespace` sa pýta | zmaže všetko bez potvrdenia |
+| `apply -f priečinok/` ide v správnom poradí | abecedne — číselné predpony |
+| zmena env v bežiacom pode cez apply | väčšina polí podu je nemenná — zmaž a vytvor |
+| request = minimum spotreby | rezervácia; spotreba môže byť nižšia |
+| prekročený limit CPU zabije kontajner | throttling; zabije pamäť (OOM) |
+| HPA % = % jadra | % requestu; bez `resources` nefunguje |
+| HPA hneď uberie pody | po 5 minútach |
+| `minReplicas` v deploymente | v objekte HPA |
+| zmena ConfigMapy sa prejaví hneď | až v nových podoch |
+| `envFrom` s ľubovoľnými kľúčmi | kľúče = mená premenných aplikácie |
+| Secret je šifrovaný | iba base64 |
+| pravidlo `/` pustí aj CSS | Exact; prefix je `/*` |
+| rewrite je v Ingresse | v konkrétnom controlleri (anotácie, Middleware) |
+| Ingress je budúcnosť | zmrazený → Gateway API |
+| hostPath v produkcii | viazaný na jeden uzol |
+| `ReadWriteOnce` = jeden pod | jeden uzol (`ReadWriteOncePod` = jeden pod) |
+| PVC bez triedy použije ručný PV | dostane predvolenú `local-path`; treba `storageClassName: ""` |

@@ -1,0 +1,221 @@
+---
+title: Pody
+description: Pod ako najmenšia nasaditeľná jednotka, pod vs. kontajner, kubectl run, get, logs, exec, describe, dva zápisy zdrojov, port-forward s --address a mazanie podov.
+kind: chapter
+day: 1
+sidebar:
+  order: 3
+  label: 03 · Pody
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Pod** je najmenšia jednotka, ktorú v Kubernetes vieš nasadiť. **Pod nie je kontajner** — môže v ňom bežať viac kontajnerov, ktoré zdieľajú jednu IP adresu.
+- Pravidlo: **jedna služba = jeden kontajner = jeden pod**. Škáluje sa po podoch, takže WordPress, databáza a Adminer v jednom pode by sa nedali škálovať samostatne. Výnimka: pomocný *sidecar* (monitoring, zber metrík).
+- `kubectl run weather --image bletvaska/weather` vytvorí pod. `get pods` — stĺpec **READY 1/1** = bežiace / všetky kontajnery v pode.
+- `logs`, `exec -it … -- sh`, `describe` (namiesto Docker `inspect`). Zdroj sa píše `pod/weather` alebo `pod weather` — `logs` chce tvar s lomkou alebo len meno.
+- `port-forward pod/weather 8081:8000` (hostiteľ vľavo, pod vpravo). Bez `--address 0.0.0.0` prijíma iba spojenia z localhostu.
+- Samostatný pod po zmazaní **nikto neobnoví** — na to sú deploymenty.
+</KeyPoints>
+
+## Čo je pod
+
+Definícia z dokumentácie Kubernetes:
+
+> The smallest deployable unit of computing that can be created and managed.
+
+Často počuť, že pod je kontajner. **Nie je.** Pod je priestor, v ktorom môže bežať viac kontajnerov — trochu ako Docker kompozícia.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/pod-vs-containers.png" alt="Fotka rozobratej 9V batérie: obal s nápisom POD, vo vnútri niekoľko menších článkov s nápisom CONTAINERS." width="612" height="500" loading="lazy" />
+  <figcaption>Pod je obal, kontajnery sú články vo vnútri. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+- v jednom pode môže bežať **viac kontajnerov**,
+- platí však pravidlo: **jednu službu (kontajner) spúšťame práve v jednom pode**.
+
+Prečo? Kubernetes škáluje **pody**. Keby si mal v jednom pode WordPress, MySQL aj Adminer, nemôžeš zvýšiť počet WordPressov bez toho, aby si zvýšil aj počet databáz. Bežná výnimka je **sidecar** — pomocný kontajner vedľa aplikácie, ktorý zbiera metriky alebo robí monitoring.
+
+Ako vyzerá pod s dvoma kontajnermi, uvidíš v kapitole [Manifesty](/devops-notes/kubernetes/manifesty/#viac-kontajnerov-v-jednom-pode).
+
+## Vytvorenie podu
+
+```bash
+kubectl run weather --image bletvaska/weather
+# pod/weather created
+```
+
+Vznikne pod `weather` s jedným kontajnerom z obrazu `bletvaska/weather`. Obrazy sa predvolene sťahujú z Docker Hubu, plný názov je `docker.io/bletvaska/weather`.
+
+Pod musí mať aspoň jeden kontajner — `run` bez obrazu nefunguje.
+
+## Zoznam podov
+
+```bash
+kubectl get pods
+# NAME      READY   STATUS    RESTARTS   AGE
+# weather   1/1     Running   0          53s
+```
+
+| Stĺpec | Význam |
+| --- | --- |
+| `NAME` | názov podu |
+| `READY` | koľko kontajnerov v pode beží / koľko ich v pode je — takto zistíš, koľko kontajnerov pod má |
+| `STATUS` | stav podu (`Running`, `Pending`, `ContainerCreating`, `Error`…) |
+| `RESTARTS` | koľkokrát sa reštartoval |
+| `AGE` | ako dlho beží |
+
+`get all` zobrazí aj ďalšie objekty v aktuálnom mennom priestore:
+
+```bash
+kubectl get all
+# NAME          READY   STATUS    RESTARTS   AGE
+# pod/weather   1/1     Running   0          6m1s
+#
+# NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+# service/kubernetes   ClusterIP   10.43.0.1    <none>        443/TCP   9h
+```
+
+`service/kubernetes` je **API server**, s ktorým sa rozpráva `kubectl` — ďalší pod, ktorý sa dá škálovať. Keď ho zmažeš, Kubernetes si ho hneď vytvorí znova.
+
+:::note[`get all` nie je všetko]
+Napriek menu `get all` nevypíše všetky typy objektov — chýbajú napr. ConfigMapy, Secrety, Ingressy či PersistentVolumy. Tie treba vypísať zvlášť (`kubectl get configmaps`…).
+:::
+
+## Logy
+
+```bash
+kubectl logs pod/weather
+kubectl logs pod/weather --follow --tail 2     # posledné 2 riadky a čakaj na ďalšie
+```
+
+Aplikácia weather každú minútu sťahuje počasie a zapisuje to do logu. `--follow` (`-f`) a `--tail` fungujú ako pri Dockeri.
+
+## Príkaz v pode
+
+```bash
+kubectl exec weather -- hostname
+kubectl exec -it weather -- sh        # interaktívny shell
+```
+
+- Príkaz sa od volieb `kubectl` oddeľuje **dvoma pomlčkami** `--`. Staršie verzie to nevyžadovali, dnes ťa na to upozornia.
+- `-it` = `-i` (posielaj môj vstup do kontajnera) + `-t` (prideľ terminál). Bez nich sa shell hneď ukončí.
+- Pri `exec` nemusíš písať typ zdroja — príkazy sa dajú spúšťať iba v podoch.
+
+## describe namiesto inspect
+
+```bash
+kubectl describe pod/weather
+```
+
+Výstup pripomína Docker `inspect`, ale nie je to JSON (ani YAML) — je to formátovaný výpis pre ľudí. Nájdeš v ňom:
+
+- metadáta (meno, menný priestor, uzol, štítky, anotácie),
+- **IP adresu** podu v klastri (v K3s z rozsahu `10.42.x.x`),
+- zoznam kontajnerov s obrazmi (`Image`, `Image ID` — odkiaľ sa obraz stiahol),
+- premenné prostredia, pripojené zväzky,
+- na konci tabuľku **Events** — stiahnutie obrazu, vytvorenie a spustenie kontajnera. Pri riešení problémov je to prvé miesto, kam sa pozrieť.
+
+## Dva zápisy zdrojov
+
+Zdroj sa v `kubectl` identifikuje typom a menom, a to dvoma spôsobmi:
+
+```bash
+kubectl describe pods weather     # typ medzera meno
+kubectl describe pod/weather      # typ/meno
+```
+
+Niektoré príkazy chcú jeden konkrétny tvar. `logs` berie argument ako meno podu, takže `kubectl logs pod weather` nefunguje — správne je `kubectl logs pod/weather` alebo `kubectl logs weather`. Dopĺňanie Tabom sa tiež pri rôznych príkazoch správa rôzne.
+
+## Prístup k aplikácii
+
+Aplikácia weather má webové rozhranie na porte **8000**. Z uzla, ktorý je súčasťou klastra, sa dá dostať priamo na IP podu:
+
+```bash
+kubectl describe pod/weather | grep IP      # napr. 10.42.0.14
+http 10.42.0.14:8000
+```
+
+Na to sa ale nedá spoliehať — `kubectl` môžeš mať na notebooku mimo klastra a IP podu sa pri každom novom pode zmení. Na testovanie je tu **presmerovanie portov** (ako `--publish` v Dockeri):
+
+```bash
+kubectl port-forward pod/weather 8081:8000
+#                                └─┬┘ └─┬┘
+#                     port hostiteľa ┘   └ port v pode
+```
+
+```bash
+http localhost:8081
+```
+
+Predvolene prijíma `port-forward` iba spojenia z **localhostu**. Aby sa dalo pripojiť z iného zariadenia (mobil, tvoj počítač na IP adresu laboratórneho stroja), pridaj `--address`:
+
+```bash
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+```
+
+`0.0.0.0` znamená „odkiaľkoľvek“. Bez neho prehliadač na `http://<IP>:8081` skončí chybou a `port-forward` vypíše *connection reset by peer*.
+
+:::note[Obsadené porty v K3s]
+Na porte **80** (a 443) v K3s beží Ingress Controller, takže tam nič iné nespustíš. Ak máš VS Code pripojené cez SSH a port na lokálnom počítači je obsadený, VS Code ho presmeruje na najbližší voľný (8080 → 8081) — sleduj kartu *Ports*.
+:::
+
+## Mazanie
+
+```bash
+kubectl delete pod/weather
+# pod "weather" deleted from default namespace
+kubectl delete pods --all
+```
+
+Zmazaný pod sa **neobnoví**. Pod sám osebe nemá žiadny kontrolný mechanizmus, ktorý by ho po páde spustil znova. Tým sa samostatný pod podobá kontajneru v Dockeri — a orchestrácia začína až s [deploymentmi](/devops-notes/kubernetes/deploymenty/).
+
+## Otestuj sa
+
+<Question q="Je pod to isté ako kontajner?">
+Nie. Pod je obal, v ktorom môže bežať viac kontajnerov so spoločnou IP adresou. Zvyčajne však platí jeden pod = jeden kontajner s aplikáciou.
+</Question>
+
+<Question q="Prečo nedávať WordPress, databázu a Adminer do jedného podu?">
+Kubernetes škáluje celé pody. Nemohol by si zvýšiť počet WordPressov bez toho, aby si zvýšil aj počet databáz a Adminerov.
+</Question>
+
+<Question q="Čo znamená `READY 1/1`?">
+V pode je jeden kontajner a beží. Pri dvoch kontajneroch by bolo `2/2`.
+</Question>
+
+<Question q="Prečo `kubectl logs pod weather` nefunguje?">
+`logs` čaká meno podu (a voliteľne kontajnera), takže `pod` považuje za meno. Správne `kubectl logs pod/weather` alebo `kubectl logs weather`.
+</Question>
+
+<Question q="Prečo sa na aplikáciu nedostaneš cez port-forward z iného počítača?">
+Predvolene prijíma iba spojenia z localhostu. Treba pridať `--address 0.0.0.0`.
+</Question>
+
+<Question q="Čo sa stane so zmazaným podom vytvoreným cez `kubectl run`?">
+Nič — je preč a nikto ho neobnoví. Obnovu zabezpečí až deployment (ReplicaSet).
+</Question>
+
+## Cvičenia
+
+### 3.1 · Weather v pode
+
+Spusti pod `weather` z obrazu `bletvaska/weather`. Vypíš posledné dva riadky logu a sleduj ďalšie. Zisti hostname v kontajneri, IP adresu podu a z akého registra sa obraz stiahol. Sprístupni aplikáciu na porte 8081 tak, aby fungovala z tvojho počítača, a na záver pod zmaž.
+
+<p class="practises">Precvičíš: `run`, `logs`, `exec`, `describe`, `port-forward`, `delete`.</p>
+
+<Solution>
+```bash
+kubectl run weather --image bletvaska/weather
+kubectl get pods
+kubectl logs pod/weather --follow --tail 2      # Ctrl+C ukončí
+kubectl exec weather -- hostname                # weather
+kubectl describe pod/weather                    # IP: 10.42.…, Image ID: docker.io/bletvaska/weather@sha256:…
+kubectl port-forward --address 0.0.0.0 pod/weather 8081:8000
+# prehliadač: http://<IP>:8081
+kubectl delete pod/weather
+```
+</Solution>

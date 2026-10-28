@@ -1,0 +1,59 @@
+---
+title: Nástroje
+description: Nástroje, ktoré lektor odporúča alebo používa pri Kubernetes — k9s, Krew a jeho rozšírenia, kubecolor, Starship, wrk, rozšírenia VS Code, Traefik dashboard, Kustomize a pomoc od AI.
+kind: wisdom
+sidebar:
+  order: 92
+---
+
+## k9s
+
+> „Keď adminujete tie Kubernetesy, robíte to na diaľku cez SSH z príkazového riadku. Toto je šupa nástroj. A každý admin vám ho spomenie.“
+
+Naučíš sa pár skratiek a ideš. Ovláda sa podobne ako `dry` pre Docker a Vim — dvojbodka a príkaz (`:deploy`, `:svc`), `s` shell, `l` logy.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Krew a rozšírenia
+
+Pri výbere rozšírení pre `kubectl` sa lektor riadi hviezdičkami na GitHube — `ns` a `ctx` majú okolo 20 tisíc. S nainštalovaným **fzf** sú interaktívne. Pre prehľad o zdrojoch odporúča **resource-capacity**. Mnohé rozšírenia existujú aj ako balík distribúcie (`kubectx`, `kubens`) — alebo si spravíš alias.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Farby a prompt
+
+Na laboratórnych strojoch je **kubecolor** (farebný výstup `kubectl`) a prompt **Starship**, ktorý pri ikone kormidla ukazuje aktuálny menný priestor. Daň za farby: pri presmerovaní do súboru alebo do `grep` prekážajú escape kódy — vtedy volaj `/usr/local/bin/kubectl`.
+
+<p class="wisdom-day">Deň 2 a 3</p>
+
+## wrk na záťažové testy
+
+Na otestovanie, ako sa webová aplikácia správa pri náraze, stačí `wrk` — stovky spojení paralelne na jednu URL. „Je dobré vedieť dopredu, ako sa to správa. Byť pripravený.“ Hodí sa vývojárom aj testerom, nielen na ukážku autoškálovania.
+
+<p class="wisdom-day">Deň 3</p>
+
+## VS Code na manifesty
+
+YAML od Red Hatu, Better YAML Formatter a rozšírenie Kubernetes od Microsoftu. To posledné pri každom kontajneri bez `resources` „pindá“ o *noisy neighbor issues* — „to by nebol Microsoft, aby sa mu dačo páčilo“. Ale po prejdení myšou ukáže dokumentáciu a vie chýbajúce hodnoty doplniť.
+
+<p class="wisdom-day">Deň 2</p>
+
+## Traefik dashboard
+
+Lektor má Traefik rád aj kvôli **dashboardu** — graficky vidno vstupné body, routery, middleware a služby. Rýchlo overíš, či si pravidlá napísal dobre. Nginx má podobný dashboard len cez rozšírenie tretej strany.
+
+<p class="wisdom-day">Deň 3</p>
+
+## Šablóny a Kustomize
+
+> „Áno, ten formát je ukecaný. Postaviť to dá celkom zabrať.“
+
+Profesionáli majú priečinok `templates` s obecnými manifestmi a výsledok je skladačka. Ďalší krok je **Kustomize** — berie manifesty ako šablóny, ktorých časti prepíše iná šablóna. „Ešte väčšie lego, ale jednoduchšie.“
+
+<p class="wisdom-day">Deň 2</p>
+
+## Pomoc od AI
+
+Po kurze Docker si lektor sadol s Claudom nad inicializačné skripty laboratórnych strojov a výrazne ich zlepšil (aj o Krew). Obrázok k session affinity mu nakreslil Claude a skript na vyčerpanie pamäte doladil s ním. Hodnoty `resources` pre manifest navrhlo rozšírenie VS Code — či podľa internetu, alebo podľa spotreby, lektor netuší.
+
+<p class="wisdom-day">Deň 2 a 3</p>

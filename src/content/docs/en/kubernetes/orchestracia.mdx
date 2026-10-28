@@ -1,0 +1,113 @@
+---
+title: Why orchestration
+description: What Docker doesn't solve, horizontal and vertical scaling with buses as the example, orchestration as group control, its benefits (availability, scalability, recovery), Kubernetes, CNCF, and alternatives.
+kind: chapter
+day: 1
+sidebar:
+  order: 1
+  label: 01 · Why orchestration
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+
+<KeyPoints>
+- Docker packs an application into an image and runs it as an isolated container as many times as you like. It doesn't say what to do when there are hundreds of containers, load fluctuates, you need to update, or something crashes.
+- Two ways to scale: **vertical** (*scale up*, a bigger box) and **horizontal** (*scale out*, more boxes). Vertical is cheaper at first but has a physical ceiling and is a *single point of failure*. Horizontal pays off in the long run, and when one machine fails, n − 1 others remain.
+- **Orchestration** = group control of containers. It brings high availability (no downtime), scalability, and *disaster recovery*.
+- **Kubernetes (K8s)** is an open source system for automating deployment, scaling, and management of containerised applications. It became the standard and is looked after by the CNCF. Alternatives: Docker Swarm, Apache Mesos.
+</KeyPoints>
+
+## What Docker doesn't solve
+
+Docker let us pack an application into an **image** and run it in various places as an isolated **container** — not once, but as many times as we need. We know the benefits from the [Docker course](/devops-notes/en/docker/): easy management and updates, isolation, distribution through a registry, portability, and data separated from containers.
+
+The trouble starts when the application **can't keep up with the load**. It doesn't have to be permanent — an e-shop has modest traffic all year and a rush before Christmas, and a nightly backup needs a lot of power for just a few hours. The questions that follow:
+
+- what if the number of running containers grows to tens, hundreds, thousands?
+- what if the load isn't the same every day?
+- what if an application running in a thousand containers needs **updating**?
+- what if one container fails? What if all of them do? What if the **server** they run on fails?
+
+You could write a set of Bash scripts with cron for much of this. In the long run it isn't sustainable, and you'll forget a lot of related things.
+
+## The bus stop
+
+More people are waiting at the stop than fit on the bus. There are two solutions:
+
+1. **send another bus** — horizontal scaling (*scale out*),
+2. **send a bigger bus** (articulated, double-decker) — vertical scaling (*scale up*).
+
+It's the same in IT: either **add a new machine** to the infrastructure, or **upgrade the hardware** of an existing one (RAM, disk, CPU).
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/scale-out-vs-up.png" alt="Vertical scaling: boxes A and B get bigger. Horizontal scaling: boxes C to N are added." width="1400" height="802" loading="lazy" />
+  <figcaption>Vertical scaling makes boxes bigger, horizontal scaling adds more boxes. Image from the instructor's slides.</figcaption>
+</figure>
+
+| | Vertical (*scale up*) | Horizontal (*scale out*) |
+| --- | --- | --- |
+| how | a bigger machine | more machines (they needn't be the same size) |
+| at the start | simple and cheaper — buy hardware | higher initial costs |
+| ceiling | physical limits: how much RAM the board takes, which CPU it supports | theoretically unlimited |
+| failure | one beefy box = a **single point of failure**, availability drops to zero | **n − 1** machines remain, the service responds, maybe slower |
+
+With buses and machines alike you reach a **break-even point**: at first a bigger bus is cheaper (you save a second driver), but beyond a certain size it pays to add more smaller ones.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/scaling-cost.png" alt="Chart of price per unit of capacity: vertical scaling is cheaper at first but rises sharply after a certain point; horizontal is more expensive at first and then much more efficient." width="617" height="600" loading="lazy" />
+  <figcaption>The cost of vertical scaling rises sharply after a certain point, horizontal starts paying off. Image from the instructor's slides.</figcaption>
+</figure>
+
+:::note
+Not every problem can be parallelised — horizontal scaling only helps when the work can be split among several instances.
+:::
+
+## Orchestration
+
+A loose translation of *orchestration* is **group control**, or coordination. An **orchestra** explains it better: a larger ensemble in which each main instrument is played by more than one musician, led by a conductor.
+
+In IT terms: the violinists are the frontend, the double basses the database, the cellos the backend, others monitoring. Each does its part, together they provide the service. When one violinist steps out, the piece goes on — you still hear the violins.
+
+Benefits of orchestration:
+
+1. **high availability** (*no downtime*) — when one instance fails, the others take over. Availability is given as a percentage per year (99.9 % …),
+2. **scalability** — nobody notices adding or removing an instance,
+3. **disaster recovery** — backup and restore after a disaster.
+
+## Kubernetes
+
+> Kubernetes, also known as K8s, is an open source system for automating deployment, scaling, and management of containerized applications.
+
+- **K8s** is a numeronym like `i18n` (*internationalization*) — there are 8 letters between K and s.
+- The name is Greek (*kybernétés*) and means **helmsman**, hence the ship's wheel in the logo.
+- **Google** was behind its beginnings. Today Kubernetes is an open source project under the **CNCF** (*Cloud Native Computing Foundation*) — a neutral hub for *cloud native* projects (Prometheus too) that takes care of standardisation.
+- Docker appeared in 2013, and by 2015 version 1.0 of the first orchestrators was out — both Kubernetes and Docker Swarm. Several people quickly realised that containers are great but bring a problem at scale that needs solving.
+
+Alternatives: **Docker Swarm**, **Apache Mesos**. Kubernetes, however, became the *de facto* standard.
+
+:::tip[Worth watching]
+Before the course the instructor recommended the intro video [(Not) a too short introduction to K8s](https://www.youtube.com/watch?v=uvNQgsJLnvE) (in Slovak) — day one's first steps in an hour. For how Kubernetes came about and who its first customers were, there's the two-part [Kubernetes: The Documentary](https://www.youtube.com/results?search_query=Kubernetes+The+Documentary+Honeypot) by Honeypot.
+:::
+
+## Test yourself
+
+<Question q="What is the difference between horizontal and vertical scaling?">
+Horizontal (*scale out*) adds more machines or instances. Vertical (*scale up*) makes an existing machine bigger — more RAM, a faster CPU, a bigger disk.
+</Question>
+
+<Question q="Why is one beefy server risky?">
+It's a single point of failure. When any important component fails (power supply, RAM, disk, electricity), the service doesn't work at all. With horizontal scaling n − 1 machines remain.
+</Question>
+
+<Question q="When does vertical scaling make sense?">
+At the start of a project — it's simple and cheaper. Beyond a certain point the cost rises sharply and you hit the hardware's physical limits; then horizontal pays off.
+</Question>
+
+<Question q="What three benefits does orchestration bring?">
+High availability (no downtime), scalability, and disaster recovery.
+</Question>
+
+<Question q="Why is Kubernetes shortened to K8s?">
+There are 8 letters between K and s — just like `i18n` or `l10n`.
+</Question>

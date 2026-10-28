@@ -1,0 +1,160 @@
+---
+title: Architektúra klastra
+description: Master (control plane) s API serverom, plánovačom, controller managerom a etcd, worker uzly s container runtime, kubeletom a kube-proxy, distribúcia K3s a prvé príkazy kubectl.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Architektúra
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Klaster** = aspoň jeden **master** (*control plane*, dirigent) + **worker uzly** (hudobníci), na ktorých bežia kontajnery v **podoch**. Obrazy sa ťahajú z registra.
+- Master: **API server** (vstupná brána pre klientov), **scheduler** (naplánuje, *na ktorom* uzle pod pobeží — nespúšťa ho), **controller manager** (riadiace slučky, napr. počet replík), **etcd** (key-value databáza so stavom celého klastra).
+- Odporúčajú sa aspoň **3 mastre**, nepárny počet.
+- Uzol: **container runtime** (čokoľvek podľa CRI, v K3s containerd), **kubelet** (agent, komunikuje s masterom), **kube-proxy** (sieť a load balancing pre kontajnery).
+- Komunikácia je klient-server: `kubectl` posiela požiadavky na API server (v K3s na porte 6443). Na kurze sa používa **K3s** — odľahčená distribúcia od Rancher/SUSE.
+</KeyPoints>
+
+## Celkový pohľad
+
+Kubernetes je celý orchestračný systém, ktorý sa označuje aj ako **K8s klaster**. Skladá sa z:
+
+- aspoň jedného **mastra**, ktorý riadi celý klaster a s ktorým sa komunikuje cez **API** — to je dirigent,
+- skupiny **výpočtových uzlov** (*nodes*, *workers*), na ktorých sa spúšťajú kontajnery v **podoch** — hudobníci. Pody s rovnakou aplikáciou sú ako sekcia huslistov.
+
+Bokom stojí **register obrazov**, z ktorého si uzly sťahujú obrazy.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/architecture.png" alt="Architektúra Kubernetes: klienti (UI a CLI) komunikujú cez API s Kubernetes Master, ten riadi uzly Node 1 až Node n; uzly sťahujú obrazy z Image Registry." width="1400" height="934" loading="lazy" />
+  <figcaption>Klienti (UI, CLI) hovoria s masterom cez API, master riadi uzly. Obrázok zo slajdov lektora (zdroj: The New Stack).</figcaption>
+</figure>
+
+Komunikácia je **klient-server**. Na kurze používame nástroj príkazového riadku **`kubectl`**, ale s API sa dá rozprávať aj cez grafické nástroje (napr. Portainer z [kurzu Docker](/devops-notes/docker/nastroje-na-spravu/)) alebo vlastný program. Podobne ako pri Docker kontexte sa vieš z domu pripojiť ku klastru, ktorý beží niekde ďaleko.
+
+Uzly sú fyzicky oddelené stroje, ideálne aj geograficky — keď vypadne uzol, vypadnú všetky kontajnery na ňom. Ak vypadne iba spojenie medzi masterom a uzlom, kontajnery na uzle bežia ďalej, len ich master nevidí.
+
+## Master (control plane)
+
+Master sa nazýva aj **control plane**. Skladá sa z menších častí:
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/master.png" alt="Kubernetes Master obsahuje API Server, Scheduler, Controller a etcd." width="1400" height="934" loading="lazy" />
+  <figcaption>Časti mastra. Obrázok zo slajdov lektora (zdroj: The New Stack).</figcaption>
+</figure>
+
+| Časť | Čo robí |
+| --- | --- |
+| **API server** | frontend mastra — komunikácia s klientmi a nástrojmi. Príkazy `kubectl` sa menia na volania jeho API. Dá sa spustiť vo viacerých inštanciách. |
+| **Scheduler** (plánovač) | rozhodne, **na ktorom uzle** sa nový pod spustí — podľa voľných zdrojov a vyťaženia (CPU, pamäť, počet kontajnerov). Pod **nespúšťa**, len plánuje; spustí ho uzol. |
+| **Controller manager** | sleduje, čo sa v klastri deje, a spravuje kontroléry — napr. replikácie podov alebo reakcie na vypnutie uzla. Porovnáva aktuálny stav s požadovaným (viac v kapitole [Deploymenty](/devops-notes/kubernetes/deploymenty/)). |
+| **etcd** | distribuovaná **key-value** databáza so zdieľanými údajmi celého klastra. Bez nej nikto nevie, v akom stave klaster je. |
+
+Zlyhanie mastra môže mať pre klaster katastrofálne následky, preto sa odporúča mať **aspoň 3 master uzly**, resp. **nepárny počet**.
+
+:::note[Prečo nepárny počet]
+etcd sa dohaduje na stave hlasovaním a potrebuje **väčšinu** (kvórum). Pri 3 uzloch je väčšina 2 — klaster prežije výpadok jedného. Pri 4 uzloch je väčšina 3, takže tiež prežije výpadok len jedného; štvrtý stroj odolnosť nezvýši. Preto 3, 5, 7.
+:::
+
+## Uzol (worker)
+
+Uzol reprezentuje jeden server v klastri. Jeho úlohou je spúšťať **pody** s aplikáciami. Na pozadí na ňom beží:
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/node.png" alt="Kubernetes Node: viac podov rôznych farieb, pod nimi container runtime (Docker), kubelet, kube-proxy a Fluentd; voliteľné doplnky DNS a UI." width="1400" height="934" loading="lazy" />
+  <figcaption>Uzol spúšťa pody a na pozadí container runtime, kubelet a kube-proxy. Obrázok zo slajdov lektora (zdroj: The New Stack).</figcaption>
+</figure>
+
+- **container runtime** — behové prostredie na spúšťanie kontajnerov. Kedysi to bol Docker, dnes čokoľvek, čo spĺňa **CRI** (*Container Runtime Interface*): containerd, CRI-O, Mirantis Container Runtime…
+- **kubelet** — agent, ktorý dáva pozor na uzol a neustále komunikuje s masterom,
+- **kube-proxy** — sieťové proxy a load balancer pre kontajnery na uzle,
+- voliteľné rozšírenia — agregácia logov (Fluentd), DNS, UI…
+
+## K3s
+
+Na kurze sa používa distribúcia **[K3s](https://k3s.io/)** — *lightweight Kubernetes*. Stojí za ňou **Rancher**, ktorý patrí pod **SUSE**. Ako container runtime používa **containerd**.
+
+- je to jedna binárka (menej ako ~70 MB),
+- inštalácia je jeden príkaz a trvá desiatky sekúnd: `curl -sfL https://get.k3s.io | sh -`,
+- beží ako **single-node cluster** — master aj uzol sú na jednom stroji, ideálne na učenie. Používa sa však aj v produkcii.
+
+Iné distribúcie na učenie: **minikube** (od samotného projektu Kubernetes), **MicroK8s** (Canonical). Viac v kapitole [Ekosystém](/devops-notes/kubernetes/ekosystem/).
+
+## Prvé kroky
+
+```bash
+kubectl version
+# Client Version: v1.34.1
+# Kustomize Version: v5.7.1
+# Server Version: v1.31.5+k3s1
+# Kubecolor Version: 0.5.2
+```
+
+Výpis ukazuje **klienta** aj **server**. Ak informácie o serveri chýbajú, niečo je zle s inštaláciou alebo konfiguráciou a ďalej sa nepohneš. Klient a server by nemali byť verzionálne príliš ďaleko od seba.
+
+`kubecolor` na laboratórnych strojoch iba farbí výstup `kubectl` (inak je čiernobiely).
+
+```bash
+kubectl cluster-info
+# Kubernetes control plane is running at https://127.0.0.1:6443
+```
+
+API server beží na porte **6443** (443 znie ako HTTPS — je to HTTPS, len na inom porte).
+
+Konfigurácia klienta je v priečinku `~/.kube` (súbor `~/.kube/config`). Celú, aj s certifikátmi, ju vypíše:
+
+```bash
+kubectl config view --raw
+```
+
+:::tip[Alias `k`]
+`kubectl` sa píše často, preto si ho skráť: `alias k=kubectl`. Na laboratórnych strojoch bol pripravený.
+:::
+
+## Otestuj sa
+
+<Question q="Aký je rozdiel medzi masterom a worker uzlom?">
+Master (*control plane*) riadi klaster — prijíma požiadavky cez API, plánuje pody a drží stav v etcd. Worker uzly spúšťajú pody s aplikáciami.
+</Question>
+
+<Question q="Spúšťa scheduler pody?">
+Nie. Iba naplánuje, na ktorom uzle pod pobeží (podľa voľných zdrojov). Spustí ho kubelet a container runtime na danom uzle.
+</Question>
+
+<Question q="Čo je uložené v etcd?">
+Stav celého klastra — key-value databáza, z ktorej čítajú ostatné časti mastra. Tam sú aj ConfigMapy a Secrety.
+</Question>
+
+<Question q="Prečo sa odporúča nepárny počet masterov?">
+etcd potrebuje na rozhodnutie väčšinu. Tri uzly prežijú výpadok jedného, štyri tiež len jedného — párny uzol navyše odolnosť nezvýši.
+</Question>
+
+<Question q="Musí na uzle bežať Docker?">
+Nie. Uzol potrebuje ľubovoľný container runtime, ktorý spĺňa CRI — K3s používa containerd.
+</Question>
+
+<Question q="Na akom porte počúva API server v K3s?">
+Na 6443 (HTTPS). Zistíš to cez `kubectl cluster-info`.
+</Question>
+
+## Cvičenia
+
+### 2.1 · Spoznaj svoj klaster
+
+Over, že klient aj server odpovedajú, zisti adresu API servera a nájdi v konfigurácii, ako sa volá klaster a aktuálny kontext.
+
+<p class="practises">Precvičíš: `version`, `cluster-info`, `config view`.</p>
+
+<Solution>
+```bash
+kubectl version              # Client Version aj Server Version
+kubectl cluster-info         # https://127.0.0.1:6443
+kubectl config view          # clusters, contexts, current-context (certifikáty skryté)
+```
+
+V K3s sa klaster aj kontext volajú `default`.
+</Solution>

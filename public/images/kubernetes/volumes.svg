@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="Inter, Helvetica, Arial, sans-serif" fill="#1f2430">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#545a66"/></marker>
+    <style>
+      .ln{stroke:#545a66;stroke-width:1.6;fill:none}
+      .t{font-size:14px;font-weight:600;text-anchor:middle}
+      .s{font-size:12px;text-anchor:middle;fill:#3d4350}
+      .c{fill:#e3f6ec;stroke:#2f9e66;stroke-width:1.5}
+      .v{fill:#fff1dc;stroke:#d98a1c;stroke-width:1.5}
+      .p{fill:#e2e9fb;stroke:#2c56c0;stroke-width:1.5}
+    </style>
+  </defs>
+  <rect x="15" y="15" width="475" height="310" rx="14" fill="#f7f7f9" stroke="#8a8f9c" stroke-width="1.5"/>
+  <text x="32" y="38" font-size="14" font-weight="700" fill="#545a66">Node</text>
+  <rect x="40" y="52" width="205" height="168" rx="10" fill="#fff" stroke="#8a8f9c" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="56" y="72" font-size="13" fill="#545a66">Pod</text>
+  <rect x="60" y="82" width="165" height="40" rx="7" class="c"/>
+  <text x="142" y="107" class="t">container</text>
+  <path d="M142 122V146" class="ln" marker-end="url(#a)"/>
+  <rect x="60" y="148" width="165" height="40" rx="7" class="v"/>
+  <text x="142" y="173" class="t">emptyDir</text>
+  <text x="142" y="208" class="s">deleted together with the Pod</text>
+  <rect x="265" y="52" width="205" height="168" rx="10" fill="#fff" stroke="#8a8f9c" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="281" y="72" font-size="13" fill="#545a66">Pod</text>
+  <rect x="285" y="82" width="165" height="40" rx="7" class="c"/>
+  <text x="367" y="107" class="t">container</text>
+  <path d="M367 122V246" class="ln" marker-end="url(#a)"/>
+  <path d="M450 102H508" class="ln" marker-end="url(#a)"/>
+  <rect x="285" y="248" width="165" height="40" rx="7" class="v"/>
+  <text x="367" y="273" class="t">hostPath /opt/www</text>
+  <text x="367" y="308" class="s">survives the Pod, stays on this Node</text>
+  <rect x="510" y="82" width="190" height="40" rx="7" class="p"/>
+  <text x="605" y="107" class="t">PVC · 200Mi</text>
+  <path d="M605 122V156" class="ln" marker-end="url(#a)"/>
+  <rect x="510" y="158" width="190" height="40" rx="7" class="p"/>
+  <text x="605" y="183" class="t">PV</text>
+  <path d="M605 198V232" class="ln" marker-end="url(#a)"/>
+  <rect x="510" y="234" width="190" height="54" rx="7" fill="#f3f4f6" stroke="#8a8f9c" stroke-width="1.5"/>
+  <text x="605" y="256" class="t">storage</text>
+  <text x="605" y="276" class="s">disk, NFS, cloud, CSI driver…</text>
+  <text x="605" y="308" class="s">independent of the Pod lifecycle</text>
+</svg>

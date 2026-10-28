@@ -1,0 +1,160 @@
+---
+title: Cluster architecture
+description: The master (control plane) with the API server, scheduler, controller manager, and etcd, worker nodes with a container runtime, kubelet, and kube-proxy, the K3s distribution, and the first kubectl commands.
+kind: chapter
+day: 1
+sidebar:
+  order: 2
+  label: 02 · Architecture
+---
+
+import KeyPoints from '../../../../components/KeyPoints.astro';
+import Question from '../../../../components/Question.astro';
+import Solution from '../../../../components/Solution.astro';
+
+<KeyPoints>
+- **Cluster** = at least one **master** (*control plane*, the conductor) + **worker nodes** (the musicians) that run containers in **pods**. Images are pulled from a registry.
+- Master: **API server** (the entry point for clients), **scheduler** (plans *which* node a pod runs on — it doesn't start it), **controller manager** (control loops, e.g. the number of replicas), **etcd** (a key-value database holding the state of the whole cluster).
+- At least **3 masters** are recommended, an odd number.
+- Node: **container runtime** (anything that implements CRI, containerd in K3s), **kubelet** (the agent talking to the master), **kube-proxy** (networking and load balancing for containers).
+- Communication is client-server: `kubectl` sends requests to the API server (port 6443 in K3s). The course uses **K3s** — a lightweight distribution from Rancher/SUSE.
+</KeyPoints>
+
+## The big picture
+
+Kubernetes is a whole orchestration system, also called a **K8s cluster**. It consists of:
+
+- at least one **master**, which controls the whole cluster and is reached through an **API** — the conductor,
+- a group of **compute nodes** (*nodes*, *workers*) that run containers in **pods** — the musicians. Pods with the same application are like the violin section.
+
+On the side is an **image registry** from which nodes pull images.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/architecture.png" alt="Kubernetes architecture: clients (UI and CLI) communicate through the API with the Kubernetes Master, which controls Node 1 to Node n; the nodes pull images from the Image Registry." width="1400" height="934" loading="lazy" />
+  <figcaption>Clients (UI, CLI) talk to the master through the API, the master controls the nodes. Image from the instructor's slides (source: The New Stack).</figcaption>
+</figure>
+
+Communication is **client-server**. The course uses the command-line tool **`kubectl`**, but you can talk to the API through graphical tools too (e.g. Portainer from the [Docker course](/devops-notes/en/docker/nastroje-na-spravu/)) or your own program. As with a Docker context, you can connect from home to a cluster running far away.
+
+Nodes are physically separate machines, ideally also geographically — when a node goes down, all containers on it go with it. If only the connection between the master and a node drops, the containers on the node keep running; the master just can't see them.
+
+## Master (control plane)
+
+The master is also called the **control plane**. It consists of smaller parts:
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/master.png" alt="The Kubernetes Master contains the API Server, Scheduler, Controller, and etcd." width="1400" height="934" loading="lazy" />
+  <figcaption>Parts of the master. Image from the instructor's slides (source: The New Stack).</figcaption>
+</figure>
+
+| Part | What it does |
+| --- | --- |
+| **API server** | the master's frontend — communication with clients and tools. `kubectl` commands become calls to its API. It can run in several instances. |
+| **Scheduler** | decides **which node** a new pod runs on — based on free resources and load (CPU, memory, number of containers). It **doesn't start** pods, it only plans; the node starts them. |
+| **Controller manager** | watches what's happening in the cluster and runs the controllers — e.g. pod replication or reacting to a node going down. It compares the actual state with the desired one (more in [Deployments](/devops-notes/en/kubernetes/deploymenty/)). |
+| **etcd** | a distributed **key-value** database with the shared data of the whole cluster. Without it, nobody knows what state the cluster is in. |
+
+A master failure can be catastrophic for the cluster, so it's recommended to have **at least 3 master nodes**, or rather an **odd number**.
+
+:::note[Why an odd number]
+etcd agrees on state by voting and needs a **majority** (quorum). With 3 nodes the majority is 2 — the cluster survives losing one. With 4 nodes the majority is 3, so it still survives losing only one; the fourth machine adds no resilience. Hence 3, 5, 7.
+:::
+
+## Node (worker)
+
+A node represents one server in the cluster. Its job is to run **pods** with applications. In the background it runs:
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/node.png" alt="Kubernetes Node: several pods of different colours, below them the container runtime (Docker), kubelet, kube-proxy, and Fluentd; optional add-ons DNS and UI." width="1400" height="934" loading="lazy" />
+  <figcaption>A node runs pods and, in the background, the container runtime, kubelet, and kube-proxy. Image from the instructor's slides (source: The New Stack).</figcaption>
+</figure>
+
+- **container runtime** — the environment that runs containers. It used to be Docker, today it's anything that implements **CRI** (*Container Runtime Interface*): containerd, CRI-O, Mirantis Container Runtime…
+- **kubelet** — the agent that looks after the node and constantly talks to the master,
+- **kube-proxy** — the network proxy and load balancer for containers on the node,
+- optional extensions — log aggregation (Fluentd), DNS, UI…
+
+## K3s
+
+The course uses the **[K3s](https://k3s.io/)** distribution — *lightweight Kubernetes*. It's made by **Rancher**, which belongs to **SUSE**. Its container runtime is **containerd**.
+
+- it's a single binary (under ~70 MB),
+- installation is one command and takes tens of seconds: `curl -sfL https://get.k3s.io | sh -`,
+- it runs as a **single-node cluster** — master and node on one machine, ideal for learning. It's used in production too.
+
+Other distributions for learning: **minikube** (from the Kubernetes project itself) and **MicroK8s** (Canonical). More in [Ecosystem](/devops-notes/en/kubernetes/ekosystem/).
+
+## First steps
+
+```bash
+kubectl version
+# Client Version: v1.34.1
+# Kustomize Version: v5.7.1
+# Server Version: v1.31.5+k3s1
+# Kubecolor Version: 0.5.2
+```
+
+The output shows both the **client** and the **server**. If the server information is missing, something is wrong with the installation or configuration and you won't get any further. The client and server versions shouldn't be too far apart.
+
+On the lab machines `kubecolor` just colours `kubectl` output (it would be black and white otherwise).
+
+```bash
+kubectl cluster-info
+# Kubernetes control plane is running at https://127.0.0.1:6443
+```
+
+The API server runs on port **6443** (443 sounds like HTTPS — it is HTTPS, just on another port).
+
+The client configuration is in the `~/.kube` folder (the file `~/.kube/config`). This prints all of it, including certificates:
+
+```bash
+kubectl config view --raw
+```
+
+:::tip[Alias `k`]
+You type `kubectl` a lot, so shorten it: `alias k=kubectl`. It was set up on the lab machines.
+:::
+
+## Test yourself
+
+<Question q="What is the difference between the master and a worker node?">
+The master (*control plane*) controls the cluster — it takes requests through the API, schedules pods, and keeps state in etcd. Worker nodes run the pods with applications.
+</Question>
+
+<Question q="Does the scheduler start pods?">
+No. It only plans which node a pod runs on (based on free resources). The kubelet and container runtime on that node start it.
+</Question>
+
+<Question q="What is stored in etcd?">
+The state of the whole cluster — a key-value database the other parts of the master read from. ConfigMaps and Secrets live there too.
+</Question>
+
+<Question q="Why is an odd number of masters recommended?">
+etcd needs a majority to decide. Three nodes survive losing one, four also only one — an extra even node adds no resilience.
+</Question>
+
+<Question q="Does a node have to run Docker?">
+No. A node needs any container runtime that implements CRI — K3s uses containerd.
+</Question>
+
+<Question q="Which port does the API server listen on in K3s?">
+6443 (HTTPS). `kubectl cluster-info` shows it.
+</Question>
+
+## Exercises
+
+### 2.1 · Get to know your cluster
+
+Check that both the client and the server respond, find the API server's address, and find in the configuration the name of the cluster and the current context.
+
+<p class="practises">Practises: `version`, `cluster-info`, `config view`.</p>
+
+<Solution>
+```bash
+kubectl version              # Client Version and Server Version
+kubectl cluster-info         # https://127.0.0.1:6443
+kubectl config view          # clusters, contexts, current-context (certificates hidden)
+```
+
+In K3s both the cluster and the context are called `default`.
+</Solution>

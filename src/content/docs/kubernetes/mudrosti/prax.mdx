@@ -1,0 +1,61 @@
+---
+title: Rady z praxe
+description: Kedy škálovať horizontálne, databázy a viac replík, stavové aplikácie z pohľadu vývojára, pozor na mazanie menného priestoru, štítky na postupné aktualizácie, čas v UTC, hostPath a demo efekt.
+kind: wisdom
+sidebar:
+  order: 93
+---
+
+## Začni vertikálne, rasť horizontálne
+
+Na začiatku projektu dáva zmysel väčší stroj — je jednoduchší a lacnejší (ušetríš „druhého šoféra“). Projekt však príde do bodu, keď sa začne oplácať horizontálne škálovanie, a z dlhodobého pohľadu vychádza lepšie.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Databáza v desiatich replikách
+
+Spustiť proces desaťkrát nie je problém. Problém je **súborový systém**: MySQL či Postgres v desiatich replikách nad jedným zväzkom — prvá si súbory zamkne a ostatné kľaknú. Klasické relačné databázy (aj Oracle, DB2) neboli navrhnuté na distribuovaný beh, maximálne mirroring. Na distribuovaný beh sú NoSQL databázy (MongoDB, dokumentovo orientovaná) alebo distribuované SQL, napr. **CockroachDB** — tvári sa ako Postgres a dáta si sama replikuje medzi uzlami, takže výpadok uzla neznamená stratu dát.
+
+<p class="wisdom-day">Deň 1</p>
+
+## Ako vývojár to (väčšinou) neriešiš
+
+Otázka vývojára: čo s aplikáciou, keď beží v n inštanciách? Pri trojvrstvovej aplikácii skoro nič — frontend aj backend sú za load balancerom na jednej adrese, každá odpoveď je jedno, z ktorej repliky prišla. Databázu používaš cez ovládač, jej beh rieši infraštruktúra. Pozor iba na **stav** v pamäti alebo súboroch podu — sessions. Ten patrí do spoločného úložiska.
+
+<p class="wisdom-day">Deň 1 a 2</p>
+
+## delete namespace nič nepotvrdzuje
+
+Väčšina účastníkov tipovala, že Kubernetes zmazanie plného menného priestoru nedovolí alebo bude chcieť `--force`. Zmazal všetko bez otázky. „Toto je hodne nebezpečná záležitosť.“
+
+<p class="wisdom-day">Deň 2</p>
+
+## Štítky na postupné aktualizácie
+
+Keď máš riešenie nasadené v mnohých krajinách, neaktualizuj všetky naraz — ak si na niečo zabudol, je to problém všade. Dobre označkované deploymenty (krajina, región, mesto) dovolia aktualizovať po častiach. A v rôznych krajinách môžu platiť iné zákony a licenčné podmienky. „A pritom taká blbosť.“
+
+<p class="wisdom-day">Deň 3</p>
+
+## Čas ukladaj v UTC
+
+Keď aplikácia niekam zapisuje čas, ukladaj ho v **UTC**. Na lokálny čas ho prepočítaj až pri zobrazení používateľovi — podľa jeho nastavenia alebo podľa prehliadača. Premenná `TZ` v kontajneri mení iba systémový čas, nie to, čo zobrazuje aplikácia.
+
+<p class="wisdom-day">Deň 3</p>
+
+## hostPath nikdy v produkcii
+
+hostPath je skvelý na vývoj na single-node klastri. Na viacerých uzloch má každý uzol iné dáta. Výnimkou sú DaemonSety, ktoré potrebujú súbory konkrétneho uzla. Na produkciu sú úložiská naprieč uzlami (napr. Longhorn) alebo externá služba.
+
+<p class="wisdom-day">Deň 4</p>
+
+## Koniec Ingressu
+
+Ingress je zmrazený, ale firmy ho stále používajú. Kým nemigruješ na Gateway API, dohodni sa v tíme na **jednom** Ingress Controlleri — anotácie pre Traefik nefungujú v Nginxe a naopak, a konfigurácie si potom nemôžete zdieľať.
+
+<p class="wisdom-day">Deň 3 a 4</p>
+
+## Demo efekt
+
+Port-forward, ktorý pred chvíľou išiel, prestal. Skript na vyčerpanie pamäte nič nealokoval (chýbal dolár). Traefik dashboard sa nedal otvoriť (nová verzia, iný port). „Och, zase raz demo efekt.“ Útecha: pri hľadaní chyby sa naučíš viac, ako keď všetko ide.
+
+<p class="wisdom-day">Deň 1, 3 a 4</p>

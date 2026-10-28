@@ -1,0 +1,251 @@
+---
+title: Menné priestory a kontexty
+description: Namespace ako priečinok pre K8s objekty, predvolené menné priestory, --namespace a -A, mazanie celého priestoru bez potvrdenia, kontext a ~/.kube/config, predvolený menný priestor, Krew s rozšíreniami ns a ctx a aliasy.
+kind: chapter
+day: 2
+sidebar:
+  order: 7
+  label: 07 · Menné priestory
+---
+
+import KeyPoints from '../../../components/KeyPoints.astro';
+import Question from '../../../components/Question.astro';
+import Solution from '../../../components/Solution.astro';
+
+<KeyPoints>
+- **Menný priestor** (*namespace*, `ns`) je logické rozdelenie K8s objektov — ako priečinky v súborovom systéme alebo Docker kompozícia. Typicky pre projekty, tímy alebo prostredia (`dev`, `qa`, `prod`).
+- Bez voľby `--namespace` (`-n`) pracuje každý príkaz v **aktuálnom** mennom priestore (predvolene `default`). `-A` / `--all-namespaces` = všetky.
+- `kubectl delete namespace X` zmaže **všetko v ňom, bez potvrdenia**.
+- **Kontext** = klaster + používateľ + predvolený menný priestor, uložené v `~/.kube/config`. Predvolený priestor zmeníš `kubectl config set-context --current --namespace dev` alebo priamo v súbore.
+- **Krew** je správca rozšírení pre `kubectl`. `kubectl krew install ns ctx` → `kubectl ns`, `kubectl ctx` (s `fzf` interaktívne).
+</KeyPoints>
+
+## Prečo menné priestory
+
+Keď začneš vytvárať K8s objekty, ich počet rastie veľmi rýchlo. Rôzne tímy chcú používať rovnaké mená a vypisovanie trvá čoraz dlhšie. Štítky a `get` s filtrom pomôžu, ale nestačia.
+
+**Menný priestor** je mechanizmus na štruktúrovanie a organizovanie K8s objektov. Najbližšie prirovnania:
+
+- **priečinok** v súborovom systéme — do priečinka „dovolenka“ dáš itinerár, fotky, faktúry; do menného priestoru dáš objekty jedného projektu alebo tímu,
+- **Docker kompozícia** — kontajnery v nej sú vo vlastnej sieti a navzájom sa vidia; s inou kompozíciou ich treba prepojiť navyše.
+
+<figure class="slide-figure">
+  <img src="/devops-notes/images/kubernetes/namespaces.png" alt="Jeden K8s uzol rozdelený na menné priestory default, dev, qa a prod; v každom je služba a dva pody." width="1024" height="330" loading="lazy" />
+  <figcaption>Menné priestory default, dev, qa a prod na jednom uzle. Obrázok zo slajdov lektora.</figcaption>
+</figure>
+
+Dokumentácia dodáva, že pre klastre s pár až desiatkami používateľov menné priestory netreba. Začni ich používať, keď potrebuješ, čo ponúkajú.
+
+## Zoznam a predvolené priestory
+
+```bash
+kubectl get namespaces        # alebo kubectl get ns
+# NAME              STATUS   AGE
+# default           Active   9d
+# kube-node-lease   Active   9d
+# kube-public       Active   9d
+# kube-system       Active   9d
+```
+
+| Menný priestor | Na čo je |
+| --- | --- |
+| `default` | objekty bez určeného menného priestoru — tu sme doteraz pracovali |
+| `kube-system` | objekty, ktoré vytvoril systém Kubernetes (Traefik, CoreDNS, metrics-server…) |
+| `kube-public` | čitateľný pre všetkých vrátane neprihlásených, rezervovaný pre klaster |
+| `kube-node-lease` | objekty *Lease* uzlov — cez ne kubelet posiela *heartbeat* a control plane zistí výpadok uzla |
+
+Prompt Starship na laboratórnych strojoch ukazuje aktuálny menný priestor pri ikone kormidla.
+
+## Práca v konkrétnom priestore
+
+```bash
+kubectl create namespace rambo
+kubectl create deployment rambo --image bletvaska/rambo:4 --replicas 5 --namespace rambo
+kubectl get all --namespace rambo
+kubectl get all -A                         # všetky menné priestory, pribudne stĺpec NAMESPACE
+```
+
+:::caution[Pozeráš sa do zlého priečinka]
+Na kurze sme vytvorili Ramba v priestore `rambo` a `kubectl get all` ukázal 5 podov s vekom 21 hodín. To neboli nové pody — boli to včerajšie z priestoru `default`, kam sa `get all` bez `-n` pozerá. Vždy si over, v ktorom mennom priestore si.
+:::
+
+`create namespace` vytvorí naraz iba jeden priestor (`exactly one NAME is required`), aj keď mu dáš viac mien. Viac naraz zvládne cyklus v shelli:
+
+```bash
+for ns in dev qa prod; do kubectl create namespace "$ns"; done
+```
+
+:::tip[Dopĺňanie Tabom v inom priestore]
+Daj `--namespace` **na začiatok** príkazu. Dopĺňanie Tabom potom ponúka objekty z tohto priestoru:
+
+```bash
+kubectl --namespace rambo get pods rambo<Tab>
+```
+
+Keď je `--namespace` až na konci, dopĺňa sa z aktuálneho priestoru.
+:::
+
+## Mazanie priestoru
+
+```bash
+kubectl delete namespace rambo
+```
+
+**Pozor!** Ak sú v priestore objekty, `delete` zmaže menný priestor **aj všetko v ňom** — deploymenty, pody, služby — **bez potvrdenia** a bez prepínača `--force`. Na kurze väčšina čakala, že to Kubernetes nedovolí. Dovolil.
+
+## Kontext
+
+Písať ku každému príkazu `--namespace` je otrava. Ktorý priestor je predvolený, určuje **kontext**. Kubernetes kontext slúži podobne ako [Docker kontext](/devops-notes/docker/kontexty-a-limity/) na prácu s viacerými klastrami a je to skupina prístupových parametrov:
+
+- **s ktorým klastrom** komunikuješ,
+- **ako ktorý používateľ**,
+- **v ktorom mennom priestore** pracuješ.
+
+Typicky máš kontexty pre lokálny, *staging* a produkčný klaster. Konfigurácia je v **`~/.kube/config`**.
+
+```bash
+kubectl config get-contexts
+# CURRENT   NAME      CLUSTER   AUTHINFO   NAMESPACE
+# *         default   default   default
+kubectl config current-context
+kubectl config use-context staging          # prepnutie kontextu
+```
+
+Hviezdička v stĺpci `CURRENT` označuje aktuálny kontext.
+
+### Predvolený menný priestor
+
+```bash
+kubectl config set-context --current --namespace dev
+kubectl config get-contexts                 # v stĺpci NAMESPACE je dev
+```
+
+Alebo priamo v súbore — lektor to robí takto, príkaz si vraj nikdy nezapamätá:
+
+```yaml title="~/.kube/config (výrez)"
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: …
+    server: https://127.0.0.1:6443
+  name: default
+contexts:
+- context:
+    cluster: default
+    namespace: dev          # ← predvolený menný priestor
+    user: default
+  name: default
+current-context: default
+users:
+- name: default
+  user: …
+```
+
+Štruktúra pripomína Docker Compose: zoznamy `clusters` a `users` a z nich poskladané `contexts` (klaster + používateľ + priestor). Pridať ďalší klaster znamená pridať položky do týchto zoznamov.
+
+:::note[Neexistujúci priestor]
+`set-context` nekontroluje, či priestor existuje. Môžeš si nastaviť už zmazaný `rambo` a `kubectl get all` povie len *No resources found*. Keď priestor vytvoríš, začne fungovať.
+:::
+
+## Krew a rozšírenia
+
+Funkcionalitu `kubectl` možno rozširovať. **[Krew](https://krew.sigs.k8s.io/)** je správca rozšírení pre `kubectl` (samo sa inštaluje ako rozšírenie); repozitár má vyše 300 rozšírení. Na laboratórnych strojoch bol nainštalovaný.
+
+```bash
+kubectl krew list                 # nainštalované
+kubectl krew search ns            # hľadanie
+kubectl krew install ns
+kubectl krew install ctx
+```
+
+Rozšírenia nie sú auditované — Krew na to pri inštalácii upozorní. Pri výbere pomôže počet hviezdičiek na GitHube.
+
+```bash
+kubectl ns              # zoznam priestorov, s fzf interaktívny výber šípkami
+kubectl ns dev          # prepnutie
+kubectl ctx             # to isté pre kontexty
+```
+
+Do systému sa nainštalujú ako príkazy `kubectl-ns` a `kubectl-ctx` a zároveň podpríkazy `kubectl`. Ak je v systéme **fzf**, oba fungujú interaktívne. Pôvodné nástroje sa volajú **kubens** a **kubectx** a dajú sa nainštalovať aj ako balík distribúcie.
+
+### Aliasy
+
+```bash
+# bez rozšírení
+alias kns='kubectl config set-context --current --namespace'
+alias kctx='kubectl config use-context'
+
+# s rozšíreniami
+alias kns='kubectl ns'
+alias kctx='kubectl ctx'
+```
+
+Rozšírenia, balík alebo alias — vyber si, čo ti vyhovuje.
+
+## Otestuj sa
+
+<Question q="Čo je menný priestor a čomu sa podobá?">
+Logické rozdelenie K8s objektov (projekty, tímy, prostredia). Podobá sa priečinku v súborovom systéme alebo Docker kompozícii.
+</Question>
+
+<Question q="Vytvoril si deployment s `--namespace rambo`, ale `kubectl get all` ukazuje staré pody. Prečo?">
+`get all` bez `-n` sa pozerá do aktuálneho priestoru (predvolene `default`), nie do `rambo`.
+</Question>
+
+<Question q="Čo urobí `kubectl delete namespace prod`, keď v ňom bežia deploymenty?">
+Zmaže menný priestor aj všetky objekty v ňom, bez potvrdenia.
+</Question>
+
+<Question q="Aké tri veci určuje kontext?">
+Klaster, používateľa a predvolený menný priestor.
+</Question>
+
+<Question q="Kde je uložená konfigurácia kontextov?">
+V `~/.kube/config`.
+</Question>
+
+<Question q="Ako vypíšeš objekty zo všetkých menných priestorov?">
+`kubectl get all -A` (`--all-namespaces`).
+</Question>
+
+## Cvičenia
+
+### 7.1 · Projektové menné priestory
+
+Vytvor tri menné priestory pre prostredia: `dev` (vývoj), `qa` (testovanie) a `prod` (produkcia). Dohoda: služby typu LoadBalancer budeme spúšťať iba v `prod`, inde len NodePort alebo `port-forward`. Nastav `dev` ako predvolený.
+
+<p class="practises">Precvičíš: `create namespace`, `set-context`.</p>
+
+<Solution>
+```bash
+kubectl create namespace dev
+kubectl create namespace qa
+kubectl create namespace prod
+kubectl get ns
+kubectl config set-context --current --namespace dev
+kubectl config get-contexts
+```
+</Solution>
+
+### 7.2 · Aliasy kns a kctx
+
+Vytvor aliasy `kns` a `kctx` — najprv bez rozšírení Krew, potom s nimi. Prepni sa aliasom do `qa`, over to a vráť sa do `default`.
+
+<p class="practises">Precvičíš: aliasy, Krew.</p>
+
+<Solution>
+```bash
+alias kns='kubectl config set-context --current --namespace'
+alias kctx='kubectl config use-context'
+kns qa
+kubectl config get-contexts        # NAMESPACE: qa
+kns default
+
+kubectl krew install ns ctx
+alias kns='kubectl ns'
+alias kctx='kubectl ctx'
+kns                                # s fzf vyberieš šípkami
+```
+
+Aby aliasy prežili odhlásenie, zapíš ich do `~/.bashrc` (alebo `~/.zshrc`).
+</Solution>
